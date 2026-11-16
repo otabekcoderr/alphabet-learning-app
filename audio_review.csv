@@ -1,0 +1,103 @@
+﻿file,text,type,voice,status
+public/audio/sound_a.mp3,Aaaaa.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_a.mp3,"Salom bolajon! Bu A harfi. Qizil unli harf, Aaaaa tovushi!",instruction,voicelab:gulya,needs teacher review
+public/audio/sound_o.mp3,Ooooo.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_o.mp3,Zo‘r! Bu O harfi. Labingni doira qilib Ooooo deb ayt!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_i.mp3,Iiiii.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_i.mp3,"Tabassum qil! Bu I harfi, Iiiii tovushi!",instruction,voicelab:gulya,needs teacher review
+public/audio/sound_u.mp3,Uuuuu.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_u.mp3,"Ajoyib! Bu U harfi, Uuuuu deb cho‘zib aytamiz!",instruction,voicelab:gulya,needs teacher review
+public/audio/sound_e.mp3,Eeeee.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_e.mp3,Yangi do‘stimiz — E harfi! Yengilgina Eeeee tovushi!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_oi.mp3,Oi.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_oi.mp3,Endi unlilarni ulaymiz! O va I — Oi!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_au.mp3,Au.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_au.mp3,Barakalla! A va U ni birga aytamiz: Au!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_n.mp3,Nnnnn.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_n.mp3,Mana ko‘k undosh harf — N harfi! Nnnnn tovushi!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_na.mp3,Na.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_na.mp3,Nnnnn va Aaaaa qo‘shilsa — Na! Judayam oson!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_no.mp3,No.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_no.mp3,Endi N va O ni birlashtiramiz: No!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_ni.mp3,Ni.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_ni.mp3,Barakalla! N va I qo‘shilsa — Ni bo‘ladi!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_m.mp3,Mmmmm.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_m.mp3,"Lablarni yumib aytamiz: M harfi, Mmmmm tovushi!",instruction,voicelab:gulya,needs teacher review
+public/audio/sound_ma.mp3,Ma.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_ma.mp3,"Mmmmm va Aaaaa — Ma! Qani, birga aytamiz!",instruction,voicelab:gulya,needs teacher review
+public/audio/sound_mo.mp3,Mo.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_mo.mp3,Ajoyib! M va O birlashsa — Mo!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_l.mp3,L tovushi.,letter sound,voicelab:gulya,needs teacher review
+public/audio/item_l.mp3,Bu esa quvnoq L harfi! L tovushi!,instruction,voicelab:gulya,needs teacher review
+public/audio/sound_lo.mp3,Lo.,syllable,voicelab:gulya,needs teacher review
+public/audio/item_lo.mp3,L va Ooooo qo‘shilsa — Lo!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_la.mp3,La.,syllable,voicelab:safiya,needs teacher review
+public/audio/item_la.mp3,L va Aaaaa birga aytilsa — La!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_ona.mp3,Ona.,word,voicelab:safiya,needs teacher review
+public/audio/item_ona.mp3,Birinchi so‘zimiz! O va na — Ona! Juda chiroyli so‘z!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_ana.mp3,Ana.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_ana.mp3,A va na qo‘shilsa — Ana! Zo‘r o‘qiding!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_non.mp3,Non.,word,voicelab:safiya,needs teacher review
+public/audio/item_non.mp3,No va n tovushi birlashsa — issiq Non!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_nima.mp3,Nima.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_nima.mp3,Ni va ma bo‘g‘inlari qo‘shilsa — Nima so‘zi chiqadi!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_lola.mp3,Lola.,word,voicelab:safiya,needs teacher review
+public/audio/item_lola.mp3,"Lo va la qo‘shilsa — chiroyli gul, Lola!",instruction,voicelab:safiya,needs teacher review
+public/audio/sound_olma.mp3,Olma.,word,voicelab:safiya,needs teacher review
+public/audio/item_olma.mp3,Ol va ma bo‘g‘inlari birga — shirin Olma!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_oila.mp3,Oila.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_oila.mp3,Oi va la qo‘shilsa — ahil Oila!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_limon.mp3,Limon.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_limon.mp3,Li va mon bo‘g‘inlarini ulaymiz — sariq Limon!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_s.mp3,Sssss.,letter sound,voicelab:safiya,needs teacher review
+public/audio/item_s.mp3,Yangi ko‘k harfimiz — S! Mayin qilib Sssss deng!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_sa.mp3,Sa.,syllable,voicelab:safiya,needs teacher review
+public/audio/item_sa.mp3,Sssss va Aaaaa qo‘shilsa — Sa!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_si.mp3,Si.,syllable,uzbekvoice:lola,needs teacher review
+public/audio/item_si.mp3,Sssss va Iiiii birga aytilsa — Si!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_r.mp3,Rrrrr.,letter sound,voicelab:safiya,needs teacher review
+public/audio/item_r.mp3,"Matorchadek jaranglaymiz: R harfi, Rrrrr tovushi!",instruction,voicelab:safiya,needs teacher review
+public/audio/sound_ro.mp3,Ro.,syllable,voicelab:safiya,needs teacher review
+public/audio/item_ro.mp3,Rrrrr va Ooooo qo‘shilsa — Ro!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_ra.mp3,Ra.,syllable,uzbekvoice:lola,needs teacher review
+public/audio/item_ra.mp3,Rrrrr va Aaaaa birlashsa — Ra!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_arra.mp3,Arra.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_arra.mp3,Ar va ra bo‘g‘inlari qo‘shilsa — Arra!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_asal.mp3,Asal.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_asal.mp3,A va sal bo‘laklarini o‘qiymiz — shirin Asal!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_v.mp3,Vvvvv.,letter sound,voicelab:safiya,needs teacher review
+public/audio/item_v.mp3,"Shamoldek esamiz: V harfi, Vvvvv tovushi!",instruction,voicelab:safiya,needs teacher review
+public/audio/sound_suv.mp3,Suv.,word,voicelab:safiya,needs teacher review
+public/audio/item_suv.mp3,Su va v qo‘shilsa — tiniq Suv!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_b.mp3,B!,letter sound,voicelab:safiya,needs teacher review
+public/audio/item_b.mp3,"Qahramonlar qal’asi! Bu B harfi, chaqqon B tovushi!",instruction,voicelab:safiya,needs teacher review
+public/audio/sound_ba.mp3,Ba.,syllable,voicelab:safiya,needs teacher review
+public/audio/item_ba.mp3,B va A birlashsa — Ba!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_bo.mp3,Bo.,syllable,voicelab:safiya,needs teacher review
+public/audio/item_bo.mp3,B va O qo‘shilsa — Bo!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_bola.mp3,Bola.,word,voicelab:safiya,needs teacher review
+public/audio/item_bola.mp3,Bo va la qo‘shilsa — aqlli Bola!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_bobo.mp3,Bobo.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_bobo.mp3,Ikkita Bo bo‘g‘ini — mehribon Bobo!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_t.mp3,T!,letter sound,voicelab:safiya,needs teacher review
+public/audio/item_t.mp3,"Yana bir chaqqon harf — T harfi, qisqa T tovushi!",instruction,voicelab:safiya,needs teacher review
+public/audio/sound_ta.mp3,Ta.,syllable,voicelab:safiya,needs teacher review
+public/audio/item_ta.mp3,T va A birga o‘qilsa — Ta!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_ota.mp3,Ota.,word,voicelab:safiya,needs teacher review
+public/audio/item_ota.mp3,O va ta bo‘laklari qo‘shilsa — Ota!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_d.mp3,D!,letter sound,voicelab:safiya,needs teacher review
+public/audio/item_d.mp3,"Bu esa kuchli D harfi, qisqa D tovushi!",instruction,voicelab:safiya,needs teacher review
+public/audio/sound_da.mp3,Da.,syllable,voicelab:safiya,needs teacher review
+public/audio/item_da.mp3,D va A qo‘shilsa — Da!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_dada.mp3,Dada.,word,uzbekvoice:lola,needs teacher review
+public/audio/item_dada.mp3,Da va da birlashsa — aziz Dada!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_k.mp3,K!,letter sound,voicelab:safiya,needs teacher review
+public/audio/item_k.mp3,So‘nggi kalit harfimiz — K! Chaqqon K tovushi!,instruction,voicelab:safiya,needs teacher review
+public/audio/sound_kitob.mp3,Kitob.,word,voicelab:safiya,needs teacher review
+public/audio/item_kitob.mp3,Ki va tob qo‘shilsa — bilim manbai Kitob! Barakalla!,instruction,voicelab:safiya,needs teacher review
+public/audio/barakalla.mp3,Barakalla bolajon! Juda chiroyli va to‘g‘ri o‘qiding!,instruction,voicelab:safiya,needs teacher review
+public/audio/qayta_urinib_koring.mp3,"Hechqisi yo‘q! Keling, yana bir marta birga urinib ko‘ramiz!",instruction,voicelab:safiya,needs teacher review
+public/audio/qaysi_biri.mp3,Diqqat bilan quloq sol va to‘g‘ri kartani bos!,instruction,voicelab:safiya,needs teacher review
+public/audio/ulab_oqiymiz.mp3,"Endi vagonchalarni birlashtirib, harflarni ulab o‘qi!",instruction,voicelab:safiya,needs teacher review
+public/audio/mikrofonga_ayting.mp3,"Mikrofon tugmasini bosib, baland ovozda o‘qib ber!",instruction,voicelab:safiya,needs teacher review
+public/audio/jimlik_sezildi.mp3,"Ovozing yaxshi eshitilmadi, mikrofon yonida balandroq ayt!",instruction,voicelab:safiya,needs teacher review

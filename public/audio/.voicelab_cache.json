@@ -1,0 +1,126 @@
+{
+  "sound_a.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Aaaaa."
+  },
+  "item_a.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Salom bolajon! Bu A harfi. Qizil unli harf, Aaaaa tovushi!"
+  },
+  "sound_o.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Ooooo."
+  },
+  "item_o.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Zo‘r! Bu O harfi. Labingni doira qilib Ooooo deb ayt!"
+  },
+  "sound_i.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Iiiii."
+  },
+  "item_i.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Tabassum qil! Bu I harfi, Iiiii tovushi!"
+  },
+  "sound_u.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Uuuuu."
+  },
+  "item_u.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Ajoyib! Bu U harfi, Uuuuu deb cho‘zib aytamiz!"
+  },
+  "sound_e.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Eeeee."
+  },
+  "item_e.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Yangi do‘stimiz — E harfi! Yengilgina Eeeee tovushi!"
+  },
+  "sound_oi.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Oi."
+  },
+  "item_oi.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Endi unlilarni ulaymiz! O va I — Oi!"
+  },
+  "sound_au.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Au."
+  },
+  "item_au.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Barakalla! A va U ni birga aytamiz: Au!"
+  },
+  "sound_n.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Nnnnn."
+  },
+  "item_n.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Mana ko‘k undosh harf — N harfi! Nnnnn tovushi!"
+  },
+  "sound_na.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Na."
+  },
+  "item_na.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Nnnnn va Aaaaa qo‘shilsa — Na! Judayam oson!"
+  },
+  "sound_no.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "No."
+  },
+  "item_no.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Endi N va O ni birlashtiramiz: No!"
+  },
+  "sound_ni.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Ni."
+  },
+  "item_ni.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Barakalla! N va I qo‘shilsa — Ni bo‘ladi!"
+  },
+  "sound_m.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Mmmmm."
+  },
+  "item_m.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Lablarni yumib aytamiz: M harfi, Mmmmm tovushi!"
+  },
+  "sound_ma.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Ma."
+  },
+  "item_ma.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Mmmmm va Aaaaa — Ma! Qani, birga aytamiz!"
+  },
+  "sound_mo.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Mo."
+  },
+  "item_mo.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Ajoyib! M va O birlashsa — Mo!"
+  },
+  "sound_l.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "L tovushi."
+  },
+  "item_l.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Bu esa quvnoq L harfi! L tovushi!"
+  },
+  "sound_lo.mp3": {
+    "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
+    "text": "Lo."
+  }
+}
