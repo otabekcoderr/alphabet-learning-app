@@ -1,0 +1,45 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    {
+      "source": "/api/telegram/webhook",
+      "destination": "/api/telegram-webhook"
+    },
+    {
+      "source": "/api/telegram/setup",
+      "destination": "/api/telegram-webhook"
+    },
+    {
+      "source": "/api/auth/telegram-start",
+      "destination": "/api/auth/telegram?action=start"
+    },
+    {
+      "source": "/api/auth/telegram-status",
+      "destination": "/api/auth/telegram?action=status"
+    },
+    {
+      "source": "/api/auth/me",
+      "destination": "/api/auth/session?action=me"
+    },
+    {
+      "source": "/api/auth/providers",
+      "destination": "/api/auth/session?action=providers"
+    },
+    {
+      "source": "/api/auth/login",
+      "destination": "/api/auth/session?action=login"
+    },
+    {
+      "source": "/api/auth/register",
+      "destination": "/api/auth/session?action=register"
+    },
+    {
+      "source": "/api/auth/logout",
+      "destination": "/api/auth/session?action=logout"
+    },
+    {
+      "source": "/((?!api/|assets/|audio/|images/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -1,315 +1,312 @@
-import { CURRICULUM_ITEMS, CURRICULUM_STAGES, getLetterCategory, type CurriculumItem } from '../data/curriculum';
-import { calculateTotalXp } from '../logic/gamification';
-import type { ItemProgress } from '../logic/pedagogy';
-import { playAudioClip } from '../utils/audioRecorder';
-import { LetterBlock } from './LetterBlock';
-import { MascotSvg } from './MascotSvg';
+import { useEffect } from 'react';
+import { motion } from 'framer-motion';
+import {
+  DYNAMIC_WORD_POOL,
+  READING_WORLDS,
+  type ReadingWorld,
+} from '../data/curriculum';
+import { getAvatarOption } from '../logic/gamification';
+import type { ScreenTimeStatus } from '../logic/wordPoolEngine';
+import {
+  playFeedbackChime,
+  playInstructionAudio,
+  playInstructionAutoOnEntry,
+} from '../utils/audioRecorder';
+import { AccountIdBadge } from './AccountIdBadge';
+import { AnimatedCharacter } from './AnimatedCharacter';
+import { Clock, Play, Star } from './Icons';
+import { WorldIslandArt } from './WorldIslandArt';
 
 interface ChildHomeProps {
-  recommendedItem: CurriculumItem | null;
-  progressByItem: Record<string, ItemProgress>;
-  totalStars: number;
-  totalEffortStars: number;
-  dailyGoalXp: number;
   childName: string;
-  streakDays: number;
-  blockedByUnverifiedCap: boolean;
-  parentSessionActive: boolean;
-  onStartLesson: (item: CurriculumItem) => void;
-  onExitParentSession: () => void;
+  avatarId: string;
+  publicId?: string;
+  seenWordIds: string[];
+  masteredWordsCount?: number;
+  activeWorldId: number;
+  screenTime: ScreenTimeStatus;
+  onStartWorldRound: (worldId: 1 | 2 | 3 | 4 | 5) => void;
+  onOpenAlphabetRecall: () => void;
 }
 
-interface StageTheme {
-  icon: string;
-  title: string;
-  bgTint: string;
-  borderTint: string;
-}
-
-const STAGE_THEMES: Record<number, StageTheme> = {
-  1: { icon: '🏝️', title: '1-orol: Unlilar vodiysi', bgTint: '#fff5f5', borderTint: '#ffc8c8' },
-  2: { icon: '🌲', title: '2-orol: Bo‘g‘inlar o‘rmoni', bgTint: '#f0f9ff', borderTint: '#bae6fd' },
-  3: { icon: '🏡', title: '3-orol: Ilk so‘zlar qishlog‘i', bgTint: '#f2fde4', borderTint: '#bbf7d0' },
-  4: { icon: '🌊', title: '4-orol: Shovqinli daryo', bgTint: '#fff7ed', borderTint: '#fed7aa' },
-  5: { icon: '🏰', title: '5-orol: Kitobxonlar qal’asi', bgTint: '#faf5ff', borderTint: '#e9d5ff' },
+const SHORT_WORLD_TITLES: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: 'Ilk bo‘g‘inlar o‘rmoni',
+  2: 'Chaqqon so‘zlar vodiysi',
+  3: 'Sirli harf birikmalari',
+  4: 'Ravon kitobxon qal’asi',
+  5: 'Qisqa gaplar olami',
 };
 
-const NODE_OFFSET_PATTERN = ['pos-center', 'pos-right', 'pos-center', 'pos-left'] as const;
-
 export function ChildHome({
-  recommendedItem,
-  progressByItem,
-  totalStars,
-  totalEffortStars,
-  dailyGoalXp,
   childName,
-  streakDays,
-  blockedByUnverifiedCap,
-  parentSessionActive,
-  onStartLesson,
-  onExitParentSession,
+  avatarId,
+  publicId,
+  seenWordIds,
+  masteredWordsCount = 0,
+  activeWorldId,
+  screenTime,
+  onStartWorldRound,
+  onOpenAlphabetRecall,
 }: ChildHomeProps) {
-  const masteredTotal = CURRICULUM_ITEMS.filter((item) => progressByItem[item.id]?.mastered).length;
-  const allMastered = masteredTotal === CURRICULUM_ITEMS.length;
-  const totalXp = calculateTotalXp(totalStars, totalEffortStars);
-  const dailyXpProgress = Math.min(totalXp, dailyGoalXp);
-  const dailyGoalPct = dailyGoalXp > 0 ? Math.min(100, Math.round((dailyXpProgress / dailyGoalXp) * 100)) : 0;
   const displayName = childName.trim() || 'Bolajon';
+  const avatar = getAvatarOption(avatarId);
+  const seenSet = new Set(seenWordIds);
+  const totalUniqueRead = DYNAMIC_WORD_POOL.filter((item) => seenSet.has(item.id)).length;
+  const activeWorld: ReadingWorld =
+    READING_WORLDS.find((w) => w.worldId === activeWorldId) ?? READING_WORLDS[0]!;
+
+  const activeWorldWords = DYNAMIC_WORD_POOL.filter(
+    (item) => item.worldId === activeWorld.worldId,
+  );
+  const activeWorldRemaining = activeWorldWords.filter((item) => !seenSet.has(item.id)).length;
+
+  const handlePlayGreeting = () => {
+    void playInstructionAudio(
+      screenTime.isLimitReached ? 'instr_home_sleep' : 'instr_home_welcome',
+    );
+  };
+
+  useEffect(() => {
+    const key = screenTime.isLimitReached ? 'instr_home_sleep' : 'instr_home_welcome';
+    return playInstructionAutoOnEntry(key);
+  }, [screenTime.isLimitReached]);
+
+  const renderIslandNode = (world: ReadingWorld, idx: number, placementClass: string) => {
+    const itemsInWorld = DYNAMIC_WORD_POOL.filter((item) => item.worldId === world.worldId);
+    const readCount = itemsInWorld.filter((item) => seenSet.has(item.id)).length;
+    const isSelected = world.worldId === activeWorld.worldId;
+
+    return (
+      <motion.button
+        key={world.worldId}
+        type="button"
+        initial={{ opacity: 0, y: 16, scale: 0.94 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        transition={{ delay: idx * 0.06, type: 'spring', stiffness: 280, damping: 22 }}
+        whileHover={{ y: -5, scale: 1.03 }}
+        whileTap={{ scale: 0.96 }}
+        className={`world-card island-node ${placementClass} ${
+          isSelected ? 'island-node-active' : ''
+        }`}
+        onClick={() => {
+          playFeedbackChime('pop');
+          onStartWorldRound(world.worldId);
+        }}
+        aria-label={`${world.worldId}-olam: ${SHORT_WORLD_TITLES[world.worldId]} (${readCount}/${itemsInWorld.length})`}
+      >
+        <div className="island-art-wrap">
+          <WorldIslandArt worldId={world.worldId} />
+          <span
+            className={`island-number-badge ${isSelected ? 'island-badge-active' : ''}`}
+            aria-hidden="true"
+          >
+            {world.worldId}
+          </span>
+        </div>
+
+        <span className="island-olam-heading">{world.worldId}-olam</span>
+        <span className="island-olam-sub">{SHORT_WORLD_TITLES[world.worldId]}</span>
+        <span className="island-progress-pill">
+          {readCount}/{itemsInWorld.length} so‘z
+        </span>
+      </motion.button>
+    );
+  };
+
+  if (screenTime.isLimitReached) {
+    return (
+      <div className="child-home child-home-sleep">
+        <motion.section
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="sleep-hero-card"
+        >
+          <AnimatedCharacter
+            mood="sleeping"
+            size={156}
+            avatarId={avatar.id}
+            layout="stacked"
+            bubblePosition="top"
+            speechText={`Barakalla, ${displayName}! Bugungi ${screenTime.dailyLimitMinutes} daqiqalik mashqni a’lo bajarding! Endi ko‘zlarimiz dam olsin.`}
+            onReplaySpeech={handlePlayGreeting}
+          />
+
+          <div className="home-stats-row">
+            <span className="home-stat-pill">
+              <Star size={15} />
+              <span>
+                {masteredWordsCount}/{DYNAMIC_WORD_POOL.length} mustaqil · {totalUniqueRead} ko‘rildi
+              </span>
+            </span>
+          </div>
+
+          <button
+            type="button"
+            className="btn-3d-cream btn-hear-child"
+            onClick={() => {
+              playFeedbackChime('pop');
+              onOpenAlphabetRecall();
+            }}
+          >
+            Harflarni takrorlash (29 harf + ’)
+          </button>
+        </motion.section>
+      </div>
+    );
+  }
 
   return (
-    <div className="child-home">
-      {parentSessionActive && (
-        <div className="parent-session-banner">
-          <span>👨‍👩‍👧 Ota-ona yonida rejimi faol</span>
-          <button type="button" className="btn-exit-session" onClick={onExitParentSession}>
-            Chiqish
-          </button>
-        </div>
-      )}
+    <div className="child-home-layout">
+      {/* Left 35% Panel (Desktop) / Top Compact Welcome Banner (Mobile) */}
+      <motion.aside
+        initial={{ opacity: 0, x: -12 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ type: 'spring', stiffness: 260, damping: 24 }}
+        className="home-mascot-column"
+      >
+        <div className="home-mascot-card">
+          <div className="home-mascot-stage">
+            <AnimatedCharacter
+              mood="idle"
+              size={188}
+              avatarId={avatar.id}
+              layout="stacked"
+              bubblePosition="top"
+              speechText={`Salom, ${displayName}! Keling, o‘qiymiz!`}
+              onReplaySpeech={handlePlayGreeting}
+            />
+          </div>
 
-      {blockedByUnverifiedCap ? (
-        <section className="child-hero-card hero-pause">
-          <div className="mascot-row">
-            <div className="mascot-avatar-svg-wrap">
-              <MascotSvg mood="listening" size={72} />
-            </div>
-            <div className="mascot-bubble">
-              <strong>Zukko Tulki:</strong> «{displayName}, ajoyib harakat! Endi ota-onang bilan oxirgi
-              darslarni tekshirib olamiz.»
-            </div>
+          <div className="home-active-world-meta">
+            <span className="home-active-world-tag">{activeWorld.titleUz}</span>
+            <p className="home-active-world-note">
+              {activeWorldRemaining > 0
+                ? `${activeWorldRemaining} ta yangi so‘z seni kutmoqda!`
+                : 'Barcha so‘zlarni birga mustahkamlaymiz!'}
+            </p>
           </div>
-          <div className="child-pause-emoji" aria-hidden="true">
-            🌟
-          </div>
-          <h2 className="child-pause-title">Ota-onang bilan ko‘rib chiqamiz</h2>
-          <p className="child-pause-text">
-            Sen 3 ta darsni mustaqil o‘tding! Keyingi orolga o‘tish uchun ota-ona tasdig‘i kerak.
-          </p>
-        </section>
-      ) : (
-        recommendedItem && (
-          <section className="child-hero-card mascot-hero-card">
-            <div className="hero-stats-strip">
-              <span className="hero-stat-chip chip-streak">🔥 {streakDays} kun</span>
-              <span className="hero-stat-chip chip-xp">⚡ {totalXp} XP</span>
-              <span className="hero-stat-chip chip-stars">⭐ {totalStars}</span>
-              <span className="hero-stat-chip chip-mastered">
-                🏆 {masteredTotal}/{CURRICULUM_ITEMS.length}
+
+          <div className="home-stats-row">
+            <span className="home-stat-pill">
+              <Star size={14} className="stat-star-icon" />
+              <span>
+                {masteredWordsCount}/{DYNAMIC_WORD_POOL.length} mustaqil
               </span>
-            </div>
-
-            <div className="daily-goal-card">
-              <div className="daily-goal-header">
-                <span>🎯 Kunlik XP maqsadi</span>
-                <strong>
-                  {dailyXpProgress} / {dailyGoalXp} XP
-                </strong>
-              </div>
-              <div
-                className="xp-progress-track"
-                role="progressbar"
-                aria-label="Kunlik XP maqsadi"
-                aria-valuenow={dailyGoalPct}
-                aria-valuemin={0}
-                aria-valuemax={100}
-              >
-                <div className="xp-progress-fill" style={{ width: `${dailyGoalPct}%` }}>
-                  <span className="duo-progress-shine" aria-hidden="true" />
-                </div>
-              </div>
-            </div>
-
-            <div className="mascot-row">
-              <div className="mascot-avatar-svg-wrap mascot-bounce">
-                <MascotSvg mood={allMastered ? 'cheering' : 'happy'} size={72} />
-              </div>
-              <div className="mascot-bubble">
-                {allMastered ? (
-                  <span>
-                    <strong>Zukko Tulki:</strong> «Barakalla, {displayName}! Barcha {CURRICULUM_ITEMS.length} ta
-                    darsni zabt etding! Istagan darsni takrorlashing mumkin.»
-                  </span>
-                ) : (
-                  <span>
-                    <strong>Zukko Tulki:</strong> «Salom, {displayName}! Bugun{' '}
-                    <strong>{recommendedItem.text}</strong> darsini o‘ynaymiz!»
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <span className="child-stage-chip">
-              {STAGE_THEMES[recommendedItem.stage]?.title ?? `${recommendedItem.stage}-bosqich`}
             </span>
+            <span className="home-stat-pill" title="Bugungi sog‘lom ekran vaqti">
+              <Clock size={14} />
+              <span>{screenTime.remainingMinutes} daq qoldi</span>
+            </span>
+          </div>
 
-            <div className="child-preview-row">
-              {recommendedItem.parts.map((part, idx) => (
-                <LetterBlock
-                  key={`${recommendedItem.id}-${part}-${idx}`}
-                  text={part}
-                  size="xl"
-                  onClick={() => void playAudioClip(recommendedItem.audioSound)}
+          {publicId && (
+            <AccountIdBadge publicId={publicId} label="ID:" variant="compact" />
+          )}
+
+          <div className="daily-time-bar-wrap" aria-label="Kunlik mashq vaqti">
+            <div className="daily-time-bar-track">
+              <div
+                className="daily-time-bar-fill"
+                style={{ width: `${screenTime.progressPct}%` }}
+              />
+            </div>
+          </div>
+
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.97 }}
+            className="btn-3d-emerald btn-continue-big home-desktop-cta"
+            onClick={() => {
+              playFeedbackChime('pop');
+              onStartWorldRound(activeWorld.worldId);
+            }}
+          >
+            <Play size={22} fill="currentColor" aria-hidden="true" />
+            <span>O‘yinni boshlash!</span>
+          </motion.button>
+        </div>
+      </motion.aside>
+
+      {/* Right 65% Panel: 5-World Adventure Map */}
+      <section className="home-map-column" aria-label="5 ta o‘qish olami sarguzasht xaritasi">
+        <div className="adventure-map-board">
+          {/* Winding golden dotted path connecting 1 -> 2 -> 3 -> 4 -> 5 */}
+          <svg
+            className="adventure-trail-svg"
+            viewBox="0 0 720 560"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <path
+              d="M 185 110 C 310 60, 430 60, 540 120 C 620 165, 480 265, 360 285 C 235 305, 115 385, 195 455 C 295 520, 445 520, 540 465"
+              fill="none"
+              stroke="#FDE68A"
+              strokeWidth="12"
+              strokeLinecap="round"
+              strokeDasharray="16 18"
+            />
+            <path
+              d="M 185 110 C 310 60, 430 60, 540 120 C 620 165, 480 265, 360 285 C 235 305, 115 385, 195 455 C 295 520, 445 520, 540 465"
+              fill="none"
+              stroke="#F59E0B"
+              strokeOpacity="0.45"
+              strokeWidth="4"
+              strokeLinecap="round"
+              strokeDasharray="16 18"
+            />
+            {/* Decorative golden trail stars */}
+            {[
+              { cx: 360, cy: 76 },
+              { cx: 530, cy: 230 },
+              { cx: 195, cy: 330 },
+              { cx: 365, cy: 500 },
+            ].map((pt, i) => (
+              <g key={i} transform={`translate(${pt.cx - 14}, ${pt.cy - 14})`}>
+                <path
+                  d="M14 2L17.4 9.1L25.2 10.2L19.6 15.7L20.9 23.5L14 19.8L7.1 23.5L8.4 15.7L2.8 10.2L10.6 9.1L14 2Z"
+                  fill="#FBBF24"
+                  stroke="#D97706"
+                  strokeWidth="2"
+                  strokeLinejoin="round"
                 />
-              ))}
+              </g>
+            ))}
+          </svg>
+
+          <div className="adventure-islands-grid">
+            <div className="adventure-row-pair">
+              {READING_WORLDS[0] && renderIslandNode(READING_WORLDS[0], 0, 'island-pos-1')}
+              {READING_WORLDS[1] && renderIslandNode(READING_WORLDS[1], 1, 'island-pos-2')}
             </div>
 
-            <div className="hero-cta-group">
-              <button
-                type="button"
-                className="btn-hear-child"
-                onClick={() => void playAudioClip(recommendedItem.audioTeacher)}
-              >
-                🔊 Eshitish
-              </button>
-
-              <button
-                type="button"
-                className="btn-continue-big"
-                onClick={() => onStartLesson(recommendedItem)}
-              >
-                ▶️ Davom etamiz (+20 XP)
-              </button>
+            <div className="adventure-row-center">
+              {READING_WORLDS[2] && renderIslandNode(READING_WORLDS[2], 2, 'island-pos-3')}
             </div>
-          </section>
-        )
-      )}
 
-      <section className="adventure-map" aria-label="Sarguzasht xaritasi">
-        {CURRICULUM_STAGES.map((stage) => {
-          const items = CURRICULUM_ITEMS.filter((i) => i.stage === stage.stage);
-          const stageMastered = items.filter((i) => progressByItem[i.id]?.mastered).length;
-          const pct = items.length ? Math.round((stageMastered / items.length) * 100) : 0;
-          const chestUnlocked = items.length > 0 && stageMastered === items.length;
-          const theme = STAGE_THEMES[stage.stage] ?? {
-            icon: '✨',
-            title: stage.title,
-            bgTint: '#ffffff',
-            borderTint: '#e5e5e5',
-          };
-
-          return (
-            <div
-              key={stage.stage}
-              className="island-card"
-              style={{
-                borderColor: theme.borderTint,
-                backgroundColor: '#ffffff',
-              }}
-            >
-              <header className="island-header" style={{ backgroundColor: stage.accentColor }}>
-                <div className="island-title-wrap">
-                  <span className="island-icon" aria-hidden="true">
-                    {theme.icon}
-                  </span>
-                  <div>
-                    <h3 className="island-title">{theme.title}</h3>
-                    <p className="island-subtitle">{stage.subtitle}</p>
-                  </div>
-                </div>
-                <span className="island-count-pill">
-                  {stageMastered}/{items.length}
-                </span>
-              </header>
-
-              <div className="island-progress-track" aria-hidden="true">
-                <div
-                  className="island-progress-fill"
-                  style={{ width: `${pct}%`, backgroundColor: stage.accentColor }}
-                />
-              </div>
-
-              <div className="path-nodes" style={{ backgroundColor: theme.bgTint }}>
-                {items.map((item, idx) => {
-                  const prog = progressByItem[item.id];
-                  const isMastered = Boolean(prog?.mastered);
-                  const isUnverified = prog?.status === 'unverified' && !isMastered;
-                  const isCurrent = !blockedByUnverifiedCap && !allMastered && item.id === recommendedItem?.id;
-                  const isLocked = !isMastered && !isUnverified && !isCurrent;
-                  const isDisabled = isLocked || (blockedByUnverifiedCap && !isMastered);
-                  const offsetClass = NODE_OFFSET_PATTERN[idx % NODE_OFFSET_PATTERN.length] ?? 'pos-center';
-                  const stateClass = isMastered
-                    ? 'node-mastered'
-                    : isCurrent
-                      ? 'node-current'
-                      : isUnverified
-                        ? 'node-unverified'
-                        : 'node-locked';
-
-                  const kindLabel =
-                    item.kind === 'letter' ? 'Harf' : item.kind === 'syllable' ? 'Bo‘g‘in' : 'So‘z';
-
-                  return (
-                    <div key={item.id} className={`path-node-row ${offsetClass}`}>
-                      <div className="path-node-holder">
-                        {isCurrent && <span className="floating-start-badge">BOSHLASH!</span>}
-                        {isMastered && (
-                          <span className="node-crown-badge" aria-hidden="true">
-                            👑
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          disabled={isDisabled}
-                          className={`path-node ${stateClass}`}
-                          aria-label={`${item.text} (${kindLabel})${isLocked ? ' — qulflangan' : ''}`}
-                          onClick={() => onStartLesson(item)}
-                        >
-                          {isLocked ? (
-                            <span className="node-lock-icon" aria-hidden="true">
-                              🔒
-                            </span>
-                          ) : (
-                            <span className="node-main-text">
-                              {[...item.text].map((ch, cIdx) => (
-                                <span
-                                  key={`${item.id}-${ch}-${cIdx}`}
-                                  className={
-                                    isCurrent
-                                      ? 'node-char-current'
-                                      : getLetterCategory(ch) === 'vowel'
-                                        ? 'char-vowel'
-                                        : 'char-consonant'
-                                  }
-                                >
-                                  {ch}
-                                </span>
-                              ))}
-                            </span>
-                          )}
-
-                          <span className="node-sub-badge">
-                            {isMastered
-                              ? '⭐'.repeat(Math.max(1, prog?.stars ?? 1))
-                              : isUnverified
-                                ? '🌟 Tekshiriladi'
-                                : isCurrent
-                                  ? '▶️'
-                                  : kindLabel}
-                          </span>
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div className="path-node-row pos-center">
-                  <div
-                    className={`treasure-node ${chestUnlocked ? 'treasure-unlocked' : 'treasure-locked'}`}
-                    aria-label={chestUnlocked ? `${theme.title} sandig‘i ochildi` : `${theme.title} sandig‘i`}
-                  >
-                    <span className="treasure-icon" aria-hidden="true">
-                      {chestUnlocked ? '🎉🎁' : '🎁'}
-                    </span>
-                    <span className="treasure-label">
-                      {chestUnlocked ? 'Sandiq ochildi!' : 'Bosqich sovg‘asi'}
-                    </span>
-                  </div>
-                </div>
-              </div>
+            <div className="adventure-row-pair">
+              {READING_WORLDS[3] && renderIslandNode(READING_WORLDS[3], 3, 'island-pos-4')}
+              {READING_WORLDS[4] && renderIslandNode(READING_WORLDS[4], 4, 'island-pos-5')}
             </div>
-          );
-        })}
+          </div>
+        </div>
       </section>
+
+      {/* Mobile Sticky Bottom Thumb-Zone CTA */}
+      <div className="mobile-sticky-thumb-zone">
+        <motion.button
+          type="button"
+          whileTap={{ scale: 0.97 }}
+          className="btn-3d-emerald btn-continue-big"
+          onClick={() => {
+            playFeedbackChime('pop');
+            onStartWorldRound(activeWorld.worldId);
+          }}
+        >
+          <Play size={22} fill="currentColor" aria-hidden="true" />
+          <span>O‘yinni boshlash!</span>
+        </motion.button>
+      </div>
     </div>
   );
 }

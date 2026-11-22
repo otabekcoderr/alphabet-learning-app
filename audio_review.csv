@@ -1,19 +1,19 @@
 ﻿file,text,type,voice,status
 public/audio/sound_a.mp3,Aaaaa.,letter sound,voicelab:gulya,needs teacher review
 public/audio/item_a.mp3,"Salom bolajon! Bu A harfi. Qizil unli harf, Aaaaa tovushi!",instruction,voicelab:gulya,needs teacher review
-public/audio/sound_o.mp3,Ooooo.,letter sound,voicelab:gulya,needs teacher review
+public/audio/sound_o.mp3,o,letter sound,voicelab:lison-v2:malika,needs teacher review
 public/audio/item_o.mp3,Zo‘r! Bu O harfi. Labingni doira qilib Ooooo deb ayt!,instruction,voicelab:gulya,needs teacher review
 public/audio/sound_i.mp3,Iiiii.,letter sound,voicelab:gulya,needs teacher review
 public/audio/item_i.mp3,"Tabassum qil! Bu I harfi, Iiiii tovushi!",instruction,voicelab:gulya,needs teacher review
 public/audio/sound_u.mp3,Uuuuu.,letter sound,voicelab:gulya,needs teacher review
 public/audio/item_u.mp3,"Ajoyib! Bu U harfi, Uuuuu deb cho‘zib aytamiz!",instruction,voicelab:gulya,needs teacher review
-public/audio/sound_e.mp3,Eeeee.,letter sound,voicelab:gulya,needs teacher review
+public/audio/sound_e.mp3,e,letter sound,voicelab:lison-v2:malika,needs teacher review
 public/audio/item_e.mp3,Yangi do‘stimiz — E harfi! Yengilgina Eeeee tovushi!,instruction,voicelab:gulya,needs teacher review
 public/audio/sound_oi.mp3,Oi.,syllable,voicelab:gulya,needs teacher review
 public/audio/item_oi.mp3,Endi unlilarni ulaymiz! O va I — Oi!,instruction,voicelab:gulya,needs teacher review
 public/audio/sound_au.mp3,Au.,syllable,voicelab:gulya,needs teacher review
 public/audio/item_au.mp3,Barakalla! A va U ni birga aytamiz: Au!,instruction,voicelab:gulya,needs teacher review
-public/audio/sound_n.mp3,Nnnnn.,letter sound,voicelab:gulya,needs teacher review
+public/audio/sound_n.mp3,n,letter sound,voicelab:lison-v2:malika,needs teacher review
 public/audio/item_n.mp3,Mana ko‘k undosh harf — N harfi! Nnnnn tovushi!,instruction,voicelab:gulya,needs teacher review
 public/audio/sound_na.mp3,Na.,syllable,voicelab:gulya,needs teacher review
 public/audio/item_na.mp3,Nnnnn va Aaaaa qo‘shilsa — Na! Judayam oson!,instruction,voicelab:gulya,needs teacher review
@@ -35,33 +35,33 @@ public/audio/sound_la.mp3,La.,syllable,voicelab:safiya,needs teacher review
 public/audio/item_la.mp3,L va Aaaaa birga aytilsa — La!,instruction,voicelab:safiya,needs teacher review
 public/audio/sound_ona.mp3,Ona.,word,voicelab:safiya,needs teacher review
 public/audio/item_ona.mp3,Birinchi so‘zimiz! O va na — Ona! Juda chiroyli so‘z!,instruction,voicelab:safiya,needs teacher review
-public/audio/sound_ana.mp3,Ana.,word,uzbekvoice:lola,needs teacher review
-public/audio/item_ana.mp3,A va na qo‘shilsa — Ana! Zo‘r o‘qiding!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_ana.mp3,Ana.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/item_ana.mp3,A va na qo‘shilsa — Ana! Zo‘r o‘qiding!,instruction,voicelab:lison-v2:malika,needs teacher review
 public/audio/sound_non.mp3,Non.,word,voicelab:safiya,needs teacher review
 public/audio/item_non.mp3,No va n tovushi birlashsa — issiq Non!,instruction,voicelab:safiya,needs teacher review
-public/audio/sound_nima.mp3,Nima.,word,uzbekvoice:lola,needs teacher review
-public/audio/item_nima.mp3,Ni va ma bo‘g‘inlari qo‘shilsa — Nima so‘zi chiqadi!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_nima.mp3,Nima.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/item_nima.mp3,Ni va ma bo‘g‘inlari qo‘shilsa — Nima so‘zi chiqadi!,instruction,voicelab:lison-v2:malika,needs teacher review
 public/audio/sound_lola.mp3,Lola.,word,voicelab:safiya,needs teacher review
 public/audio/item_lola.mp3,"Lo va la qo‘shilsa — chiroyli gul, Lola!",instruction,voicelab:safiya,needs teacher review
 public/audio/sound_olma.mp3,Olma.,word,voicelab:safiya,needs teacher review
 public/audio/item_olma.mp3,Ol va ma bo‘g‘inlari birga — shirin Olma!,instruction,voicelab:safiya,needs teacher review
-public/audio/sound_oila.mp3,Oila.,word,uzbekvoice:lola,needs teacher review
-public/audio/item_oila.mp3,Oi va la qo‘shilsa — ahil Oila!,instruction,uzbekvoice:lola,needs teacher review
-public/audio/sound_limon.mp3,Limon.,word,uzbekvoice:lola,needs teacher review
-public/audio/item_limon.mp3,Li va mon bo‘g‘inlarini ulaymiz — sariq Limon!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_oila.mp3,Oila.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/item_oila.mp3,Oi va la qo‘shilsa — ahil Oila!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_limon.mp3,Limon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/item_limon.mp3,Li va mon bo‘g‘inlarini ulaymiz — sariq Limon!,instruction,voicelab:lison-v2:malika,needs teacher review
 public/audio/sound_s.mp3,Sssss.,letter sound,voicelab:safiya,needs teacher review
 public/audio/item_s.mp3,Yangi ko‘k harfimiz — S! Mayin qilib Sssss deng!,instruction,voicelab:safiya,needs teacher review
 public/audio/sound_sa.mp3,Sa.,syllable,voicelab:safiya,needs teacher review
 public/audio/item_sa.mp3,Sssss va Aaaaa qo‘shilsa — Sa!,instruction,voicelab:safiya,needs teacher review
-public/audio/sound_si.mp3,Si.,syllable,uzbekvoice:lola,needs teacher review
-public/audio/item_si.mp3,Sssss va Iiiii birga aytilsa — Si!,instruction,uzbekvoice:lola,needs teacher review
+public/audio/sound_si.mp3,Si.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/item_si.mp3,Sssss va Iiiii birga aytilsa — Si!,instruction,voicelab:lison-v2:malika,needs teacher review
 public/audio/sound_r.mp3,Rrrrr.,letter sound,voicelab:safiya,needs teacher review
 public/audio/item_r.mp3,"Matorchadek jaranglaymiz: R harfi, Rrrrr tovushi!",instruction,voicelab:safiya,needs teacher review
 public/audio/sound_ro.mp3,Ro.,syllable,voicelab:safiya,needs teacher review
 public/audio/item_ro.mp3,Rrrrr va Ooooo qo‘shilsa — Ro!,instruction,voicelab:safiya,needs teacher review
-public/audio/sound_ra.mp3,Ra.,syllable,uzbekvoice:lola,needs teacher review
-public/audio/item_ra.mp3,Rrrrr va Aaaaa birlashsa — Ra!,instruction,uzbekvoice:lola,needs teacher review
-public/audio/sound_arra.mp3,Arra.,word,uzbekvoice:lola,needs teacher review
+public/audio/sound_ra.mp3,Ra.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/item_ra.mp3,Rrrrr va Aaaaa birlashsa — Ra!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_arra.mp3,Arra.,word,voicelab:lison-v2:malika,needs teacher review
 public/audio/item_arra.mp3,Ar va ra bo‘g‘inlari qo‘shilsa — Arra!,instruction,uzbekvoice:lola,needs teacher review
 public/audio/sound_asal.mp3,Asal.,word,uzbekvoice:lola,needs teacher review
 public/audio/item_asal.mp3,A va sal bo‘laklarini o‘qiymiz — shirin Asal!,instruction,uzbekvoice:lola,needs teacher review
@@ -95,9 +95,294 @@ public/audio/sound_k.mp3,K!,letter sound,voicelab:safiya,needs teacher review
 public/audio/item_k.mp3,So‘nggi kalit harfimiz — K! Chaqqon K tovushi!,instruction,voicelab:safiya,needs teacher review
 public/audio/sound_kitob.mp3,Kitob.,word,voicelab:safiya,needs teacher review
 public/audio/item_kitob.mp3,Ki va tob qo‘shilsa — bilim manbai Kitob! Barakalla!,instruction,voicelab:safiya,needs teacher review
-public/audio/barakalla.mp3,Barakalla bolajon! Juda chiroyli va to‘g‘ri o‘qiding!,instruction,voicelab:safiya,needs teacher review
-public/audio/qayta_urinib_koring.mp3,"Hechqisi yo‘q! Keling, yana bir marta birga urinib ko‘ramiz!",instruction,voicelab:safiya,needs teacher review
-public/audio/qaysi_biri.mp3,Diqqat bilan quloq sol va to‘g‘ri kartani bos!,instruction,voicelab:safiya,needs teacher review
-public/audio/ulab_oqiymiz.mp3,"Endi vagonchalarni birlashtirib, harflarni ulab o‘qi!",instruction,voicelab:safiya,needs teacher review
-public/audio/mikrofonga_ayting.mp3,"Mikrofon tugmasini bosib, baland ovozda o‘qib ber!",instruction,voicelab:safiya,needs teacher review
-public/audio/jimlik_sezildi.mp3,"Ovozing yaxshi eshitilmadi, mikrofon yonida balandroq ayt!",instruction,voicelab:safiya,needs teacher review
+public/audio/barakalla.mp3,Barakalla bolajon! Juda chiroyli va to‘g‘ri o‘qiding!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/qayta_urinib_koring.mp3,"Hechqisi yo‘q! Keling, yana bir marta birga urinib ko‘ramiz!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/qaysi_biri.mp3,Diqqat bilan quloq sol va to‘g‘ri kartani bos!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/ulab_oqiymiz.mp3,"Endi vagonchalarni birlashtirib, harflarni ulab o‘qi!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/mikrofonga_ayting.mp3,"Mikrofon tugmasini bosib, baland ovozda o‘qib ber!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/jimlik_sezildi.mp3,"Ovozing yaxshi eshitilmadi, mikrofon yonida balandroq ayt!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_o.mp3,O. Olma.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_a.mp3,A. Anor.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_n.mp3,N. Non.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_i.mp3,I. Ilon.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_m.mp3,M. Mushuk.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_t.mp3,T. Tog‘.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_l.mp3,L. Lola.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_b.mp3,B. Baliq.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_k.mp3,K. Kitob.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_r.mp3,R. Ro‘mol.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_u.mp3,U. Uzum.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_s.mp3,S. Sabzi.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_d.mp3,D. Daraxt.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_e.mp3,E. Eshik.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_z.mp3,Z harfi. Zebra.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_sh.mp3,Sh. Shar.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_v.mp3,V. Vagon.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_y.mp3,Y. Yulduz.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_g.mp3,G. Gilos.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_ng.mp3,Ng tovushi. Tong.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_o_apostrophe.mp3,O‘. O‘rdak.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_ch.mp3,Ch. Choynak.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_q.mp3,Q. Qalam.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_g_apostrophe.mp3,G‘ harfi. G‘oz.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_h.mp3,H. Havo.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_j.mp3,J. Jo‘ja.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_x.mp3,X. Xo‘roz.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_f.mp3,F. Fil.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_p.mp3,P. Pomidor.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/letter_tutuq.mp3,Tutuq belgisi. A’lo.,letter recall,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_z.mp3,z harfi,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_sh.mp3,sh,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_y.mp3,y,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_g.mp3,g,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_ng.mp3,ng tovushi,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_o_apostrophe.mp3,o‘,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_ch.mp3,ch,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_q.mp3,q,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_g_apostrophe.mp3,g‘ harfi,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_h.mp3,h,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_j.mp3,j,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_x.mp3,x,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_f.mp3,f,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_p.mp3,p,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/sound_tutuq.mp3,tutuq belgisi,letter sound,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_home_welcome.mp3,"Salom, bolajon! Bugun yangi so‘zlarni birga o‘qiymiz! Qani boshladik!",instruction,voicelab:malika,needs teacher review
+public/audio/instr_home_sleep.mp3,"Barakalla! Bugungi mashqni a’lo bajarding! Endi ko‘zlarimiz dam olsin, ertaga yana o‘ynaymiz!",instruction,voicelab:malika,needs teacher review
+public/audio/instr_alpha_listen.mp3,Quloq sol! Qaysi harfning tovushi eshitildi?,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_alpha_picture.mp3,Harfga mos rasmni top!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_alpha_say.mp3,Endi bu harf va so‘zni ovoz chiqarib ayt!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_alpha_chart.mp3,Istalgan harf ustiga bos — tovushini va so‘zini aytib beraman!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_letter_help_tip.mp3,Harfni unutdingmi? Istalgan harf ustiga bos!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage1_train.mp3,Slayderni surib bo‘g‘inlarni bir-biriga yaqinlashtir va birlashtir!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage1_constructor.mp3,Bo‘g‘inlarni qo‘shib so‘z yasa! Rasmga qarab yetishmayotgan bo‘g‘inni tanla!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage1_bubbles.mp3,"Bo‘g‘in pufakchalarini tartib bilan yorib, har birini ovoz chiqarib o‘qi!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage1_bubble_speak.mp3,Ajoyib! Endi bu bo‘g‘inni ovoz chiqarib ayt!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage1_bubble_read_word.mp3,Zo‘r! Endi yig‘ilgan butun so‘zni ovoz chiqarib o‘qi!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage1_bubble_confirm_word.mp3,"Zo‘r! Endi yig‘ilgan so‘zni o‘qib, mos rasmni tanla!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage1_sentence.mp3,Rasmga qarab so‘zlarni to‘g‘ri tartibda terib gap tuz!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage2_spotlight_word.mp3,Bo‘g‘inlarni yoritib o‘qi va mos rasmni top!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage2_spotlight_sentence.mp3,So‘zlarni yoritib gapni o‘qi va ma’nosiga mos rasmni top!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage3_exam_voice_word.mp3,"Endi bu so‘zni o‘zing mustaqil o‘qib, mikrofonga ayt!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage3_exam_voice_sentence.mp3,"Endi bu gapni o‘zing mustaqil o‘qib, mikrofonga ayt!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage3_exam_offline_word.mp3,Endi bu so‘zni o‘zing o‘qib ko‘r va mos rasmni tanla!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_stage3_exam_offline_sentence.mp3,Endi bu gapni o‘zing o‘qib ko‘r va mos rasmni tanla!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_comprehension_action.mp3,Gapda nima haqida aytilgan? Ma’nosiga mos rasmni tanla!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_comp_eat.mp3,"Kim nima yedi, ichdi yoki tayyorladi? Mos rasmni tanla!",instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_comp_move.mp3,Kim qanday harakat qildi? To‘g‘ri rasmni tanla!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/instr_comp_nature.mp3,Tabiatda nima sodir bo‘ldi? Mos rasmni tanla!,instruction,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_no_speech.mp3,Ovozing eshitilmadi — yana bir bor balandroq aytib ko‘r!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_louder_clearer.mp3,Yana bir bor balandroq va aniqroq aytib ko‘r!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_listen_then_try.mp3,"Ovoz yaxshi eshitilmadi — eshitib ko‘r, keyin yana o‘qib ber yoki Birga aytamiz tugmasini bos.",feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_other_word.mp3,Bu boshqa so‘zga o‘xshadi. Harflarga diqqat bilan qarab yana bir bor o‘qi!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_try_syllables.mp3,"Yaxshi harakat! Quloq solib, bo‘g‘inlarga qarab yana bir marta o‘qib ko‘r.",feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_listen_together.mp3,"Keling, so‘zni birga eshitib o‘qiymiz!",feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_server_offline_pic.mp3,Ovoz serveri bilan aloqa uzildi. Rasm tanlash orqali davom etamiz.,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_mic_blocked_pic.mp3,Mikrofonga ruxsat berilmadi — mos rasmni tanlash rejimiga o‘tamiz.,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_offline_look_again.mp3,Yana bir bor so‘zni diqqat bilan o‘qib ko‘r-chi!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_sentence_order.mp3,So‘zlarni to‘g‘ri tartibda joylashtirib ko‘r!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_bubble_try_again.mp3,Bu bo‘g‘inni yana bir bor aniqroq aytib ko‘r-chi!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_bubble_server_offline.mp3,Ovoz serveri bilan aloqa uzildi — eshitib davom etamiz.,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_bubble_mic_blocked.mp3,Mikrofonga ruxsat berilmadi — ovozli pauza rejimiga o‘tamiz.,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_bubble_listen_repeat.mp3,Tingla va birga ayt!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_alpha_repeat.mp3,So‘zni yana bir bor aniqroq aytib ko‘r yoki pastdagi tugma bilan davom et!,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_alpha_server_offline.mp3,Ovoz serveri bilan aloqa uzildi — pastdagi tugma bilan davom etishingiz mumkin.,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/fb_alpha_mic_blocked.mp3,Mikrofonga ruxsat berilmadi — pastdagi tugma bilan davom eting.,feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/wrong_1.mp3,"Yaqin kelding, yana bir urinib ko‘r!",wrong feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/wrong_2.mp3,Boshqa rasmni tekshirib ko‘ramizmi?,wrong feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/wrong_3.mp3,"Hechqisi yo‘q, shoshilmasdan yana qarab ko‘r!",wrong feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/wrong_4.mp3,Deyarli topding! Harflarga diqqat bilan qarab yana urinib ko‘r!,wrong feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/wrong_5.mp3,Boshqa bo‘g‘inni sinab ko‘ramizmi? Sen albatta topasan!,wrong feedback,voicelab:lison-v2:malika,needs teacher review
+public/audio/praise_1.mp3,Barakalla! Juda to‘g‘ri topding!,praise,voicelab:lison-v2:malika,needs teacher review
+public/audio/praise_2.mp3,Zo‘r! Sen haqiqiy zukko bolajonsan!,praise,voicelab:lison-v2:malika,needs teacher review
+public/audio/praise_3.mp3,Ajoyib! Juda chiroyli o‘qiding!,praise,voicelab:lison-v2:malika,needs teacher review
+public/audio/praise_4.mp3,Yasha! Xuddi shunday davom et!,praise,voicelab:lison-v2:malika,needs teacher review
+public/audio/praise_round_complete.mp3,"Ura! Mashqni a’lo darajada yakunlading! Juda ko‘p yulduzcha to‘plading, barakalla!",praise,voicelab:lison-v2:malika,needs teacher review
+public/audio/praise_alphabet_complete.mp3,Ofarin! Barcha harflarni zo‘r takrorlading! Sen haqiqiy chempionsan!,praise,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_anor.mp3,Anor.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_ilon.mp3,Ilon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_oltin.mp3,Oltin.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_tola.mp3,Tola.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_nina.mp3,Nina.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_bino.mp3,Bino.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kran.mp3,Kran.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_olam.mp3,Olam.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kalit.mp3,Kalit.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_maral.mp3,Maral.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_motor.mp3,Motor.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_banan.mp3,Banan.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kabob.mp3,Kabob.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kamon.mp3,Kamon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_bolta.mp3,Bolta.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_robot.mp3,Robot.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_karam.mp3,Karam.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_uzuk.mp3,Uzuk.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_uzum.mp3,Uzum.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_sabzi.mp3,Sabzi.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_zebra.mp3,Zebra.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kosa.mp3,Kosa.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_etik.mp3,Etik.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_tulki.mp3,Tulki.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_bilet.mp3,Bilet.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_maktab.mp3,Maktab.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_burun.mp3,Burun.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_sut.mp3,Sut.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_tuz.mp3,Tuz.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kema.mp3,Kema.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_salat.mp3,Salat.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_soat.mp3,Soat.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_bulut.mp3,Bulut.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_stul.mp3,Stul.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_doska.mp3,Doska.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_surat.mp3,Surat.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kaktus.mp3,Kaktus.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_terak.mp3,Terak.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_sandal.mp3,Sandal.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_sumka.mp3,Sumka.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_shar.mp3,Shar.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_choynak.mp3,Choynak.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_ordak.mp3,O‘rdak.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_goz.mp3,G‘oz.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_qalam.mp3,Qalam.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gilos.mp3,Gilos.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_yulduz.mp3,Yulduz.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_vagon.mp3,Vagon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_tong.mp3,Tong.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_joja.mp3,Jo‘ja.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_xoroz.mp3,Xo‘roz.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_fil.mp3,Fil.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_paxta.mp3,Paxta.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_havo.mp3,Havo.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_qovun.mp3,Qovun.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_orik.mp3,O‘rik.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_shirmon.mp3,Shirmon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_chumoli.mp3,Chumoli.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gildirak.mp3,G‘ildirak.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_quyon.mp3,Quyon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_baliq.mp3,Baliq.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_mushuk.mp3,Mushuk.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kuchuk.mp3,Kuchuk.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_xat.mp3,Xat.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_qor.mp3,Qor.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_alo.mp3,A’lo.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_tovoq.mp3,Tovoq.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kompot.mp3,Kompot.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_eshik.mp3,Eshik.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_daftar.mp3,Daftar.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_daraxt.mp3,Daraxt.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_savat.mp3,Savat.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_tosh.mp3,Tosh.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_buzoq.mp3,Buzoq.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kapalak.mp3,Kapalak.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_qalamdon.mp3,Qalamdon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_samolyot.mp3,Samolyot.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_telefon.mp3,Telefon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_muzqaymoq.mp3,Muzqaymoq.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_qulupnay.mp3,Qulupnay.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_bodring.mp3,Bodring.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_tarvuz.mp3,Tarvuz.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kabutar.mp3,Kabutar.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_ayiqcha.mp3,Ayiqcha.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_shaftoli.mp3,Shaftoli.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_velosiped.mp3,Velosiped.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_qoziqorin.mp3,Qo‘ziqorin.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_ninachi.mp3,Ninachi.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_toshbaqa.mp3,Toshbaqa.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_olmaxon.mp3,Olmaxon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_pomidor.mp3,Pomidor.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_baqlajon.mp3,Baqlajon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_malina.mp3,Malina.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kamalak.mp3,Kamalak.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_chigirtka.mp3,Chigirtka.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_asalari.mp3,Asalari.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_qaldirgoch.mp3,Qaldirg‘och.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_dasturxon.mp3,Dasturxon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_kitobxon.mp3,Kitobxon.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gulzor.mp3,Gulzor.,word,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_olma_shirin.mp3,Olma shirin.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_bola_kitob.mp3,Bola kitob o‘qidi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_ona_non.mp3,Ona non yopdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_mushuk_sut.mp3,Mushuk sut ichdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_baliq_suv.mp3,Baliq suvda suzdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_quyosh_chiqdi.mp3,Quyosh chiqdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_qor_yogdi.mp3,Oppoq qor yog‘di.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_lola_gul.mp3,Qizil lola ochildi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_kuchuk_yugurdi.mp3,Kuchuk tez yugurdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_quyon_sabzi.mp3,Quyon sabzi yedi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_kapalak_uchdi.mp3,Kapalak baland uchdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_ayiq_asal.mp3,Ayiq asal yedi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_tulki_zukko.mp3,Zukko tulki kuldi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_ordak_suv.mp3,O‘rdak suvda suzdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_dada_daraxt.mp3,Dada daraxt ekdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_bobo_choy.mp3,Bobo issiq choy ichdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_asalari_gul.mp3,Asalari gulga qo‘ndi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_uzum_shirin.mp3,Qora uzum shirin.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_samolyot_uchdi.mp3,Samolyot osmonda uchdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_kema_daryo.mp3,Katta kema suzdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_joja_don.mp3,Sariq jo‘ja don yedi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_qalam_rasm.mp3,Qalam bilan rasm chizdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_yomgir_yogdi.mp3,Yomg‘ir yog‘di.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_yulduz_porladi.mp3,Yulduzlar porladi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_maktab_bordi.mp3,Bola maktabga bordi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/word_gap_tarvuz_katta.mp3,Katta tarvuz pishdi.,sentence,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ka.mp3,Ka.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_pa.mp3,Pa.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_lak.mp3,Lak.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_qa.mp3,Qa.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_lam.mp3,Lam.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_don.mp3,Don.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_sa.mp3,Sa.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_mol.mp3,Mol.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_yot.mp3,Yot.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_te.mp3,Te.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_le.mp3,Le.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_fon.mp3,Fon.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_muz.mp3,Muz.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_qay.mp3,Qay.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_moq.mp3,Moq.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_qu.mp3,Qu.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_lup.mp3,Lup.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_nay.mp3,Nay.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_bod.mp3,Bod.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ring.mp3,Ring.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_tar.mp3,Tar.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_vuz.mp3,Vuz.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_bu.mp3,Bu.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_a.mp3,A.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_yiq.mp3,Yiq.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_cha.mp3,Cha.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_shaf.mp3,Shaf.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_to.mp3,To.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_li.mp3,Li.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ve.mp3,Ve.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_lo.mp3,Lo.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_si.mp3,Si.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ped.mp3,Ped.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_qo_ap.mp3,Qo‘.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_zi.mp3,Zi.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_qo.mp3,Qo.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_rin.mp3,Rin.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ni.mp3,Ni.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_na.mp3,Na.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_chi.mp3,Chi.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_tosh.mp3,Tosh.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ba.mp3,Ba.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ol.mp3,Ol.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ma.mp3,Ma.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_xon.mp3,Xon.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_po.mp3,Po.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_mi.mp3,Mi.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_dor.mp3,Dor.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_baq.mp3,Baq.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_la.mp3,La.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_jon.mp3,Jon.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_girt.mp3,Girt.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ri.mp3,Ri.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_qal.mp3,Qal.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_dir.mp3,Dir.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_g_apoch.mp3,G‘och.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_das.mp3,Das.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_tur.mp3,Tur.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_ki.mp3,Ki.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_tob.mp3,Tob.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_gul.mp3,Gul.,syllable,voicelab:lison-v2:malika,needs teacher review
+public/audio/syl_zor.mp3,Zor.,syllable,voicelab:lison-v2:malika,needs teacher review

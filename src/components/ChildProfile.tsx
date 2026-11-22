@@ -10,6 +10,8 @@ import {
 } from '../logic/gamification';
 import type { AlifboState, ChildProfileData } from '../storage/progressStorage';
 import { playAudioClip } from '../utils/audioRecorder';
+import { AccountIdBadge } from './AccountIdBadge';
+import { AvatarVisual } from './AvatarVisual';
 
 interface ChildProfileProps {
   state: AlifboState;
@@ -39,7 +41,7 @@ export function ChildProfile({ state, onUpdateProfile, onStartLesson }: ChildPro
             style={{ backgroundColor: activeAvatar.bg, borderColor: activeAvatar.border }}
             aria-label={`Tanlangan qahramon: ${activeAvatar.label}`}
           >
-            <span aria-hidden="true">{activeAvatar.emoji}</span>
+            <AvatarVisual avatarId={activeAvatar.id} size={activeAvatar.id === 'fox' ? 64 : 58} />
           </div>
 
           <div className="profile-identity-fields">
@@ -49,6 +51,10 @@ export function ChildProfile({ state, onUpdateProfile, onStartLesson }: ChildPro
               </span>
               <span className="xp-pill">⚡ {totalXp} XP</span>
             </div>
+
+            {state.account?.publicId && (
+              <AccountIdBadge publicId={state.account.publicId} label="Profil ID:" />
+            )}
 
             <label className="profile-name-label" htmlFor="child-name-input">
               O‘quvchi ismi
@@ -102,8 +108,8 @@ export function ChildProfile({ state, onUpdateProfile, onStartLesson }: ChildPro
                     style={{ backgroundColor: av.bg, borderColor: selected ? '#58cc02' : av.border }}
                     onClick={() => onUpdateProfile({ ...profile, avatarId: av.id })}
                   >
-                    <span className="avatar-choice-emoji" aria-hidden="true">
-                      {av.emoji}
+                    <span className="avatar-choice-emoji avatar-visual-wrap" aria-hidden="true">
+                      <AvatarVisual avatarId={av.id} size={36} />
                     </span>
                     <span className="avatar-choice-label">{av.label}</span>
                   </button>

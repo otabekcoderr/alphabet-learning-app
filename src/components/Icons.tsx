@@ -1,0 +1,85 @@
+import {
+  ArrowLeft,
+  ArrowRight,
+  Award,
+  BarChart3,
+  BookOpen,
+  Calendar,
+  Check,
+  Clock,
+  Compass,
+  Copy,
+  Download,
+  Flame,
+  Gamepad2,
+  Home,
+  Lock,
+  LogOut,
+  Mic,
+  Moon,
+  Play,
+  RotateCcw,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Square,
+  Star,
+  Timer,
+  Trash2,
+  Trophy,
+  Upload,
+  Volume2,
+  X,
+} from 'lucide-react';
+
+interface IconProps {
+  size?: number;
+  className?: string;
+}
+
+/** Crisp SVG close icon powered by Lucide (`X`). */
+export function CloseIcon({ size = 18, className }: IconProps) {
+  return <X size={size} strokeWidth={2.75} aria-hidden="true" className={className} />;
+}
+
+/** Crisp SVG clipboard copy icon powered by Lucide (`Copy`). */
+export function CopyIcon({ size = 16, className }: IconProps) {
+  return <Copy size={size} strokeWidth={2.4} aria-hidden="true" className={className} />;
+}
+
+/** Crisp SVG checkmark icon powered by Lucide (`Check`). */
+export function CheckIcon({ size = 18, className }: IconProps) {
+  return <Check size={size} strokeWidth={2.75} aria-hidden="true" className={className} />;
+}
+
+export {
+  ArrowLeft,
+  ArrowRight,
+  Award,
+  BarChart3,
+  BookOpen,
+  Calendar,
+  Check,
+  Clock,
+  Compass,
+  Download,
+  Flame,
+  Gamepad2,
+  Home,
+  Lock,
+  LogOut,
+  Mic,
+  Moon,
+  Play,
+  RotateCcw,
+  Settings,
+  ShieldCheck,
+  Sparkles,
+  Square,
+  Star,
+  Timer,
+  Trash2,
+  Trophy,
+  Upload,
+  Volume2,
+};

@@ -30,7 +30,7 @@ function rotr(value: number, bits: number): number {
   return (value >>> bits) | (value << (32 - bits));
 }
 
-function sha256Hex(message: string): string {
+export function sha256Hex(message: string): string {
   const bytes = new TextEncoder().encode(message);
   const bitLen = bytes.length * 8;
   const paddedLen = Math.ceil((bytes.length + 9) / 64) * 64;

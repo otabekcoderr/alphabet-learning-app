@@ -9,7 +9,8 @@ export type ParentSessionCloseEvent =
   | 'lesson_completed'
   | 'lesson_exited'
   | 'visibility_hidden'
-  | 'window_blur';
+  | 'window_blur'
+  | 'parent_area_exited';
 
 export function isParentSessionExpired(
   lastActiveMs: number | null,
@@ -25,6 +26,7 @@ export function shouldCloseParentSessionOnEvent(event: ParentSessionCloseEvent):
     event === 'lesson_completed' ||
     event === 'lesson_exited' ||
     event === 'visibility_hidden' ||
-    event === 'window_blur'
+    event === 'window_blur' ||
+    event === 'parent_area_exited'
   );
 }

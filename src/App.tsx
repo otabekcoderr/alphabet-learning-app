@@ -1,308 +1,681 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { CURRICULUM_ITEMS, type CurriculumItem } from './data/curriculum';
-import { calculateTotalXp, getAvatarOption } from './logic/gamification';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  isParentSessionExpired,
-  PARENT_SESSION_TIMEOUT_MS,
-  shouldCloseParentSessionOnEvent,
-} from './logic/parentSession';
+  DYNAMIC_WORD_POOL,
+  READING_WORLDS,
+} from './data/curriculum';
+import { applyLetterReviewResult } from './logic/alphabetReview';
+import { startAsrHealthPolling } from './logic/asrHealth';
 import {
-  applyUnverifiedAttempt,
-  applyVerifiedCompletion,
-  getNextRecommendedItem,
-  getReviewQueue,
-  isBlockedByUnverifiedCap,
+  fetchCurrentSession,
+  generateAccountPublicId,
+  isValidAccountPublicId,
+  logoutRemoteSession,
+  saveRemoteState,
+} from './logic/auth';
+import {
+  applyParentWordVerification,
+  applyWordReadingAttempt,
 } from './logic/pedagogy';
 import { clearPinLockout } from './logic/pin';
 import {
+  addPracticedSeconds,
+  clampDailyLimitMinutes,
+  evaluateScreenTimeLimit,
+  recordLetterHintTap,
+  selectAdaptiveSessionWords,
+  type AdaptiveSessionWord,
+} from './logic/wordPoolEngine';
+import {
+  createDefaultProfile,
   createInitialState,
+  getLocalDateString,
+  hydrateAlifboState,
   loadAlifboState,
   recordPracticeDate,
   saveAlifboState,
   type AlifboState,
   type ChildProfileData,
 } from './storage/progressStorage';
+import { AlphabetRecallDrawer } from './components/AlphabetRecallDrawer';
+import { AuthScreen } from './components/AuthScreen';
 import { ChildHome } from './components/ChildHome';
-import { ChildProfile } from './components/ChildProfile';
-import { LessonPlayer } from './components/LessonPlayer';
+import { Lock, Star } from './components/Icons';
+import { LessonPlayer, type WordAttemptReport } from './components/LessonPlayer';
+import { OnboardingSurveyPage } from './components/OnboardingSurveyPage';
 import { ParentCorner } from './components/ParentCorner';
+import { ParentOnboardingModal } from './components/ParentOnboardingModal';
 import { PinModal } from './components/PinModal';
+import { StorybookBackdrop } from './components/StorybookBackdrop';
+import { WelcomeScreen } from './components/WelcomeScreen';
+import { playFeedbackChime } from './utils/audioRecorder';
 
-type ViewTab = 'home' | 'profile' | 'lesson' | 'parent';
+type ViewTab = 'home' | 'alphabet' | 'lesson' | 'parent';
+type GateView = { screen: 'welcome' } | { screen: 'auth'; mode: 'signup' | 'login' };
+
+function mapAuthErrorCodeToUz(code: string): string {
+  switch (code) {
+    case 'db_not_configured':
+      return "Ma'lumotlar bazasi hali ulanmagan.";
+    case 'google_not_configured':
+      return 'Google orqali kirish hali sozlanmagan (GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET kerak).';
+    case 'google_cancelled':
+      return 'Google orqali kirish bekor qilindi.';
+    case 'google_state_invalid':
+      return 'Google xavfsizlik tekshiruvi muddati tugadi. Qaytadan urinib ko‘ring.';
+    case 'telegram_not_configured':
+      return 'Telegram orqali kirish hali sozlanmagan (TELEGRAM_BOT_TOKEN va TELEGRAM_BOT_USERNAME kerak).';
+    case 'telegram_invalid':
+    case 'telegram_code_invalid':
+      return 'Kod noto‘g‘ri yoki muddati tugagan. Telegram botdan /kod orqali yangi kod oling.';
+    case 'telegram_code_format':
+      return 'Bot yuborgan 6 xonali raqamli kodni kiriting.';
+    case 'telegram_db_failed':
+    case 'telegram_server_error':
+      return 'Telegram orqali kirishda server xatoligi yuz berdi. Keyinroq urinib ko‘ring.';
+    default:
+      return 'Hisobga kirishda xatolik yuz berdi. Qaytadan urinib ko‘ring.';
+  }
+}
 
 export function App() {
   const [loaded] = useState(() => loadAlifboState());
-  const [state, setState] = useState<AlifboState>(loaded.state);
+  const [state, setState] = useState<AlifboState>(() => loaded.state);
+  const [gateView, setGateView] = useState<GateView>({ screen: 'welcome' });
+  const [authUrlError, setAuthUrlError] = useState<string | null>(null);
+  const [remoteSessionActive, setRemoteSessionActive] = useState<boolean>(false);
+  const skipNextRemoteSyncRef = useRef<boolean>(false);
   const [tab, setTab] = useState<ViewTab>('home');
-  const [activeItem, setActiveItem] = useState<CurriculumItem | null>(null);
+  const [sessionItems, setSessionItems] = useState<AdaptiveSessionWord[]>([]);
+  const [roundWorldId, setRoundWorldId] = useState<1 | 2 | 3 | 4 | 5>(() => {
+    const id = loaded.state.activeWorldId;
+    return id >= 1 && id <= 5 ? (id as 1 | 2 | 3 | 4 | 5) : 1;
+  });
   const [aiOnline, setAiOnline] = useState<boolean>(false);
+  const [editingSurvey, setEditingSurvey] = useState<boolean>(false);
   const [pinModalOpen, setPinModalOpen] = useState<boolean>(false);
+  const [onboardingModal, setOnboardingModal] = useState<{ open: boolean; isReplay: boolean }>({
+    open: false,
+    isReplay: false,
+  });
   const [parentUnlocked, setParentUnlocked] = useState<boolean>(false);
-
-  // Ephemeral in-memory only; never persisted in localStorage.
-  const [parentSessionActive, setParentSessionActive] = useState<boolean>(false);
-  const [parentSessionLastActiveMs, setParentSessionLastActiveMs] = useState<number | null>(null);
 
   useEffect(() => {
     saveAlifboState(state);
   }, [state]);
 
+  // Restore remote session from HttpOnly cookie + handle OAuth redirect callbacks
   useEffect(() => {
     let active = true;
-    const checkHealth = async () => {
-      try {
-        const res = await fetch('/api/health');
-        const data = (await res.json()) as { ok?: boolean };
-        if (active) setAiOnline(Boolean(res.ok && data.ok));
-      } catch {
-        if (active) setAiOnline(false);
+    const params = new URLSearchParams(window.location.search);
+    const authParam = params.get('auth');
+    const authErrorParam = params.get('auth_error');
+
+    if (authParam || authErrorParam) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+
+    if (authErrorParam) {
+      setAuthUrlError(mapAuthErrorCodeToUz(authErrorParam));
+      setGateView({ screen: 'auth', mode: 'login' });
+    }
+
+    void fetchCurrentSession().then((res) => {
+      if (!active) return;
+      if (res.authenticated && res.session) {
+        const remoteSession = {
+          ...res.session,
+          publicId: isValidAccountPublicId(res.session.publicId)
+            ? res.session.publicId
+            : generateAccountPublicId(),
+        };
+        setRemoteSessionActive(true);
+        setAuthUrlError(null);
+        const hydrated = hydrateAlifboState(res.state);
+        skipNextRemoteSyncRef.current = true;
+        setState((prev) => {
+          if (hydrated) {
+            return {
+              ...hydrated,
+              account: remoteSession,
+              profile: {
+                ...hydrated.profile,
+                name: res.childName || hydrated.profile.name,
+                avatarId: res.avatarId || hydrated.profile.avatarId,
+              },
+            };
+          }
+          if (prev.account && prev.account.id === remoteSession.id) {
+            return {
+              ...prev,
+              account: remoteSession,
+              profile: {
+                ...prev.profile,
+                name: res.childName || prev.profile.name,
+                avatarId: res.avatarId || prev.profile.avatarId,
+              },
+            };
+          }
+          return {
+            ...createInitialState(),
+            account: remoteSession,
+            profile: {
+              ...createDefaultProfile(),
+              name: res.childName || 'Bolajon',
+              avatarId: res.avatarId || 'fox',
+            },
+            surveyData: null,
+          };
+        });
       }
-    };
-    void checkHealth();
-    const timer = window.setInterval(() => void checkHealth(), 10_000);
+    });
+
     return () => {
       active = false;
-      window.clearInterval(timer);
     };
   }, []);
 
-  const closeParentSession = useCallback(() => {
-    setParentSessionActive(false);
-    setParentSessionLastActiveMs(null);
-  }, []);
-
+  // Debounced sync of authenticated state to Neon Postgres
   useEffect(() => {
-    if (!parentSessionActive) return;
+    if (!remoteSessionActive || !state.account || state.account.id === 'guest_trial') {
+      return;
+    }
+    if (skipNextRemoteSyncRef.current) {
+      skipNextRemoteSyncRef.current = false;
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      void saveRemoteState(state);
+    }, 1500);
+    return () => window.clearTimeout(timer);
+  }, [remoteSessionActive, state]);
 
-    const refreshActivity = () => {
-      setParentSessionLastActiveMs(Date.now());
-    };
-
-    const handleVisibility = () => {
-      if (document.visibilityState === 'hidden' && shouldCloseParentSessionOnEvent('visibility_hidden')) {
-        closeParentSession();
-      }
-    };
-
-    const handleBlur = () => {
-      if (shouldCloseParentSessionOnEvent('window_blur')) {
-        closeParentSession();
-      }
-    };
-
-    const timer = window.setInterval(() => {
-      if (isParentSessionExpired(parentSessionLastActiveMs, Date.now(), PARENT_SESSION_TIMEOUT_MS)) {
-        closeParentSession();
-      }
-    }, 5_000);
-
-    window.addEventListener('pointerdown', refreshActivity);
-    window.addEventListener('keydown', refreshActivity);
-    window.addEventListener('blur', handleBlur);
-    document.addEventListener('visibilitychange', handleVisibility);
-
-    return () => {
-      window.clearInterval(timer);
-      window.removeEventListener('pointerdown', refreshActivity);
-      window.removeEventListener('keydown', refreshActivity);
-      window.removeEventListener('blur', handleBlur);
-      document.removeEventListener('visibilitychange', handleVisibility);
-    };
-  }, [parentSessionActive, parentSessionLastActiveMs, closeParentSession]);
-
-  const reviewQueue = useMemo(() => getReviewQueue(CURRICULUM_ITEMS, state.progressByItem), [state.progressByItem]);
-  const blockedByUnverifiedCap = useMemo(
-    () => isBlockedByUnverifiedCap(CURRICULUM_ITEMS, state.progressByItem),
-    [state.progressByItem],
-  );
-  const recommendedItem = useMemo(
-    () => getNextRecommendedItem(CURRICULUM_ITEMS, state.progressByItem),
-    [state.progressByItem],
-  );
-
-  const handleSelectItem = useCallback((item: CurriculumItem) => {
-    setActiveItem(item);
-    setTab('lesson');
+  // Poll ASR health only on localhost or when explicit VITE_ASR_URL is configured
+  useEffect(() => {
+    return startAsrHealthPolling({
+      hostname: window.location.hostname,
+      configuredAsrUrl: import.meta.env.VITE_ASR_URL,
+      onStatus: setAiOnline,
+    });
   }, []);
 
-  const handleVerifiedComplete = useCallback(
+  // Track healthy daily screen-time while child is playing a reading round
+  useEffect(() => {
+    if (tab !== 'lesson') return;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      const today = getLocalDateString();
+      setState((prev) => ({
+        ...prev,
+        ...addPracticedSeconds({
+          dailyPracticeDate: prev.dailyPracticeDate,
+          todayDateStr: today,
+          todayPracticedSeconds: prev.todayPracticedSeconds,
+          deltaSeconds: 5,
+        }),
+      }));
+    }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [tab]);
+
+  const todayDateStr = getLocalDateString();
+  const screenTime = useMemo(
+    () =>
+      evaluateScreenTimeLimit({
+        dailyLimitMinutes: state.dailyLimitMinutes,
+        dailyPracticeDate: state.dailyPracticeDate,
+        todayDateStr,
+        todayPracticedSeconds: state.todayPracticedSeconds,
+      }),
+    [state.dailyLimitMinutes, state.dailyPracticeDate, todayDateStr, state.todayPracticedSeconds],
+  );
+
+  const startWorldRound = useCallback(
+    (worldId: 1 | 2 | 3 | 4 | 5) => {
+      const items = selectAdaptiveSessionWords({
+        worldId,
+        pool: DYNAMIC_WORD_POOL,
+        wordProgressMap: state.wordProgress,
+        todayStr: getLocalDateString(),
+        letterHintCounts: state.letterHintCounts,
+      });
+      setRoundWorldId(worldId);
+      setSessionItems(items);
+      setState((prev) => ({ ...prev, activeWorldId: worldId }));
+      setTab('lesson');
+    },
+    [state.wordProgress, state.letterHintCounts],
+  );
+
+  const handleLetterHintTap = useCallback((letter: string) => {
+    setState((prev) => ({
+      ...prev,
+      letterHintCounts: recordLetterHintTap(prev.letterHintCounts, letter),
+    }));
+  }, []);
+
+  const handleLetterReviewed = useCallback(
     (payload: {
-      itemId: string;
+      letter: string;
+      perfectRound: boolean;
+      usedVoiceAi: boolean;
       starsEarned: number;
-      voiceAttemptsDelta: number;
-      parentVerified: boolean;
-      latencyMs: number | null;
     }) => {
+      const todayStr = getLocalDateString();
       setState((prev) => {
-        const { itemProgress, starsDelta } = applyVerifiedCompletion(prev.progressByItem[payload.itemId], {
-          ...payload,
-          nowIso: new Date().toISOString(),
+        const nextEntry = applyLetterReviewResult(prev.letterMastery[payload.letter], {
+          letter: payload.letter,
+          perfectRound: payload.perfectRound,
+          usedVoiceAi: payload.usedVoiceAi,
+          todayStr,
         });
-        const nextLatencies =
-          payload.latencyMs !== null
-            ? [...prev.recentLatenciesMs, payload.latencyMs].slice(-30)
-            : prev.recentLatenciesMs;
-
         return {
           ...prev,
-          totalStars: prev.totalStars + starsDelta,
-          practiceDates: recordPracticeDate(prev.practiceDates),
-          recentLatenciesMs: nextLatencies,
-          progressByItem: {
-            ...prev.progressByItem,
-            [payload.itemId]: itemProgress,
+          letterMastery: {
+            ...prev.letterMastery,
+            [payload.letter]: nextEntry,
           },
+          totalStars: payload.usedVoiceAi ? prev.totalStars + payload.starsEarned : prev.totalStars,
+          totalEffortStars: payload.usedVoiceAi
+            ? prev.totalEffortStars
+            : prev.totalEffortStars + payload.starsEarned,
+          practiceDates: recordPracticeDate(prev.practiceDates, todayStr),
         };
       });
-
-      if (payload.parentVerified && shouldCloseParentSessionOnEvent('lesson_completed')) {
-        closeParentSession();
-      }
     },
-    [closeParentSession],
+    [],
   );
 
-  const handleUnverifiedComplete = useCallback(
-    (itemId: string) => {
-      let nextRecommended: CurriculumItem | null = null;
-      let nextBlocked = false;
-
-      setState((prev) => {
-        const { itemProgress, effortStarsDelta } = applyUnverifiedAttempt(
-          prev.progressByItem[itemId],
-          itemId,
-          new Date().toISOString(),
-        );
-        const nextProgressMap = {
-          ...prev.progressByItem,
-          [itemId]: itemProgress,
-        };
-        nextBlocked = isBlockedByUnverifiedCap(CURRICULUM_ITEMS, nextProgressMap);
-        nextRecommended = getNextRecommendedItem(CURRICULUM_ITEMS, nextProgressMap);
-
-        return {
-          ...prev,
-          totalEffortStars: prev.totalEffortStars + effortStarsDelta,
-          practiceDates: recordPracticeDate(prev.practiceDates),
-          progressByItem: nextProgressMap,
-        };
-      });
-
-      if (shouldCloseParentSessionOnEvent('lesson_completed')) {
-        closeParentSession();
-      }
-
-      if (nextBlocked || !nextRecommended) {
-        setTab('home');
-      } else {
-        setActiveItem(nextRecommended);
-      }
-    },
-    [closeParentSession],
-  );
-
-  const handleConfirmUnverified = useCallback((itemId: string) => {
+  const handleWordCompleted = useCallback((report: WordAttemptReport) => {
+    const todayStr = getLocalDateString();
     setState((prev) => {
-      const { itemProgress, starsDelta } = applyVerifiedCompletion(prev.progressByItem[itemId], {
-        itemId,
-        starsEarned: 3,
-        voiceAttemptsDelta: 0,
-        parentVerified: true,
-        latencyMs: null,
-        nowIso: new Date().toISOString(),
-      });
+      const prevWordProg = prev.wordProgress[report.item.id];
+      const nextWordProg = applyWordReadingAttempt(
+        prevWordProg,
+        report.item.id,
+        report.evaluation,
+        {
+          todayStr,
+          reactionMs: report.reactionMs,
+          articulationMs: report.articulationMs,
+        },
+      );
+      const nextWordProgress = {
+        ...prev.wordProgress,
+        [report.item.id]: nextWordProg,
+      };
+      const nextSeen = prev.seenWordIds.includes(report.item.id)
+        ? prev.seenWordIds
+        : [...prev.seenWordIds, report.item.id];
+      const nextLatencies =
+        report.latencyMs !== null
+          ? [...prev.recentLatenciesMs, report.latencyMs].slice(-30)
+          : prev.recentLatenciesMs;
+      const nextReadingTimes = report.usedVoiceAi
+        ? [...prev.recentReadingTimesMs, report.reactionMs + report.articulationMs].slice(-20)
+        : prev.recentReadingTimesMs;
+      const earnedVerifiedMasteryStars =
+        report.usedVoiceAi && report.evaluation.status !== 'assisted';
+
       return {
         ...prev,
-        totalStars: prev.totalStars + starsDelta,
+        wordProgress: nextWordProgress,
+        seenWordIds: nextSeen,
+        totalStars: earnedVerifiedMasteryStars
+          ? prev.totalStars + report.starsEarned
+          : prev.totalStars,
+        totalEffortStars: earnedVerifiedMasteryStars
+          ? prev.totalEffortStars
+          : prev.totalEffortStars + report.starsEarned,
         practiceDates: recordPracticeDate(prev.practiceDates),
-        progressByItem: {
-          ...prev.progressByItem,
-          [itemId]: itemProgress,
-        },
+        recentLatenciesMs: nextLatencies,
+        recentReadingTimesMs: nextReadingTimes,
       };
     });
   }, []);
 
-  const handleOpenParentButton = () => {
-    if (parentUnlocked) {
-      setTab(tab === 'parent' ? 'home' : 'parent');
-    } else {
-      setPinModalOpen(true);
+  const handleParentVerifyWord = useCallback((wordId: string, confirmedMastered: boolean) => {
+    const todayStr = getLocalDateString();
+    setState((prev) => {
+      const updatedProg = applyParentWordVerification(
+        prev.wordProgress[wordId],
+        wordId,
+        confirmedMastered,
+        todayStr,
+      );
+      return {
+        ...prev,
+        wordProgress: {
+          ...prev.wordProgress,
+          [wordId]: updatedProg,
+        },
+        totalStars: confirmedMastered ? prev.totalStars + 3 : prev.totalStars,
+      };
+    });
+  }, []);
+
+  const handleImportState = useCallback((imported: AlifboState) => {
+    setState((prev) => ({
+      ...imported,
+      account: prev.account ?? imported.account,
+      pinSalt: prev.pinHash ? prev.pinSalt : imported.pinSalt,
+      pinHash: prev.pinHash ?? imported.pinHash,
+      recoveryCodeHash: prev.pinHash ? prev.recoveryCodeHash : imported.recoveryCodeHash,
+      pinLockout: prev.pinHash ? prev.pinLockout : imported.pinLockout,
+      parentOnboardingDone: prev.parentOnboardingDone || imported.parentOnboardingDone,
+    }));
+  }, []);
+
+  const exitParentAreaToChildHome = useCallback(() => {
+    playFeedbackChime('pop');
+    setParentUnlocked(false);
+    setTab('home');
+  }, []);
+
+  const goToChildHome = useCallback(() => {
+    playFeedbackChime('pop');
+    if (tab === 'parent') {
+      exitParentAreaToChildHome();
+      return;
     }
+    setTab('home');
+  }, [tab, exitParentAreaToChildHome]);
+
+  const handleOpenParentButton = () => {
+    playFeedbackChime('pop');
+    if (tab === 'parent') {
+      exitParentAreaToChildHome();
+      return;
+    }
+    if (parentUnlocked) {
+      setTab('parent');
+      return;
+    }
+    if (!state.parentOnboardingDone) {
+      setOnboardingModal({ open: true, isReplay: false });
+      return;
+    }
+    setPinModalOpen(true);
   };
 
   const handleUpdateProfile = useCallback((profile: ChildProfileData) => {
     setState((prev) => ({ ...prev, profile }));
   }, []);
 
-  const switchChildTab = (nextTab: 'home' | 'profile') => {
-    if (tab === 'lesson' && shouldCloseParentSessionOnEvent('lesson_exited')) {
-      closeParentSession();
+  const handleSignOut = useCallback(() => {
+    setParentUnlocked(false);
+    setPinModalOpen(false);
+    setOnboardingModal({ open: false, isReplay: false });
+    setEditingSurvey(false);
+    setRemoteSessionActive(false);
+    setAuthUrlError(null);
+    setTab('home');
+    setGateView({ screen: 'welcome' });
+    setState((prev) => ({ ...prev, account: null }));
+    void logoutRemoteSession();
+  }, []);
+
+  const handleStartGuestTrial = useCallback(() => {
+    const nowIso = new Date().toISOString();
+    setState((prev) => ({
+      ...prev,
+      account: {
+        id: 'guest_trial',
+        publicId: isValidAccountPublicId(prev.account?.publicId)
+          ? prev.account.publicId
+          : generateAccountPublicId(),
+        contact: 'Sinov rejimi',
+        createdAt: nowIso,
+        signedInAt: nowIso,
+      },
+      profile: {
+        ...prev.profile,
+        name: prev.profile.name || 'Bolajon',
+        avatarId: prev.profile.avatarId || 'fox',
+      },
+    }));
+    setTab('home');
+  }, []);
+
+  const totalStarsAll = state.totalStars + state.totalEffortStars;
+  const masteredWordsCount = useMemo(
+    () =>
+      DYNAMIC_WORD_POOL.filter((item) => state.wordProgress[item.id]?.status === 'mastered')
+        .length,
+    [state.wordProgress],
+  );
+  const activeRoundWorld =
+    READING_WORLDS.find((w) => w.worldId === roundWorldId) ?? READING_WORLDS[0]!;
+
+  // Gate 1: Welcome / Auth Screen before onboarding or main app renders
+  if (state.account === null) {
+    if (gateView.screen === 'welcome') {
+      return (
+        <WelcomeScreen
+          onStartFree={() => setGateView({ screen: 'auth', mode: 'signup' })}
+          onTryNow={handleStartGuestTrial}
+          onLogin={() => setGateView({ screen: 'auth', mode: 'login' })}
+          onOpenParents={() => setGateView({ screen: 'auth', mode: 'login' })}
+        />
+      );
     }
-    setTab(nextTab);
-  };
 
-  const activeIndex = activeItem ? CURRICULUM_ITEMS.findIndex((i) => i.id === activeItem.id) : -1;
-  const nextItem =
-    activeIndex >= 0 && activeIndex + 1 < CURRICULUM_ITEMS.length
-      ? (CURRICULUM_ITEMS[activeIndex + 1] ?? null)
-      : null;
-  const totalXp = calculateTotalXp(state.totalStars, state.totalEffortStars);
-  const activeAvatar = getAvatarOption(state.profile.avatarId);
+    return (
+      <AuthScreen
+        initialMode={gateView.mode}
+        initialError={authUrlError}
+        onBackToWelcome={() => {
+          setAuthUrlError(null);
+          setGateView({ screen: 'welcome' });
+        }}
+        onAuthenticated={({
+          session,
+          childName,
+          avatarId,
+          isNewSignup,
+          remoteState,
+          isRemote,
+        }) => {
+          setAuthUrlError(null);
+          if (isRemote) {
+            setRemoteSessionActive(true);
+            skipNextRemoteSyncRef.current = true;
+          } else {
+            setRemoteSessionActive(false);
+          }
 
+          const normalizedSession = {
+            ...session,
+            publicId: isValidAccountPublicId(session.publicId)
+              ? session.publicId
+              : generateAccountPublicId(),
+          };
+
+          const hydrated = isRemote ? hydrateAlifboState(remoteState) : null;
+          setState((prev) => {
+            if (hydrated) {
+              return {
+                ...hydrated,
+                account: normalizedSession,
+                profile: {
+                  ...hydrated.profile,
+                  name: childName || hydrated.profile.name,
+                  avatarId: avatarId || hydrated.profile.avatarId,
+                },
+              };
+            }
+            const isSameAccount = prev.account?.id === normalizedSession.id;
+            const base = isRemote && !isSameAccount ? createInitialState() : prev;
+            return {
+              ...base,
+              account: normalizedSession,
+              profile: {
+                ...base.profile,
+                name: childName || base.profile.name,
+                avatarId: avatarId || base.profile.avatarId,
+              },
+              surveyData: isNewSignup ? null : base.surveyData,
+            };
+          });
+          setTab('home');
+        }}
+      />
+    );
+  }
+
+  // Gate 2: Full-screen 4-step Onboarding before ChildHome renders
+  if (state.surveyData === null || editingSurvey) {
+    return (
+      <OnboardingSurveyPage
+        childName={state.profile.name}
+        avatarId={state.profile.avatarId}
+        initialSurvey={editingSurvey ? state.surveyData : null}
+        onComplete={({ surveyData, recommendedWorldId }) => {
+          setEditingSurvey(false);
+          setRoundWorldId(recommendedWorldId);
+          setState((prev) => ({
+            ...prev,
+            surveyData,
+            dailyLimitMinutes: surveyData.dailyLimitMinutes,
+            activeWorldId: recommendedWorldId,
+          }));
+        }}
+        onCancelEdit={() => {
+          if (editingSurvey && state.surveyData !== null) {
+            setEditingSurvey(false);
+            return;
+          }
+          if (state.account?.id === 'guest_trial') {
+            setGateView({ screen: 'welcome' });
+            setState((prev) => ({ ...prev, account: null }));
+            return;
+          }
+          handleSignOut();
+          setGateView({ screen: 'auth', mode: 'signup' });
+        }}
+      />
+    );
+  }
+
+  // Immersive full-screen Lesson view (Mockups 07, 08, 09, 10, 12)
+  if (tab === 'lesson') {
+    return (
+      <LessonPlayer
+        sessionItems={sessionItems}
+        wordProgressMap={state.wordProgress}
+        worldTitle={activeRoundWorld.titleUz}
+        avatarId={state.profile.avatarId}
+        aiOnline={aiOnline}
+        onLetterHintTap={handleLetterHintTap}
+        onWordCompleted={handleWordCompleted}
+        onPlayAnotherRound={() => startWorldRound(roundWorldId)}
+        onBack={goToChildHome}
+      />
+    );
+  }
+
+  // Full-screen Uzbek Alphabet 29-letter chart & game view (Mockup 06)
+  if (tab === 'alphabet') {
+    return (
+      <AlphabetRecallDrawer
+        letterHintCounts={state.letterHintCounts}
+        letterMastery={state.letterMastery}
+        avatarId={state.profile.avatarId}
+        aiOnline={aiOnline}
+        totalStars={totalStarsAll}
+        onLetterHintTap={handleLetterHintTap}
+        onLetterReviewed={handleLetterReviewed}
+        onClose={() => setTab('home')}
+      />
+    );
+  }
+
+  // Full-screen Parent Corner view (Mockup 11)
+  if (tab === 'parent' && parentUnlocked) {
+    return (
+      <ParentCorner
+        state={state}
+        aiOnline={aiOnline}
+        screenTime={screenTime}
+        onExitToChildHome={exitParentAreaToChildHome}
+        onUpdateProfile={handleUpdateProfile}
+        onUpdateDailyLimit={(minutes) =>
+          setState((prev) => ({ ...prev, dailyLimitMinutes: clampDailyLimitMinutes(minutes) }))
+        }
+        onUpdateActiveWorld={(worldId) =>
+          setState((prev) => ({ ...prev, activeWorldId: worldId }))
+        }
+        onResetTodayTimer={() =>
+          setState((prev) => ({
+            ...prev,
+            dailyPracticeDate: getLocalDateString(),
+            todayPracticedSeconds: 0,
+          }))
+        }
+        onOpenSurvey={() => setEditingSurvey(true)}
+        onReplayOnboarding={() => setOnboardingModal({ open: true, isReplay: true })}
+        onUpdatePinHash={(newHash, lockout) =>
+          setState((prev) => ({ ...prev, pinHash: newHash, pinLockout: lockout }))
+        }
+        onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
+        onParentVerifyWord={handleParentVerifyWord}
+        onImportState={handleImportState}
+        onResetProgress={() => {
+          setState((prev) => ({
+            ...createInitialState(),
+            account: prev.account,
+            profile: prev.profile,
+            pinSalt: prev.pinSalt,
+            pinHash: prev.pinHash,
+            recoveryCodeHash: prev.recoveryCodeHash,
+            dailyLimitMinutes: prev.dailyLimitMinutes,
+            surveyData: prev.surveyData,
+            parentOnboardingDone: prev.parentOnboardingDone,
+          }));
+        }}
+        onSignOut={handleSignOut}
+      />
+    );
+  }
+
+  // Child Home Screen (Mockup 04 & Mobile Phone 1)
   return (
     <div className="app-shell">
+      <StorybookBackdrop />
+
       <header className="app-header">
+        <div className="app-header-left">
+          <button type="button" className="brand" onClick={goToChildHome} aria-label="Alifbo Bosh sahifa">
+            <img src="/images/logo.webp" alt="Alifbo" className="brand-logo-img" draggable={false} />
+          </button>
+
+          <span className="stars-pill-3d" aria-label="Jami yulduzlar">
+            <Star size={18} fill="#F59E0B" color="#B45309" />
+            <span>{totalStarsAll}</span>
+          </span>
+
+          <button
+            type="button"
+            className="abc-pill-3d nav-btn btn-hear-child"
+            onClick={() => {
+              playFeedbackChime('pop');
+              setTab('alphabet');
+            }}
+            aria-label="O‘zbek Alifbosi — 29 ta harf"
+          >
+            <span className="abc-letter abc-a">A</span>
+            <span className="abc-letter abc-b">B</span>
+            <span className="abc-letter abc-c">C</span>
+          </button>
+        </div>
+
         <button
           type="button"
-          className="brand"
-          onClick={() => switchChildTab('home')}
+          className="btn-3d-cream btn-compact btn-with-icon nav-btn"
+          onClick={handleOpenParentButton}
         >
-          <span className="brand-logo" aria-hidden="true">
-            <span className="char-vowel">A</span>
-            <span className="char-consonant">B</span>
-          </span>
-          <span className="brand-text">
-            <strong>Alifbo</strong>
-            <span className="brand-sub">Harflar va bo‘g‘inlar mashqlari</span>
-          </span>
+          <span>Ota-onalar</span>
+          <Lock size={15} color="#D97706" />
         </button>
-
-        <div className="header-controls">
-          <span className="streak-badge" aria-label="Mashg'ulot kunlari">
-            🔥 {state.practiceDates.length}
-          </span>
-          <span className="xp-header-badge" aria-label="Jami XP ballar">
-            ⚡ {totalXp} XP
-          </span>
-          <span className="stars-badge" aria-label="O'zlashtirish yulduzlari">
-            ⭐ {state.totalStars}
-          </span>
-
-          <nav className="primary-nav" aria-label="Asosiy bo‘limlar">
-            <button
-              type="button"
-              className={`nav-btn ${tab === 'home' ? 'nav-active' : ''}`}
-              onClick={() => switchChildTab('home')}
-            >
-              🗺️ Xarita
-            </button>
-            <button
-              type="button"
-              className={`nav-btn ${tab === 'profile' ? 'nav-active' : ''}`}
-              onClick={() => switchChildTab('profile')}
-            >
-              <span aria-hidden="true">{activeAvatar.emoji}</span> Profil
-            </button>
-            <button
-              type="button"
-              className={`nav-btn ${tab === 'parent' ? 'nav-active-parent' : ''}`}
-              onClick={handleOpenParentButton}
-            >
-              {tab === 'parent' ? '🏠 Bolalar' : '🔒 Ota-ona'}
-            </button>
-          </nav>
-        </div>
       </header>
 
       {loaded.recoveredCorruptData && (
@@ -312,89 +685,34 @@ export function App() {
       )}
 
       <main className="app-main">
-        {tab === 'home' && (
-          <ChildHome
-            recommendedItem={recommendedItem}
-            progressByItem={state.progressByItem}
-            totalStars={state.totalStars}
-            totalEffortStars={state.totalEffortStars}
-            dailyGoalXp={state.profile.dailyGoalXp}
-            childName={state.profile.name}
-            streakDays={state.practiceDates.length}
-            blockedByUnverifiedCap={blockedByUnverifiedCap}
-            parentSessionActive={parentSessionActive}
-            onStartLesson={handleSelectItem}
-            onExitParentSession={closeParentSession}
-          />
-        )}
-
-        {tab === 'profile' && (
-          <ChildProfile
-            state={state}
-            onUpdateProfile={handleUpdateProfile}
-            onStartLesson={handleSelectItem}
-          />
-        )}
-
-        {tab === 'lesson' && activeItem && (
-          <LessonPlayer
-            item={activeItem}
-            parentSessionActive={parentSessionActive}
-            aiOnline={aiOnline}
-            onBack={() => switchChildTab('home')}
-            onVerifiedComplete={handleVerifiedComplete}
-            onUnverifiedComplete={handleUnverifiedComplete}
-            onNextItem={() => {
-              if (nextItem && !blockedByUnverifiedCap) {
-                setActiveItem(nextItem);
-              } else {
-                setTab('home');
-              }
-            }}
-            hasNextItem={Boolean(nextItem) && !blockedByUnverifiedCap}
-          />
-        )}
-
-        {tab === 'parent' && parentUnlocked && (
-          <ParentCorner
-            state={state}
-            aiOnline={aiOnline}
-            parentSessionActive={parentSessionActive}
-            reviewQueue={reviewQueue}
-            onToggleParentSession={() => {
-              if (parentSessionActive) {
-                closeParentSession();
-              } else {
-                setParentSessionActive(true);
-                setParentSessionLastActiveMs(Date.now());
-              }
-            }}
-            onConfirmUnverified={handleConfirmUnverified}
-            onSelectItem={handleSelectItem}
-            onStartReview={() => {
-              if (reviewQueue[0]) handleSelectItem(reviewQueue[0]);
-            }}
-            onUpdatePinHash={(newHash, lockout) =>
-              setState((prev) => ({ ...prev, pinHash: newHash, pinLockout: lockout }))
-            }
-            onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
-            onResetProgress={() => {
-              closeParentSession();
-              setState((prev) => ({
-                ...createInitialState(),
-                profile: prev.profile,
-                pinSalt: prev.pinSalt,
-                pinHash: prev.pinHash,
-                recoveryCodeHash: prev.recoveryCodeHash,
-              }));
-            }}
-            onLockParentArea={() => {
-              setParentUnlocked(false);
-              setTab('home');
-            }}
-          />
-        )}
+        <ChildHome
+          childName={state.profile.name}
+          avatarId={state.profile.avatarId}
+          publicId={state.account?.publicId}
+          seenWordIds={state.seenWordIds}
+          masteredWordsCount={masteredWordsCount}
+          activeWorldId={state.activeWorldId}
+          screenTime={screenTime}
+          onStartWorldRound={startWorldRound}
+          onOpenAlphabetRecall={() => setTab('alphabet')}
+        />
       </main>
+
+      {onboardingModal.open && (
+        <ParentOnboardingModal
+          unverifiedCap={state.unverifiedCap}
+          isReplay={onboardingModal.isReplay}
+          onComplete={() => {
+            const wasReplay = onboardingModal.isReplay;
+            setOnboardingModal({ open: false, isReplay: false });
+            if (!wasReplay) {
+              setState((prev) => ({ ...prev, parentOnboardingDone: true }));
+              setPinModalOpen(true);
+            }
+          }}
+          onClose={() => setOnboardingModal({ open: false, isReplay: false })}
+        />
+      )}
 
       {pinModalOpen && (
         <PinModal
@@ -420,7 +738,6 @@ export function App() {
           }
           onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
           onEraseAllProgressAndResetPin={() => {
-            closeParentSession();
             setParentUnlocked(false);
             setState(createInitialState());
           }}

@@ -1,55 +1,623 @@
+import { ALIFBE_LETTERS_29, toSyllableSlug, type WordPoolItem } from '../data/curriculum';
+import { normalizeAsrBaseUrl } from '../logic/asrHealth';
 import {
   createMicAutoStopState,
+  MIC_AUTO_STOP_CONFIG,
   stepMicAutoStop,
   type MicAutoStopAction,
+  type MicAutoStopConfig,
 } from '../logic/micAutoStop';
+import { playSfx, type SfxKind } from './soundEffects';
 
 const TARGET_SAMPLE_RATE = 16_000;
 
 let activeAudio: HTMLAudioElement | null = null;
+let activeAbortController: AbortController | null = null;
+let playbackGeneration = 0;
+let playedSessionEntryKey: InstructionAudioKey | null = null;
+let activeEntryAttemptKey: InstructionAudioKey | null = null;
+const ttsBlobUrlCache = new Map<string, string>();
 
-export function playAudioClip(url: string): Promise<void> {
+const DEFAULT_AUTO_ENTRY_SKIP_SELECTORS: readonly string[] = [
+  '.world-card',
+  '.btn-continue-big',
+  '.btn-hear-child',
+  '.btn-bubble-audio',
+  '.nav-btn',
+  '.brand',
+];
+
+function targetMatchesSelectorList(target: EventTarget | null, selectors: readonly string[]): boolean {
+  if (!target || typeof target !== 'object' || !('closest' in target)) {
+    return false;
+  }
+  const maybeClosest = (target as { closest?: unknown }).closest;
+  if (typeof maybeClosest !== 'function') {
+    return false;
+  }
+  return selectors.some((sel) =>
+    Boolean((maybeClosest as (selector: string) => unknown).call(target, sel)),
+  );
+}
+
+/** Strip decorative emojis and normalize whitespace before sending Uzbek text to VoiceLab TTS. */
+export function sanitizeSpeechTextForTts(text: string): string {
+  return (text || '')
+    .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function stopActiveAudio(): void {
+  playbackGeneration += 1;
+  try {
+    if (activeAbortController) {
+      activeAbortController.abort();
+      activeAbortController = null;
+    }
+    if (activeAudio) {
+      activeAudio.pause();
+      activeAudio.currentTime = 0;
+      activeAudio = null;
+    }
+  } catch {
+    activeAudio = null;
+    activeAbortController = null;
+  }
+}
+
+export function resetSessionEntryAudioState(): void {
+  playedSessionEntryKey = null;
+  activeEntryAttemptKey = null;
+  stopActiveAudio();
+}
+
+function playObjectOrUrlAudio(url: string, generation: number): Promise<boolean> {
   return new Promise((resolve) => {
     try {
-      if (activeAudio) {
-        activeAudio.pause();
-        activeAudio.currentTime = 0;
+      if (typeof Audio === 'undefined' || generation !== playbackGeneration) {
+        resolve(false);
+        return;
       }
       const audio = new Audio(url);
       activeAudio = audio;
-      audio.onended = () => resolve();
-      audio.onerror = () => resolve();
-      void audio.play().catch(() => resolve());
+      audio.onended = () => {
+        if (activeAudio === audio) {
+          activeAudio = null;
+        }
+        resolve(true);
+      };
+      audio.onerror = () => {
+        if (activeAudio === audio) {
+          activeAudio = null;
+        }
+        resolve(false);
+      };
+      void audio.play().catch(() => {
+        if (activeAudio === audio) {
+          activeAudio = null;
+        }
+        resolve(false);
+      });
     } catch {
-      resolve();
+      resolve(false);
     }
   });
 }
 
-export function playFeedbackChime(kind: 'success' | 'tap'): void {
-  try {
-    const AudioCtx =
-      window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    if (!AudioCtx) return;
-    const ctx = new AudioCtx();
-    const now = ctx.currentTime;
-    const notes = kind === 'success' ? [523.25, 659.25, 783.99] : [440];
-    notes.forEach((freq, idx) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      gain.gain.setValueAtTime(0.08, now + idx * 0.08);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + idx * 0.08 + 0.18);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start(now + idx * 0.08);
-      osc.stop(now + idx * 0.08 + 0.2);
-    });
-    setTimeout(() => void ctx.close(), 600);
-  } catch {
-    // Ignore audio context restrictions
+type TtsPlaybackResult = 'played' | 'aborted' | 'unavailable';
+
+async function synthesizeAndPlayVoiceLab(
+  text: string,
+  voiceStyle?: 'friendly' | 'neutral',
+): Promise<TtsPlaybackResult> {
+  const cleanText = sanitizeSpeechTextForTts(text);
+  if (!cleanText || typeof fetch === 'undefined') {
+    return 'unavailable';
   }
+
+  stopActiveAudio();
+  const myGen = playbackGeneration;
+  const cacheKey = voiceStyle === 'neutral' ? `neutral:${cleanText}` : cleanText;
+
+  let objectUrl = ttsBlobUrlCache.get(cacheKey);
+  if (!objectUrl) {
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    activeAbortController = controller;
+    const reqPayload =
+      voiceStyle === 'neutral'
+        ? { text: cleanText, voice_style: 'neutral' as const }
+        : { text: cleanText };
+
+    try {
+      const resp = await fetch('/api/tts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(reqPayload),
+        signal: controller?.signal,
+      });
+      if (activeAbortController === controller) {
+        activeAbortController = null;
+      }
+      if (myGen !== playbackGeneration) {
+        return 'aborted';
+      }
+      const contentType = resp.headers?.get('content-type') ?? '';
+      if (!resp.ok || !contentType.toLowerCase().startsWith('audio/')) {
+        return 'unavailable';
+      }
+      const blob = await resp.blob();
+      if (typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        objectUrl = URL.createObjectURL(blob);
+        ttsBlobUrlCache.set(cacheKey, objectUrl);
+      } else {
+        return myGen === playbackGeneration ? 'played' : 'aborted';
+      }
+    } catch {
+      if (activeAbortController === controller) {
+        activeAbortController = null;
+      }
+      return myGen !== playbackGeneration ? 'aborted' : 'unavailable';
+    }
+  }
+
+  if (myGen !== playbackGeneration) {
+    return 'aborted';
+  }
+  if (!objectUrl) {
+    return 'unavailable';
+  }
+  const played = await playObjectOrUrlAudio(objectUrl, myGen);
+  if (myGen !== playbackGeneration) {
+    return 'aborted';
+  }
+  return played ? 'played' : 'unavailable';
+}
+
+/**
+ * Speak Uzbek text aloud exclusively via /api/tts (VoiceLab Lison v2 / UzbekVoice failover).
+ * Never falls back to browser Web Speech API (speechSynthesis).
+ */
+export async function speakUzbekText(text: string): Promise<void> {
+  await synthesizeAndPlayVoiceLab(text);
+}
+
+type StaticPlaybackResult = 'played' | 'aborted' | 'autoplay_blocked' | 'unavailable';
+
+function tryPlayStaticUrl(
+  url: string,
+  generation: number,
+  onStarted?: () => void,
+): Promise<StaticPlaybackResult> {
+  return new Promise((resolve) => {
+    try {
+      if (!url || typeof Audio === 'undefined' || generation !== playbackGeneration) {
+        resolve(generation !== playbackGeneration ? 'aborted' : 'unavailable');
+        return;
+      }
+      const audio = new Audio(url);
+      activeAudio = audio;
+      audio.onended = () => {
+        if (activeAudio === audio) {
+          activeAudio = null;
+        }
+        resolve(generation === playbackGeneration ? 'played' : 'aborted');
+      };
+      audio.onerror = () => {
+        if (activeAudio === audio) {
+          activeAudio = null;
+        }
+        resolve(generation === playbackGeneration ? 'unavailable' : 'aborted');
+      };
+      void Promise.resolve(audio.play())
+        .then(() => {
+          if (generation === playbackGeneration) {
+            onStarted?.();
+          }
+        })
+        .catch((err: unknown) => {
+          if (activeAudio === audio) {
+            activeAudio = null;
+          }
+          const isAutoplayBlocked = Boolean(
+            err &&
+              typeof err === 'object' &&
+              'name' in err &&
+              (err as { name?: unknown }).name === 'NotAllowedError',
+          );
+          resolve(
+            generation !== playbackGeneration
+              ? 'aborted'
+              : isAutoplayBlocked
+                ? 'autoplay_blocked'
+                : 'unavailable',
+          );
+        });
+    } catch {
+      resolve('unavailable');
+    }
+  });
+}
+
+async function playAudioClipInternal(
+  url: string,
+  fallbackText?: string,
+  opts?: { voiceStyle?: 'friendly' | 'neutral' },
+): Promise<TtsPlaybackResult> {
+  stopActiveAudio();
+  const myGen = playbackGeneration;
+  if (url) {
+    const res = await tryPlayStaticUrl(url, myGen);
+    if (res === 'played' || res === 'aborted') {
+      return res;
+    }
+    if (res === 'autoplay_blocked') {
+      return 'unavailable';
+    }
+  }
+  if (myGen === playbackGeneration && fallbackText) {
+    return synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
+  }
+  return myGen !== playbackGeneration ? 'aborted' : 'unavailable';
+}
+
+export async function playAudioClip(
+  url: string,
+  fallbackText?: string,
+  opts?: { voiceStyle?: 'friendly' | 'neutral' },
+): Promise<boolean> {
+  const res = await playAudioClipInternal(url, fallbackText, opts);
+  return res === 'played';
+}
+
+/**
+ * Play a welcome/entry static instruction clip once per session on site entry,
+ * retrying automatically on the first user gesture if blocked by browser autoplay policy.
+ */
+export function playInstructionAutoOnEntry(
+  key: InstructionAudioKey,
+  opts?: { skipSelectors?: string[] },
+): () => void {
+  if (playedSessionEntryKey === key || activeEntryAttemptKey === key) {
+    return () => {};
+  }
+  const url = `/audio/${key}.mp3`;
+
+  activeEntryAttemptKey = key;
+  let disposed = false;
+  let removeListeners = () => {};
+
+  const markPlayed = () => {
+    playedSessionEntryKey = key;
+    if (activeEntryAttemptKey === key) {
+      activeEntryAttemptKey = null;
+    }
+  };
+
+  stopActiveAudio();
+  const myGen = playbackGeneration;
+
+  void tryPlayStaticUrl(url, myGen, markPlayed).then((res) => {
+    if (res !== 'autoplay_blocked') {
+      if (activeEntryAttemptKey === key) {
+        activeEntryAttemptKey = null;
+      }
+      return;
+    }
+    if (
+      disposed ||
+      playedSessionEntryKey === key ||
+      typeof window === 'undefined' ||
+      typeof window.addEventListener !== 'function'
+    ) {
+      if (activeEntryAttemptKey === key) {
+        activeEntryAttemptKey = null;
+      }
+      return;
+    }
+
+    const skipList = opts?.skipSelectors ?? DEFAULT_AUTO_ENTRY_SKIP_SELECTORS;
+    const onFirstGesture = (event: Event) => {
+      removeListeners();
+      if (disposed || playedSessionEntryKey === key) {
+        if (activeEntryAttemptKey === key) {
+          activeEntryAttemptKey = null;
+        }
+        return;
+      }
+      if (targetMatchesSelectorList(event.target, skipList)) {
+        if (activeEntryAttemptKey === key) {
+          activeEntryAttemptKey = null;
+        }
+        return;
+      }
+      stopActiveAudio();
+      const unlockGen = playbackGeneration;
+      void tryPlayStaticUrl(url, unlockGen, markPlayed).then(() => {
+        if (activeEntryAttemptKey === key) {
+          activeEntryAttemptKey = null;
+        }
+      });
+    };
+
+    const eventNames = ['pointerdown', 'touchstart', 'keydown'] as const;
+    for (const evtName of eventNames) {
+      window.addEventListener(evtName, onFirstGesture, { capture: true, once: true });
+    }
+    removeListeners = () => {
+      for (const evtName of eventNames) {
+        if (typeof window.removeEventListener === 'function') {
+          window.removeEventListener(evtName, onFirstGesture, { capture: true });
+        }
+      }
+      removeListeners = () => {};
+    };
+  });
+
+  return () => {
+    disposed = true;
+    if (activeEntryAttemptKey === key) {
+      activeEntryAttemptKey = null;
+    }
+    removeListeners();
+  };
+}
+
+export type InstructionAudioKey =
+  | 'instr_home_welcome'
+  | 'instr_home_sleep'
+  | 'instr_alpha_listen'
+  | 'instr_alpha_picture'
+  | 'instr_alpha_say'
+  | 'instr_alpha_chart'
+  | 'instr_letter_help_tip'
+  | 'instr_stage1_train'
+  | 'instr_stage1_constructor'
+  | 'instr_stage1_bubbles'
+  | 'instr_stage1_bubble_speak'
+  | 'instr_stage1_bubble_read_word'
+  | 'instr_stage1_bubble_confirm_word'
+  | 'instr_stage1_sentence'
+  | 'instr_stage2_spotlight_word'
+  | 'instr_stage2_spotlight_sentence'
+  | 'instr_stage3_exam_voice_word'
+  | 'instr_stage3_exam_voice_sentence'
+  | 'instr_stage3_exam_offline_word'
+  | 'instr_stage3_exam_offline_sentence'
+  | 'instr_comprehension_action'
+  | 'instr_comp_eat'
+  | 'instr_comp_move'
+  | 'instr_comp_nature';
+
+export const INSTRUCTION_FALLBACK_TEXT: Record<InstructionAudioKey, string> = {
+  instr_home_welcome: 'Salom, bolajon! Bugun yangi so‘zlarni birga o‘qiymiz! Qani boshladik!',
+  instr_home_sleep:
+    'Barakalla! Bugungi mashqni a’lo bajarding! Endi ko‘zlarimiz dam olsin, ertaga yana o‘ynaymiz!',
+  instr_alpha_listen: 'Quloq sol! Qaysi harfning tovushi eshitildi?',
+  instr_alpha_picture: 'Harfga mos rasmni top!',
+  instr_alpha_say: 'Endi bu harf va so‘zni ovoz chiqarib ayt!',
+  instr_alpha_chart: 'Istalgan harf ustiga bos — tovushini va so‘zini aytib beraman!',
+  instr_letter_help_tip: 'Harfni unutdingmi? Istalgan harf ustiga bos!',
+  instr_stage1_train: 'Slayderni surib bo‘g‘inlarni bir-biriga yaqinlashtir va birlashtir!',
+  instr_stage1_constructor:
+    'Bo‘g‘inlarni qo‘shib so‘z yasa! Rasmga qarab yetishmayotgan bo‘g‘inni tanla!',
+  instr_stage1_bubbles:
+    'Bo‘g‘in pufakchalarini tartib bilan yorib, har birini ovoz chiqarib o‘qi!',
+  instr_stage1_bubble_speak: 'Ajoyib! Endi bu bo‘g‘inni ovoz chiqarib ayt!',
+  instr_stage1_bubble_read_word: 'Zo‘r! Endi yig‘ilgan butun so‘zni ovoz chiqarib o‘qi!',
+  instr_stage1_bubble_confirm_word: 'Zo‘r! Endi yig‘ilgan so‘zni o‘qib, mos rasmni tanla!',
+  instr_stage1_sentence: 'Rasmga qarab so‘zlarni to‘g‘ri tartibda terib gap tuz!',
+  instr_stage2_spotlight_word: 'Bo‘g‘inlarni yoritib o‘qi va mos rasmni top!',
+  instr_stage2_spotlight_sentence: 'So‘zlarni yoritib gapni o‘qi va ma’nosiga mos rasmni top!',
+  instr_stage3_exam_voice_word: 'Endi bu so‘zni o‘zing mustaqil o‘qib, mikrofonga ayt!',
+  instr_stage3_exam_voice_sentence: 'Endi bu gapni o‘zing mustaqil o‘qib, mikrofonga ayt!',
+  instr_stage3_exam_offline_word: 'Endi bu so‘zni o‘zing o‘qib ko‘r va mos rasmni tanla!',
+  instr_stage3_exam_offline_sentence: 'Endi bu gapni o‘zing o‘qib ko‘r va mos rasmni tanla!',
+  instr_comprehension_action: 'Gapda nima haqida aytilgan? Ma’nosiga mos rasmni tanla!',
+  instr_comp_eat: 'Kim nima yedi, ichdi yoki tayyorladi? Mos rasmni tanla!',
+  instr_comp_move: 'Kim qanday harakat qildi? To‘g‘ri rasmni tanla!',
+  instr_comp_nature: 'Tabiatda nima sodir bo‘ldi? Mos rasmni tanla!',
+};
+
+export type FeedbackAudioKey =
+  | 'fb_no_speech'
+  | 'fb_louder_clearer'
+  | 'fb_listen_then_try'
+  | 'fb_other_word'
+  | 'fb_try_syllables'
+  | 'fb_listen_together'
+  | 'fb_server_offline_pic'
+  | 'fb_mic_blocked_pic'
+  | 'fb_offline_look_again'
+  | 'fb_sentence_order'
+  | 'fb_bubble_try_again'
+  | 'fb_bubble_server_offline'
+  | 'fb_bubble_mic_blocked'
+  | 'fb_bubble_listen_repeat'
+  | 'fb_alpha_repeat'
+  | 'fb_alpha_server_offline'
+  | 'fb_alpha_mic_blocked';
+
+export const FEEDBACK_FALLBACK_TEXT: Record<FeedbackAudioKey, string> = {
+  fb_no_speech: 'Ovozing eshitilmadi — yana bir bor balandroq aytib ko‘r!',
+  fb_louder_clearer: 'Yana bir bor balandroq va aniqroq aytib ko‘r!',
+  fb_listen_then_try:
+    'Ovoz yaxshi eshitilmadi — eshitib ko‘r, keyin yana o‘qib ber yoki Birga aytamiz tugmasini bos.',
+  fb_other_word: 'Bu boshqa so‘zga o‘xshadi. Harflarga diqqat bilan qarab yana bir bor o‘qi!',
+  fb_try_syllables: 'Yaxshi harakat! Quloq solib, bo‘g‘inlarga qarab yana bir marta o‘qib ko‘r.',
+  fb_listen_together: 'Keling, so‘zni birga eshitib o‘qiymiz!',
+  fb_server_offline_pic: 'Ovoz serveri bilan aloqa uzildi. Rasm tanlash orqali davom etamiz.',
+  fb_mic_blocked_pic: 'Mikrofonga ruxsat berilmadi — mos rasmni tanlash rejimiga o‘tamiz.',
+  fb_offline_look_again: 'Yana bir bor so‘zni diqqat bilan o‘qib ko‘r-chi!',
+  fb_sentence_order: 'So‘zlarni to‘g‘ri tartibda joylashtirib ko‘r!',
+  fb_bubble_try_again: 'Bu bo‘g‘inni yana bir bor aniqroq aytib ko‘r-chi!',
+  fb_bubble_server_offline: 'Ovoz serveri bilan aloqa uzildi — eshitib davom etamiz.',
+  fb_bubble_mic_blocked: 'Mikrofonga ruxsat berilmadi — ovozli pauza rejimiga o‘tamiz.',
+  fb_bubble_listen_repeat: 'Tingla va birga ayt!',
+  fb_alpha_repeat: 'So‘zni yana bir bor aniqroq aytib ko‘r yoki pastdagi tugma bilan davom et!',
+  fb_alpha_server_offline:
+    'Ovoz serveri bilan aloqa uzildi — pastdagi tugma bilan davom etishingiz mumkin.',
+  fb_alpha_mic_blocked: 'Mikrofonga ruxsat berilmadi — pastdagi tugma bilan davom eting.',
+};
+
+const WRONG_FEEDBACK_PHRASES = [
+  'Yaqin kelding, yana bir urinib ko‘r!',
+  'Boshqa rasmni tekshirib ko‘ramizmi?',
+  'Hechqisi yo‘q, shoshilmasdan yana qarab ko‘r!',
+  'Deyarli topding! Harflarga diqqat bilan qarab yana urinib ko‘r!',
+  'Boshqa bo‘g‘inni sinab ko‘ramizmi? Sen albatta topasan!',
+] as const;
+
+const PRAISE_PHRASES = [
+  'Barakalla! Juda to‘g‘ri topding!',
+  'Zo‘r! Sen haqiqiy zukko bolajonsan!',
+  'Ajoyib! Juda chiroyli o‘qiding!',
+  'Yasha! Xuddi shunday davom et!',
+] as const;
+
+let wrongFeedbackCursor = 0;
+let praiseCursor = 0;
+
+/** Play static instruction MP3 first (offline-safe), falling back to /api/tts if needed. */
+export async function playInstructionAudio(
+  key: InstructionAudioKey,
+  fallbackText?: string,
+): Promise<boolean> {
+  return playAudioClip(`/audio/${key}.mp3`, fallbackText ?? INSTRUCTION_FALLBACK_TEXT[key]);
+}
+
+/** Play child-facing error/status/hint message via static MP3 first, falling back to /api/tts. */
+export async function playFeedbackAudio(
+  key: FeedbackAudioKey,
+  fallbackText?: string,
+): Promise<boolean> {
+  return playAudioClip(`/audio/${key}.mp3`, fallbackText ?? FEEDBACK_FALLBACK_TEXT[key]);
+}
+
+/** Play gentle, non-punitive wrong-answer voice guidance from static MP3 clips. */
+export async function playWrongFeedbackAudio(): Promise<boolean> {
+  const idx = wrongFeedbackCursor % WRONG_FEEDBACK_PHRASES.length;
+  wrongFeedbackCursor += 1;
+  const fallback = WRONG_FEEDBACK_PHRASES[idx] ?? WRONG_FEEDBACK_PHRASES[0];
+  return playAudioClip(`/audio/wrong_${idx + 1}.mp3`, fallback);
+}
+
+/** Play cheerful praise or round/alphabet completion audio from static MP3 clips. */
+export async function playPraiseAudio(
+  key?: 'round_complete' | 'alphabet_complete',
+): Promise<void> {
+  if (key === 'round_complete') {
+    await playAudioClip(
+      '/audio/praise_round_complete.mp3',
+      'Ura! Mashqni a’lo darajada yakunlading! Juda ko‘p yulduzcha to‘plading, barakalla!',
+    );
+    return;
+  }
+  if (key === 'alphabet_complete') {
+    await playAudioClip(
+      '/audio/praise_alphabet_complete.mp3',
+      'Ofarin! Barcha harflarni zo‘r takrorlading! Sen haqiqiy chempionsan!',
+    );
+    return;
+  }
+  const idx = praiseCursor % PRAISE_PHRASES.length;
+  praiseCursor += 1;
+  const fallback = PRAISE_PHRASES[idx] ?? PRAISE_PHRASES[0];
+  await playAudioClip(`/audio/praise_${idx + 1}.mp3`, fallback);
+}
+
+/** Play static syllable MP3 first (syl_<slug>.mp3 or sound_<slug>.mp3), falling back to /api/tts. */
+export async function playSyllableAudio(syllable: string): Promise<void> {
+  const slug = toSyllableSlug(syllable);
+  stopActiveAudio();
+  const myGen = playbackGeneration;
+  if (slug) {
+    const sylRes = await tryPlayStaticUrl(`/audio/syl_${slug}.mp3`, myGen);
+    if (sylRes !== 'unavailable') return;
+    const soundRes = await tryPlayStaticUrl(`/audio/sound_${slug}.mp3`, myGen);
+    if (soundRes !== 'unavailable') return;
+  }
+  if (myGen === playbackGeneration) {
+    await synthesizeAndPlayVoiceLab(`${syllable.toLowerCase()}.`);
+  }
+}
+
+/** Play pure plain letter + reminder word via static offline MP3 first (with neutral /api/tts fallback). */
+export async function playLetterRecallAudio(
+  letter: string,
+  opts?: { skipChime?: boolean },
+): Promise<void> {
+  const norm = letter.trim().toUpperCase().replace(/[‘ʻʼ`´]/g, "'");
+  const entry = ALIFBE_LETTERS_29.find(
+    (item) => item.letter.toUpperCase() === norm || (norm === "'" && item.letter === '’'),
+  );
+  if (!entry) {
+    await speakUzbekText(letter);
+    return;
+  }
+  if (!opts?.skipChime) {
+    playFeedbackChime('marimba');
+  }
+  stopActiveAudio();
+  const myGen = playbackGeneration;
+  const recallRes = await tryPlayStaticUrl(entry.audioRecall, myGen);
+  if (recallRes !== 'unavailable') return;
+  const soundRes = await tryPlayStaticUrl(entry.audioSound, myGen);
+  if (soundRes !== 'unavailable') return;
+  if (myGen === playbackGeneration) {
+    await synthesizeAndPlayVoiceLab(entry.phoneticTtsPrompt, 'neutral');
+  }
+}
+
+/** Play audio for a WordPoolItem via static offline MP3 first (with /api/tts fallback). */
+export async function playWordItemAudio(item: WordPoolItem): Promise<void> {
+  stopActiveAudio();
+  const myGen = playbackGeneration;
+  if (item.audioSound) {
+    const res = await tryPlayStaticUrl(item.audioSound, myGen);
+    if (res !== 'unavailable') return;
+  }
+  if (myGen === playbackGeneration) {
+    await synthesizeAndPlayVoiceLab(item.text.toLowerCase());
+  }
+}
+
+/** Speak feedback clip first, then immediately play the target word unless interrupted. */
+export async function playFeedbackThenWord(
+  key: FeedbackAudioKey,
+  item: WordPoolItem,
+  fallbackText?: string,
+): Promise<void> {
+  const res = await playAudioClipInternal(
+    `/audio/${key}.mp3`,
+    fallbackText ?? FEEDBACK_FALLBACK_TEXT[key],
+  );
+  if (res === 'aborted') return;
+  await playWordItemAudio(item);
+}
+
+/** Speak instruction clip first, then immediately play the target letter audio unless interrupted. */
+export async function playInstructionThenLetter(
+  key: InstructionAudioKey,
+  letter: string,
+): Promise<void> {
+  const res = await playAudioClipInternal(`/audio/${key}.mp3`, INSTRUCTION_FALLBACK_TEXT[key]);
+  if (res === 'aborted') return;
+  await playLetterRecallAudio(letter, { skipChime: true });
+}
+
+export function playFeedbackChime(kind: 'success' | 'tap' | SfxKind): void {
+  if (kind === 'tap') {
+    playSfx('pop');
+    return;
+  }
+  if (kind === 'success') {
+    playSfx('chime');
+    return;
+  }
+  playSfx(kind);
 }
 
 function downsampleTo16k(input: Float32Array, sourceRate: number): Float32Array {
@@ -64,6 +632,31 @@ function downsampleTo16k(input: Float32Array, sourceRate: number): Float32Array 
     const s0 = input[idx] ?? 0;
     const s1 = input[Math.min(idx + 1, input.length - 1)] ?? s0;
     out[i] = s0 + (s1 - s0) * frac;
+  }
+  return out;
+}
+
+export function normalizeAudioPeak(
+  samples: Float32Array,
+  targetPeak = 0.75,
+  maxGain = 6.0,
+): Float32Array {
+  let peak = 0;
+  for (let i = 0; i < samples.length; i++) {
+    const absVal = Math.abs(samples[i] ?? 0);
+    if (absVal > peak) peak = absVal;
+  }
+  if (peak < 0.008 || peak >= targetPeak) {
+    return samples;
+  }
+  const gain = Math.min(maxGain, targetPeak / peak);
+  if (gain <= 1.05) {
+    return samples;
+  }
+  const out = new Float32Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const scaled = (samples[i] ?? 0) * gain;
+    out[i] = Math.max(-1, Math.min(1, scaled));
   }
   return out;
 }
@@ -105,6 +698,9 @@ export function encodeWav16k(samples: Float32Array): Blob {
 export interface MicRecordingResult {
   wavBlob: Blob;
   durationMs: number;
+  firstSpeechMs: number | null;
+  lastSpeechMs: number | null;
+  recordingStartWallMs: number;
 }
 
 export interface MicSession {
@@ -115,7 +711,11 @@ export interface MicSession {
 export async function startMicRecording(
   onLevel: (rms: number) => void,
   onAutoStop?: (reason: Exclude<MicAutoStopAction, 'continue'>, result: MicRecordingResult) => void,
+  micConfig: MicAutoStopConfig = MIC_AUTO_STOP_CONFIG,
+  onSpeechStart?: (wallTimeMs: number) => void,
 ): Promise<MicSession> {
+  stopActiveAudio();
+
   if (!navigator.mediaDevices?.getUserMedia) {
     throw new Error("Brauzerda mikrofon ruxsati qo'llab-quvvatlanmaydi.");
   }
@@ -124,18 +724,22 @@ export async function startMicRecording(
     audio: {
       channelCount: 1,
       echoCancellation: true,
-      noiseSuppression: true,
+      noiseSuppression: false,
+      autoGainControl: true,
     },
   });
 
   const AudioCtx =
     window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
   const ctx = new AudioCtx();
+  if (ctx.state === 'suspended') {
+    await ctx.resume();
+  }
   const source = ctx.createMediaStreamSource(stream);
   const processor = ctx.createScriptProcessor(2048, 1, 1);
   const chunks: Float32Array[] = [];
   let totalSamples = 0;
-  let autoState = createMicAutoStopState();
+  let autoState = createMicAutoStopState(micConfig);
   const startMs = performance.now();
   let stopped = false;
 
@@ -159,10 +763,16 @@ export async function startMicRecording(
       merged.set(chunk, pos);
       pos += chunk.length;
     }
-    const resampled = downsampleTo16k(merged, rate);
+    const resampled = normalizeAudioPeak(downsampleTo16k(merged, rate));
     const wavBlob = encodeWav16k(resampled);
     const durationMs = Math.round((resampled.length / TARGET_SAMPLE_RATE) * 1000);
-    return { wavBlob, durationMs };
+    return {
+      wavBlob,
+      durationMs,
+      firstSpeechMs: autoState.firstSpeechMs,
+      lastSpeechMs: autoState.lastSpeechMs,
+      recordingStartWallMs: startMs,
+    };
   };
 
   processor.onaudioprocess = (event) => {
@@ -182,8 +792,12 @@ export async function startMicRecording(
     onLevel(Math.min(1, rms * 6));
 
     const elapsedMs = performance.now() - startMs;
-    const step = stepMicAutoStop(autoState, rms, elapsedMs);
+    const wasSpeaking = autoState.speechStarted;
+    const step = stepMicAutoStop(autoState, rms, elapsedMs, micConfig);
     autoState = step.state;
+    if (!wasSpeaking && autoState.speechStarted && onSpeechStart) {
+      onSpeechStart(performance.now());
+    }
     if (step.action !== 'continue') {
       stopped = true;
       const result = finalize();
@@ -216,7 +830,8 @@ export interface SttApiResponse {
   normalized: string;
   accepted: boolean;
   is_silence: boolean;
-  confidence: number;
+  confidence: number | null;
+  confidence_available?: boolean;
   latency_ms: number;
   orig_ms: number;
   trimmed_ms: number;
@@ -227,12 +842,15 @@ export async function verifyAudioWithStt(
   audioData: Blob,
   expected: string,
   acceptAliases: string[],
+  baseUrl = normalizeAsrBaseUrl(
+    typeof import.meta !== 'undefined' ? import.meta.env?.VITE_ASR_URL : '',
+  ),
 ): Promise<SttApiResponse> {
   const params = new URLSearchParams({
     expected,
     accept: acceptAliases.join('|'),
   });
-  const resp = await fetch(`/api/stt?${params.toString()}`, {
+  const resp = await fetch(`${baseUrl}/api/stt?${params.toString()}`, {
     method: 'POST',
     headers: {
       'Content-Type': audioData.type || 'application/octet-stream',

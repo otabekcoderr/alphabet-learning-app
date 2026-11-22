@@ -14,31 +14,42 @@ Modes:
       Regenerates syllable/word/instruction clips using the chosen UzbekVoice model
       and updates audio_review.csv.
 
-  --mode voicelab [--voice-id <id>]:
+  --mode voicelab [--voice-id <id>] [--model-id <model_id>]:
       Regenerates all 102 audio clips (sounds, instructions, UI phrases) using
-      VoiceLab.uz REST API (default: Gulya — Sweet streamer) and updates
+      VoiceLab.uz REST API (default: Malika — Meme streamer on lison-v2) and updates
       audio_review.csv.
 """
 
 import argparse
-import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import csv
+import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tempfile
+import threading
 import time
 import uuid
 from pathlib import Path
+from urllib.parse import urljoin
 
 import requests
 
 UZV_TTS_URL = os.environ.get("UZBEKVOICE_TTS_URL", "https://uzbekvoice.ai/api/v1/tts")
+UZV_TASKS_URL = "https://uzbekvoice.ai/api/v1/tasks"
 VOICELAB_TTS_URL = os.environ.get("VOICELAB_TTS_URL", "https://api.voicelab.uz/v1/tts")
+DEFAULT_VOICELAB_MODEL_ID = os.environ.get("VOICELAB_MODEL_ID", "lison-v2")
+MALIKA_VOICE_ID = "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a"
+GULNOZA_NEUTRAL_VOICE_ID = "voice_01J9NEUTRAL0000000000000001"
 SAFIYA_VOICE_ID = "voice_2785aabd-21b5-4cc7-9845-2230186ef7d9"
 GULYA_VOICE_ID = "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c"
 VOICELAB_VOICE_NAMES = {
+    MALIKA_VOICE_ID: "malika",
+    GULNOZA_NEUTRAL_VOICE_ID: "gulnoza",
     GULYA_VOICE_ID: "gulya",
     SAFIYA_VOICE_ID: "safiya",
 }
@@ -116,6 +127,180 @@ UI_PHRASES = [
     ("jimlik_sezildi", "instruction", "Ovozing yaxshi eshitilmadi, mikrofon yonida balandroq ayt!"),
 ]
 
+# Alifbo 2.2 plain, neutral (emotionless) letter specification:
+# (slug, plain_letter_tts, example_word_tts, display_text)
+PLAIN_LETTER_SPEC = [
+    ("o", "o", "Olma.", "O. Olma."),
+    ("a", "a", "Anor.", "A. Anor."),
+    ("n", "n", "Non.", "N. Non."),
+    ("i", "i", "Ilon.", "I. Ilon."),
+    ("m", "m", "Mushuk.", "M. Mushuk."),
+    ("t", "t", "Tog‘.", "T. Tog‘."),
+    ("l", "l", "Lola.", "L. Lola."),
+    ("b", "b", "Baliq.", "B. Baliq."),
+    ("k", "k", "Kitob.", "K. Kitob."),
+    ("r", "r", "Ro‘mol.", "R. Ro‘mol."),
+    ("u", "u", "Uzum.", "U. Uzum."),
+    ("s", "s", "Sabzi.", "S. Sabzi."),
+    ("d", "d", "Daraxt.", "D. Daraxt."),
+    ("e", "e", "Eshik.", "E. Eshik."),
+    ("z", "z harfi", "Zebra.", "Z harfi. Zebra."),
+    ("sh", "sh", "Shar.", "Sh. Shar."),
+    ("v", "v", "Vagon.", "V. Vagon."),
+    ("y", "y", "Yulduz.", "Y. Yulduz."),
+    ("g", "g", "Gilos.", "G. Gilos."),
+    ("ng", "ng tovushi", "Tong.", "Ng tovushi. Tong."),
+    ("o_apostrophe", "o‘", "O‘rdak.", "O‘. O‘rdak."),
+    ("ch", "ch", "Choynak.", "Ch. Choynak."),
+    ("q", "q", "Qalam.", "Q. Qalam."),
+    ("g_apostrophe", "g‘ harfi", "G‘oz.", "G‘ harfi. G‘oz."),
+    ("h", "h", "Havo.", "H. Havo."),
+    ("j", "j", "Jo‘ja.", "J. Jo‘ja."),
+    ("x", "x", "Xo‘roz.", "X. Xo‘roz."),
+    ("f", "f", "Fil.", "F. Fil."),
+    ("p", "p", "Pomidor.", "P. Pomidor."),
+    ("tutuq", "tutuq belgisi", "A’lo.", "Tutuq belgisi. A’lo."),
+]
+
+PHONETIC_LETTER_MAP = [(slug, display) for slug, _letter, _word, display in PLAIN_LETTER_SPEC]
+
+DIALOG_AUDITION_PHRASES = [
+    ("bu_nima", "Topding! Qani ovoz chiqarib ayt-chi: Bu nima?"),
+    ("qaytaring_quvnoq", "Yasha! Juda to‘g‘ri! Endi men bilan birga quvnoq qilib qaytar: Ki-tob!"),
+    ("motivatsiya_birga", "Hechqisi yo‘q! Keling, birga bo‘g‘inlab aytamiz: Ki - tob! Sen albatta uddalaysan!"),
+    ("letter_k_kitob", "K. Kitob."),
+    ("letter_sh_shar", "Sh. Shar."),
+]
+
+# Pure letter sounds to generate: 15 non-legacy letters + 3 legacy mispronounced vowels/nasal (o, e, n)
+LEGACY_LETTER_SOUNDS_TO_FIX = {"o", "e", "n"}
+MISSING_LETTER_SOUNDS = [
+    (slug, plain_letter)
+    for slug, plain_letter, _word, _display in PLAIN_LETTER_SPEC
+    if slug in {
+        "z", "sh", "y", "g", "ng", "o_apostrophe", "ch", "q",
+        "g_apostrophe", "h", "j", "x", "f", "p", "tutuq",
+    }
+]
+
+INSTRUCTION_PHRASES = [
+    ("instr_home_welcome", "Salom, bolajon! Bugun yangi so‘zlarni birga o‘qiymiz! Qani boshladik!"),
+    ("instr_home_sleep", "Barakalla! Bugungi mashqni a’lo bajarding! Endi ko‘zlarimiz dam olsin, ertaga yana o‘ynaymiz!"),
+    ("instr_alpha_listen", "Quloq sol! Qaysi harfning tovushi eshitildi?"),
+    ("instr_alpha_picture", "Harfga mos rasmni top!"),
+    ("instr_alpha_say", "Endi bu harf va so‘zni ovoz chiqarib ayt!"),
+    ("instr_alpha_chart", "Istalgan harf ustiga bos — tovushini va so‘zini aytib beraman!"),
+    ("instr_letter_help_tip", "Harfni unutdingmi? Istalgan harf ustiga bos!"),
+    ("instr_stage1_train", "Slayderni surib bo‘g‘inlarni bir-biriga yaqinlashtir va birlashtir!"),
+    ("instr_stage1_constructor", "Bo‘g‘inlarni qo‘shib so‘z yasa! Rasmga qarab yetishmayotgan bo‘g‘inni tanla!"),
+    ("instr_stage1_bubbles", "Bo‘g‘in pufakchalarini tartib bilan yorib, har birini ovoz chiqarib o‘qi!"),
+    ("instr_stage1_bubble_speak", "Ajoyib! Endi bu bo‘g‘inni ovoz chiqarib ayt!"),
+    ("instr_stage1_bubble_read_word", "Zo‘r! Endi yig‘ilgan butun so‘zni ovoz chiqarib o‘qi!"),
+    ("instr_stage1_bubble_confirm_word", "Zo‘r! Endi yig‘ilgan so‘zni o‘qib, mos rasmni tanla!"),
+    ("instr_stage1_sentence", "Rasmga qarab so‘zlarni to‘g‘ri tartibda terib gap tuz!"),
+    ("instr_stage2_spotlight_word", "Bo‘g‘inlarni yoritib o‘qi va mos rasmni top!"),
+    ("instr_stage2_spotlight_sentence", "So‘zlarni yoritib gapni o‘qi va ma’nosiga mos rasmni top!"),
+    ("instr_stage3_exam_voice_word", "Endi bu so‘zni o‘zing mustaqil o‘qib, mikrofonga ayt!"),
+    ("instr_stage3_exam_voice_sentence", "Endi bu gapni o‘zing mustaqil o‘qib, mikrofonga ayt!"),
+    ("instr_stage3_exam_offline_word", "Endi bu so‘zni o‘zing o‘qib ko‘r va mos rasmni tanla!"),
+    ("instr_stage3_exam_offline_sentence", "Endi bu gapni o‘zing o‘qib ko‘r va mos rasmni tanla!"),
+    ("instr_comprehension_action", "Gapda nima haqida aytilgan? Ma’nosiga mos rasmni tanla!"),
+    ("instr_comp_eat", "Kim nima yedi, ichdi yoki tayyorladi? Mos rasmni tanla!"),
+    ("instr_comp_move", "Kim qanday harakat qildi? To‘g‘ri rasmni tanla!"),
+    ("instr_comp_nature", "Tabiatda nima sodir bo‘ldi? Mos rasmni tanla!"),
+]
+
+FEEDBACK_PHRASES = [
+    ("fb_no_speech", "Ovozing eshitilmadi — yana bir bor balandroq aytib ko‘r!"),
+    ("fb_louder_clearer", "Yana bir bor balandroq va aniqroq aytib ko‘r!"),
+    ("fb_listen_then_try", "Ovoz yaxshi eshitilmadi — eshitib ko‘r, keyin yana o‘qib ber yoki Birga aytamiz tugmasini bos."),
+    ("fb_other_word", "Bu boshqa so‘zga o‘xshadi. Harflarga diqqat bilan qarab yana bir bor o‘qi!"),
+    ("fb_try_syllables", "Yaxshi harakat! Quloq solib, bo‘g‘inlarga qarab yana bir marta o‘qib ko‘r."),
+    ("fb_listen_together", "Keling, so‘zni birga eshitib o‘qiymiz!"),
+    ("fb_server_offline_pic", "Ovoz serveri bilan aloqa uzildi. Rasm tanlash orqali davom etamiz."),
+    ("fb_mic_blocked_pic", "Mikrofonga ruxsat berilmadi — mos rasmni tanlash rejimiga o‘tamiz."),
+    ("fb_offline_look_again", "Yana bir bor so‘zni diqqat bilan o‘qib ko‘r-chi!"),
+    ("fb_sentence_order", "So‘zlarni to‘g‘ri tartibda joylashtirib ko‘r!"),
+    ("fb_bubble_try_again", "Bu bo‘g‘inni yana bir bor aniqroq aytib ko‘r-chi!"),
+    ("fb_bubble_server_offline", "Ovoz serveri bilan aloqa uzildi — eshitib davom etamiz."),
+    ("fb_bubble_mic_blocked", "Mikrofonga ruxsat berilmadi — ovozli pauza rejimiga o‘tamiz."),
+    ("fb_bubble_listen_repeat", "Tingla va birga ayt!"),
+    ("fb_alpha_repeat", "So‘zni yana bir bor aniqroq aytib ko‘r yoki pastdagi tugma bilan davom et!"),
+    ("fb_alpha_server_offline", "Ovoz serveri bilan aloqa uzildi — pastdagi tugma bilan davom etishingiz mumkin."),
+    ("fb_alpha_mic_blocked", "Mikrofonga ruxsat berilmadi — pastdagi tugma bilan davom eting."),
+]
+
+WRONG_FEEDBACK_PHRASES = [
+    ("wrong_1", "Yaqin kelding, yana bir urinib ko‘r!"),
+    ("wrong_2", "Boshqa rasmni tekshirib ko‘ramizmi?"),
+    ("wrong_3", "Hechqisi yo‘q, shoshilmasdan yana qarab ko‘r!"),
+    ("wrong_4", "Deyarli topding! Harflarga diqqat bilan qarab yana urinib ko‘r!"),
+    ("wrong_5", "Boshqa bo‘g‘inni sinab ko‘ramizmi? Sen albatta topasan!"),
+]
+
+PRAISE_PHRASES = [
+    ("praise_1", "Barakalla! Juda to‘g‘ri topding!"),
+    ("praise_2", "Zo‘r! Sen haqiqiy zukko bolajonsan!"),
+    ("praise_3", "Ajoyib! Juda chiroyli o‘qiding!"),
+    ("praise_4", "Yasha! Xuddi shunday davom et!"),
+    ("praise_round_complete", "Ura! Mashqni a’lo darajada yakunlading! Juda ko‘p yulduzcha to‘plading, barakalla!"),
+    ("praise_alphabet_complete", "Ofarin! Barcha harflarni zo‘r takrorlading! Sen haqiqiy chempionsan!"),
+]
+
+EXISTING_DYNAMIC_SOUND_IDS = {
+    "ona", "ana", "non", "nima", "lola", "olma", "oila", "limon",
+    "arra", "asal", "suv", "bola", "bobo", "ota", "dada", "kitob",
+}
+
+
+def to_syllable_slug(syl: str) -> str:
+    """Convert an Uzbek syllable/grapheme chunk into a deterministic ASCII filename slug."""
+    s = syl.lower()
+    s = re.sub(r"o['’‘ʻʼ`´]", "o_ap", s)
+    s = re.sub(r"g['’‘ʻʼ`´]", "g_ap", s)
+    s = re.sub(r"['’‘ʻʼ`´]", "", s)
+    s = re.sub(r"[^a-z0-9_]", "", s)
+    return s
+
+
+def load_curriculum_offline_tasks(project_root: Path) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str]]]:
+    """Parse DYNAMIC_WORD_POOL from src/data/curriculum.ts for offline word & World-4 syllable TTS."""
+    src_path = project_root / "src" / "data" / "curriculum.ts"
+    src = src_path.read_text(encoding="utf-8")
+    pattern = re.compile(r"makeWordItem\('([^']+)',\s*(\d+),\s*'([^']+)',\s*\[([^\]]+)\]")
+    word_tasks: list[tuple[str, str, str]] = []
+    syl_tasks: list[tuple[str, str, str]] = []
+    seen_syls: set[str] = set()
+
+    for item_id, world, text, parts_raw in pattern.findall(src):
+        if item_id not in EXISTING_DYNAMIC_SOUND_IDS:
+            tts_text = f"{text.capitalize()}."
+            kind = "sentence" if world == "5" else "word"
+            word_tasks.append((f"word_{item_id}.mp3", tts_text, kind))
+        if world == "4":
+            for part in re.findall(r"'([^']+)'", parts_raw):
+                slug = to_syllable_slug(part)
+                if slug and slug not in seen_syls:
+                    seen_syls.add(slug)
+                    syl_tasks.append((f"syl_{slug}.mp3", f"{part.capitalize()}.", "syllable"))
+
+    return word_tasks, syl_tasks
+
+
+def read_existing_review_voices(project_root: Path) -> dict[str, str]:
+    """Read existing audio_review.csv file->voice map to preserve untouched legacy clips' attribution."""
+    csv_path = project_root / "audio_review.csv"
+    voices: dict[str, str] = {}
+    if not csv_path.exists():
+        return voices
+    with open(csv_path, "r", newline="", encoding="utf-8-sig") as f:
+        for row in csv.DictReader(f):
+            rel = (row.get("file") or "").strip()
+            voice = (row.get("voice") or "").strip()
+            if rel.startswith("public/audio/") and voice:
+                voices[rel.removeprefix("public/audio/")] = voice
+    return voices
+
 
 def load_env_secret(project_root: Path, var_name: str) -> str:
     """Load secret from environment or project .env (never prints secret)."""
@@ -154,7 +339,7 @@ def find_ffmpeg() -> str:
 
 
 def wav_bytes_to_mp3(audio_bytes: bytes, out_path: Path, ffmpeg_exe: str) -> None:
-    """Convert WAV/audio bytes from UzbekVoice CDN to clean 44.1 kHz mono MP3."""
+    """Convert WAV/audio bytes from TTS CDN to clean 44.1 kHz mono MP3."""
     out_path.parent.mkdir(parents=True, exist_ok=True)
     subprocess.run(
         [ffmpeg_exe, "-y", "-v", "error", "-i", "pipe:0", "-ac", "1", "-ar", "44100", "-b:a", "128k", str(out_path)],
@@ -164,49 +349,117 @@ def wav_bytes_to_mp3(audio_bytes: bytes, out_path: Path, ffmpeg_exe: str) -> Non
     )
 
 
-def synthesize_uzbekvoice(api_key: str, text: str, model: str, out_path: Path, ffmpeg_exe: str) -> dict:
-    """Call POST https://uzbekvoice.ai/api/v1/tts without deprecated mood parameter."""
-    resp = requests.post(
-        UZV_TTS_URL,
-        headers={"Authorization": api_key},
-        json={"text": text, "model": model, "blocking": "true"},
-        timeout=45,
-    )
-    if resp.status_code >= 400:
-        return {
-            "ok": False,
-            "http_status": resp.status_code,
-            "error": resp.text[:300],
-        }
-
-    body = resp.json()
-    task_id = body.get("id")
-    deadline = time.time() + 30
-    while not (body.get("result") or {}).get("url") and time.time() < deadline:
-        time.sleep(0.5)
-        poll = requests.get(
-            "https://uzbekvoice.ai/api/v1/tasks",
-            params={"id": task_id},
-            headers={"Authorization": api_key},
-            timeout=30,
+def concat_audio_with_silence(
+    part1_bytes: bytes,
+    part2_bytes: bytes,
+    out_path: Path,
+    ffmpeg_exe: str,
+    pause_ms: int = 320,
+) -> None:
+    """Join two synthesized audio segments with a crisp silence pause into a 44.1 kHz mono MP3."""
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    pause_sec = max(0.05, pause_ms / 1000.0)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        p1 = Path(tmpdir) / "part1.audio"
+        p2 = Path(tmpdir) / "part2.audio"
+        p1.write_bytes(part1_bytes)
+        p2.write_bytes(part2_bytes)
+        filter_graph = (
+            "[0:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=mono[a0];"
+            "[1:a]aresample=44100,aformat=sample_fmts=fltp:channel_layouts=mono[a1];"
+            "[a0][2:a][a1]concat=n=3:v=0:a=1[out]"
         )
-        poll.raise_for_status()
-        body = poll.json()
+        subprocess.run(
+            [
+                ffmpeg_exe, "-y", "-v", "error",
+                "-i", str(p1),
+                "-i", str(p2),
+                "-f", "lavfi", "-t", f"{pause_sec:.3f}", "-i", "anullsrc=r=44100:cl=mono",
+                "-filter_complex", filter_graph,
+                "-map", "[out]",
+                "-ac", "1", "-ar", "44100", "-b:a", "128k",
+                str(out_path),
+            ],
+            capture_output=True,
+            check=True,
+        )
 
-    audio_url = (body.get("result") or {}).get("url")
-    if not audio_url:
-        return {"ok": False, "http_status": resp.status_code, "error": "No result.url returned"}
 
-    media = requests.get(audio_url, timeout=45)
-    media.raise_for_status()
-    wav_bytes_to_mp3(media.content, out_path, ffmpeg_exe)
+def synthesize_uzbekvoice_bytes(api_key: str, text: str, model: str) -> dict:
+    """Call POST https://uzbekvoice.ai/api/v1/tts with retries and return raw audio bytes."""
+    last_err: dict = {"ok": False, "http_status": 500, "error": "Unknown error"}
+    for attempt in range(4):
+        try:
+            resp = requests.post(
+                UZV_TTS_URL,
+                headers={"Authorization": api_key},
+                json={"text": text, "model": model, "blocking": "true"},
+                timeout=45,
+            )
+        except Exception as exc:
+            last_err = {"ok": False, "http_status": 503, "error": str(exc)}
+            if attempt < 3:
+                time.sleep(1.5 * (attempt + 1))
+                continue
+            return last_err
 
+        if resp.status_code == 429 and attempt < 3:
+            time.sleep(2.5 * (attempt + 1))
+            continue
+        if resp.status_code >= 500 and attempt < 3:
+            last_err = {"ok": False, "http_status": resp.status_code, "error": resp.text[:300]}
+            time.sleep(1.5 * (attempt + 1))
+            continue
+        if resp.status_code >= 400:
+            return {
+                "ok": False,
+                "http_status": resp.status_code,
+                "error": resp.text[:300],
+            }
+
+        body = resp.json()
+        task_id = body.get("id")
+        deadline = time.time() + 35
+        while not (body.get("result") or {}).get("url") and time.time() < deadline:
+            time.sleep(0.5)
+            poll = requests.get(
+                UZV_TASKS_URL,
+                params={"id": task_id},
+                headers={"Authorization": api_key},
+                timeout=30,
+            )
+            poll.raise_for_status()
+            body = poll.json()
+
+        audio_url = (body.get("result") or {}).get("url")
+        if not audio_url:
+            return {"ok": False, "http_status": resp.status_code, "error": "No result.url returned"}
+
+        media = requests.get(audio_url, timeout=45)
+        media.raise_for_status()
+        return {
+            "ok": True,
+            "http_status": resp.status_code,
+            "requested_model": body.get("requested_model"),
+            "actual_model": body.get("model") or model,
+            "model_substituted": body.get("model_substituted"),
+            "audio_bytes": media.content,
+        }
+    return last_err
+
+
+def synthesize_uzbekvoice(api_key: str, text: str, model: str, out_path: Path, ffmpeg_exe: str) -> dict:
+    """Call POST https://uzbekvoice.ai/api/v1/tts and convert to 44.1 kHz mono MP3."""
+    res = synthesize_uzbekvoice_bytes(api_key, text, model)
+    if not res["ok"]:
+        return res
+    wav_bytes_to_mp3(res["audio_bytes"], out_path, ffmpeg_exe)
     return {
         "ok": True,
-        "http_status": resp.status_code,
-        "requested_model": body.get("requested_model"),
-        "actual_model": body.get("model"),
-        "model_substituted": body.get("model_substituted"),
+        "http_status": res["http_status"],
+        "requested_model": res.get("requested_model"),
+        "actual_model": res.get("actual_model"),
+        "model_substituted": res.get("model_substituted"),
         "bytes": out_path.stat().st_size,
     }
 
@@ -221,18 +474,32 @@ def _parse_int_header(headers: requests.structures.CaseInsensitiveDict, name: st
         return None
 
 
-def synthesize_voicelab(api_key: str, text: str, voice_id: str, out_path: Path, ffmpeg_exe: str) -> dict:
-    """Call POST https://api.voicelab.uz/v1/tts and convert returned WAV bytes to MP3."""
+def synthesize_voicelab(
+    api_key: str,
+    text: str,
+    voice_id: str,
+    out_path: Path,
+    ffmpeg_exe: str,
+    model_id: str = DEFAULT_VOICELAB_MODEL_ID,
+) -> dict:
+    """Call POST https://api.voicelab.uz/v1/tts (Lison v2) and convert returned WAV bytes to MP3."""
+    idempotency_key = str(uuid.uuid4())
     for attempt in range(4):
         resp = requests.post(
             VOICELAB_TTS_URL,
             headers={
                 "Authorization": f"Bearer {api_key}",
                 "Content-Type": "application/json",
-                "Idempotency-Key": str(uuid.uuid4()),
+                "Idempotency-Key": idempotency_key,
                 "Accept": "audio/wav",
             },
-            json={"text": text, "language": "uz", "voice_id": voice_id},
+            json={
+                "text": text,
+                "language": "uz",
+                "voice_id": voice_id,
+                "model_id": model_id,
+                "speed": 1,
+            },
             timeout=60,
         )
         if resp.status_code == 429 and attempt < 3:
@@ -242,6 +509,39 @@ def synthesize_voicelab(api_key: str, text: str, voice_id: str, out_path: Path, 
             wait_s = max(1, (reset_s if reset_s is not None else 2) + 1)
             time.sleep(wait_s)
             continue
+
+        if resp.status_code == 202:
+            job = resp.json()
+            status_url = urljoin(VOICELAB_TTS_URL, job.get("status_url") or f"/v1/tts/generations/{job.get('id', '')}")
+            audio_bytes: bytes | None = None
+            for _ in range(25):
+                time.sleep(1.0)
+                poll = requests.get(
+                    status_url,
+                    headers={"Authorization": f"Bearer {api_key}"},
+                    timeout=30,
+                )
+                poll.raise_for_status()
+                poll_data = poll.json()
+                if poll_data.get("status") == "completed" and poll_data.get("audio_url"):
+                    media = requests.get(poll_data["audio_url"], timeout=60)
+                    media.raise_for_status()
+                    audio_bytes = media.content
+                    break
+                if poll_data.get("status") == "failed":
+                    return {"ok": False, "http_status": 502, "error": poll_data.get("error") or "Async job failed"}
+            if audio_bytes is None:
+                return {"ok": False, "http_status": 504, "error": "Async TTS job timed out"}
+            wav_bytes_to_mp3(audio_bytes, out_path, ffmpeg_exe)
+            return {
+                "ok": True,
+                "http_status": 200,
+                "bytes": out_path.stat().st_size,
+                "duration_ms": None,
+                "credits_used": None,
+                "ratelimit_remaining": _parse_int_header(resp.headers, "Ratelimit-Remaining"),
+                "ratelimit_reset": _parse_int_header(resp.headers, "Ratelimit-Reset"),
+            }
 
         if resp.status_code >= 400:
             return {
@@ -264,37 +564,26 @@ def synthesize_voicelab(api_key: str, text: str, voice_id: str, out_path: Path, 
     return {"ok": False, "http_status": 429, "error": "Rate limit retries exhausted"}
 
 
-async def ensure_missing_placeholders(audio_dir: Path) -> list[str]:
-    import edge_tts
-
-    created: list[str] = []
-    for item_id, _kind, short_sound, teacher_prompt in CURRICULUM_AUDIO:
-        for fname, text in [(f"item_{item_id}.mp3", teacher_prompt), (f"sound_{item_id}.mp3", short_sound)]:
-            out_path = audio_dir / fname
-            if not out_path.exists():
-                comm = edge_tts.Communicate(text, "uz-UZ-MadinaNeural", rate="-12%")
-                await comm.save(str(out_path))
-                created.append(fname)
-    return created
-
-
 def write_review_csv(
     project_root: Path,
     sample_rows: list[dict],
     active_voice: str | None = None,
     provider: str = "uzbekvoice",
     file_voice_map: dict[str, str] | None = None,
+    extra_rows: list[dict] | None = None,
+    sound_text_overrides: dict[str, str] | None = None,
 ) -> Path:
     """Write audio_review.csv tracking voice attribution and review status for every static file."""
     rows = []
     for item_id, kind, short_sound, teacher_prompt in CURRICULUM_AUDIO:
         sound_fname = f"sound_{item_id}.mp3"
         item_fname = f"item_{item_id}.mp3"
+        effective_short_sound = (sound_text_overrides or {}).get(sound_fname, short_sound)
         if file_voice_map is not None:
             fallback_tag = f"{provider}:{active_voice or 'gulya'}"
             rows.append({
                 "file": f"public/audio/{sound_fname}",
-                "text": short_sound,
+                "text": effective_short_sound,
                 "type": kind,
                 "voice": file_voice_map.get(sound_fname, fallback_tag),
                 "status": "needs teacher review",
@@ -310,7 +599,7 @@ def write_review_csv(
             voice_tag = f"voicelab:{active_voice}"
             rows.append({
                 "file": f"public/audio/{sound_fname}",
-                "text": short_sound,
+                "text": effective_short_sound,
                 "type": kind,
                 "voice": voice_tag,
                 "status": "needs teacher review",
@@ -374,6 +663,8 @@ def write_review_csv(
         })
 
     rows.extend(sample_rows)
+    if extra_rows:
+        rows.extend(extra_rows)
 
     csv_path = project_root / "audio_review.csv"
     with open(csv_path, "w", newline="", encoding="utf-8-sig") as f:
@@ -394,8 +685,6 @@ def run_samples(project_root: Path, api_key: str) -> None:
         for f in samples_dir.glob(f"{dup_prefix}*.mp3"):
             f.unlink()
             print(f"Removed substituted duplicate: {f.name}")
-
-    asyncio.run(ensure_missing_placeholders(audio_dir))
 
     sample_rows = []
     # Keep/verify 3x3=9 files + generate 3 clearly named "nnn" phonetic experiment clips
@@ -459,8 +748,13 @@ def run_full(project_root: Path, api_key: str, voice: str) -> None:
     print(f"Full regeneration done with '{voice}'. Manifest: {csv_path}")
 
 
-def run_voicelab_full(project_root: Path, api_key: str, voice_id: str) -> None:
-    """Regenerate all 102 static MP3 clips using VoiceLab.uz with local cache and adaptive pacing."""
+def run_voicelab_full(
+    project_root: Path,
+    api_key: str,
+    voice_id: str,
+    model_id: str = DEFAULT_VOICELAB_MODEL_ID,
+) -> None:
+    """Regenerate all 102 static MP3 clips using VoiceLab.uz (Lison v2) with local cache."""
     audio_dir = project_root / "public" / "audio"
     audio_dir.mkdir(parents=True, exist_ok=True)
     cache_path = audio_dir / ".voicelab_cache.json"
@@ -484,78 +778,52 @@ def run_voicelab_full(project_root: Path, api_key: str, voice_id: str) -> None:
 
     total = len(tasks)
     voice_label = VOICELAB_VOICE_NAMES.get(voice_id, voice_id)
-    print(f"Synthesizing {total} files with VoiceLab voice={voice_label} ({voice_id}) ...", flush=True)
+    print(
+        f"Synthesizing {total} files with VoiceLab model={model_id}, voice={voice_label} ({voice_id}) ...",
+        flush=True,
+    )
     synthesized = 0
     skipped = 0
-    kept_safiya = 0
-    fallback_lola = 0
-    credits_exhausted = False
-    uzv_key: str | None = None
     file_voice_map: dict[str, str] = {}
 
     for idx, (fname, text) in enumerate(tasks, start=1):
         out_path = audio_dir / fname
         cached_entry = cache.get(fname)
-        if out_path.exists() and cached_entry == {"voice_id": voice_id, "text": text}:
+        if out_path.exists() and cached_entry == {
+            "voice_id": voice_id,
+            "model_id": model_id,
+            "text": text,
+        }:
             skipped += 1
-            file_voice_map[fname] = f"voicelab:{voice_label}"
+            file_voice_map[fname] = f"voicelab:{model_id}:{voice_label}"
             print(f"  [{idx:03d}/{total}] {fname:<26} CACHED ({voice_label})", flush=True)
             continue
 
-        if not credits_exhausted:
-            res = synthesize_voicelab(api_key, text, voice_id, out_path, ffmpeg_exe)
-            if res["ok"]:
-                synthesized += 1
-                file_voice_map[fname] = f"voicelab:{voice_label}"
-                cache[fname] = {"voice_id": voice_id, "text": text}
-                cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+        res = synthesize_voicelab(api_key, text, voice_id, out_path, ffmpeg_exe, model_id=model_id)
+        if not res["ok"]:
+            sys.exit(
+                f"VoiceLab synthesis failed at {idx}/{total} ({fname}): "
+                f"HTTP {res.get('http_status')}: {res.get('error')}"
+            )
 
-                remaining = res.get("ratelimit_remaining")
-                reset_s = res.get("ratelimit_reset")
-                print(
-                    f"  [{idx:03d}/{total}] {fname:<26} OK ({res['bytes']} B, {res.get('duration_ms')} ms, rem={remaining})",
-                    flush=True,
-                )
+        synthesized += 1
+        file_voice_map[fname] = f"voicelab:{model_id}:{voice_label}"
+        cache[fname] = {"voice_id": voice_id, "model_id": model_id, "text": text}
+        cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
 
-                if idx < total:
-                    if remaining is not None and remaining <= 2:
-                        wait_s = max(1, (reset_s if reset_s is not None else 2) + 1)
-                        time.sleep(wait_s)
-                    else:
-                        time.sleep(0.35)
-                continue
+        remaining = res.get("ratelimit_remaining")
+        reset_s = res.get("ratelimit_reset")
+        print(
+            f"  [{idx:03d}/{total}] {fname:<26} OK ({res['bytes']} B, {res.get('duration_ms')} ms, rem={remaining})",
+            flush=True,
+        )
 
-            if res.get("http_status") == 402:
-                credits_exhausted = True
-                print(
-                    f"  [WARN] VoiceLab credits exhausted (HTTP 402) at {idx}/{total} ({fname}). "
-                    "Keeping existing Safiya clips and using UzbekVoice Lola for missing files.",
-                    flush=True,
-                )
+        if idx < total:
+            if remaining is not None and remaining <= 2:
+                wait_s = max(1, (reset_s if reset_s is not None else 2) + 1)
+                time.sleep(wait_s)
             else:
-                sys.exit(
-                    f"VoiceLab synthesis failed at {idx}/{total} ({fname}): "
-                    f"HTTP {res.get('http_status')}: {res.get('error')}"
-                )
-
-        # Fallback path after HTTP 402
-        if out_path.exists():
-            kept_safiya += 1
-            file_voice_map[fname] = "voicelab:safiya"
-            print(f"  [{idx:03d}/{total}] {fname:<26} KEPT existing Safiya", flush=True)
-        else:
-            if uzv_key is None:
-                uzv_key = load_api_key(project_root)
-            res_u = synthesize_uzbekvoice(uzv_key, text, "lola", out_path, ffmpeg_exe)
-            if not res_u["ok"]:
-                sys.exit(
-                    f"UzbekVoice Lola fallback failed at {idx}/{total} ({fname}): "
-                    f"HTTP {res_u.get('http_status')}: {res_u.get('error')}"
-                )
-            fallback_lola += 1
-            file_voice_map[fname] = "uzbekvoice:lola"
-            print(f"  [{idx:03d}/{total}] {fname:<26} FALLBACK uzbekvoice:lola ({res_u['bytes']} B)", flush=True)
-            time.sleep(0.2)
+                time.sleep(0.35)
 
     csv_path = write_review_csv(
         project_root,
@@ -565,27 +833,614 @@ def run_voicelab_full(project_root: Path, api_key: str, voice_id: str) -> None:
         file_voice_map=file_voice_map,
     )
     print(
-        f"Sync complete (gulya_new={synthesized}, gulya_cached={skipped}, kept_safiya={kept_safiya}, fallback_lola={fallback_lola}). "
+        f"Sync complete (new={synthesized}, cached={skipped}, model={model_id}, voice={voice_label}). "
         f"Manifest updated: {csv_path}",
         flush=True,
     )
 
 
+def run_audition(project_root: Path) -> None:
+    """Generate cheerful dialog and difficult-letter audition clips across available TTS voices."""
+    audition_dir = project_root / "public" / "audio" / "voice_audition"
+    audition_dir.mkdir(parents=True, exist_ok=True)
+    ffmpeg_exe = find_ffmpeg()
+
+    def try_env(var_name: str) -> str | None:
+        val = os.environ.get(var_name, "").strip()
+        if val:
+            return val
+        env_file = project_root / ".env"
+        if env_file.exists():
+            for line in env_file.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped:
+                    k, v = stripped.split("=", 1)
+                    if k.strip() == var_name:
+                        return v.strip().strip('"').strip("'")
+        return None
+
+    uzv_key = try_env("UZBEKVOICE_API_KEY")
+    vl_key = try_env("VOICELAB_API_KEY")
+    if not uzv_key and not vl_key:
+        sys.exit("Na UZBEKVOICE_API_KEY, na VOICELAB_API_KEY topilmadi.")
+
+    if vl_key:
+        for vid, vname in VOICELAB_VOICE_NAMES.items():
+            for key, phrase in DIALOG_AUDITION_PHRASES:
+                out_path = audition_dir / f"voicelab_{vname}_{key}.mp3"
+                res = synthesize_voicelab(
+                    vl_key,
+                    phrase,
+                    vid,
+                    out_path,
+                    ffmpeg_exe,
+                    model_id=DEFAULT_VOICELAB_MODEL_ID,
+                )
+                print(f"  [voicelab:{vname}] {key}.mp3 -> {'OK' if res['ok'] else res.get('error')}")
+                time.sleep(0.35)
+
+    if uzv_key:
+        for vname in DISTINCT_VOICES:
+            for key, phrase in DIALOG_AUDITION_PHRASES:
+                out_path = audition_dir / f"uzbekvoice_{vname}_{key}.mp3"
+                res = synthesize_uzbekvoice(uzv_key, phrase, vname, out_path, ffmpeg_exe)
+                print(f"  [uzbekvoice:{vname}] {key}.mp3 -> {'OK' if res['ok'] else res.get('error')}")
+                time.sleep(0.25)
+
+    print(f"Audition clips saved to: {audition_dir}")
+
+
+def _load_optional_env_secret(project_root: Path, var_name: str) -> str:
+    val = os.environ.get(var_name, "").strip()
+    if val:
+        return val
+    env_file = project_root / ".env"
+    if env_file.exists():
+        for line in env_file.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            k, v = stripped.split("=", 1)
+            if k.strip() == var_name:
+                return v.strip().strip('"').strip("'")
+    return ""
+
+
+def _load_voicelab_api_keys(project_root: Path, primary_key: str) -> list[str]:
+    """Collect unique VoiceLab API keys in priority order from primary_key, VOICELAB_API_KEYS, and VOICELAB_API_KEY."""
+    candidates: list[str] = []
+    if primary_key.strip():
+        candidates.append(primary_key.strip())
+    for raw_list in (_load_optional_env_secret(project_root, "VOICELAB_API_KEYS"),):
+        if raw_list:
+            for part in re.split(r"[\s,;]+", raw_list):
+                if part.strip():
+                    candidates.append(part.strip())
+    fallback_single = _load_optional_env_secret(project_root, "VOICELAB_API_KEY")
+    if fallback_single:
+        candidates.append(fallback_single)
+
+    unique: list[str] = []
+    seen: set[str] = set()
+    for key in candidates:
+        if key not in seen:
+            seen.add(key)
+            unique.append(key)
+    return unique
+
+
+def _synthesize_single_voicelab_bytes(
+    api_key: str, text: str, voice_id: str, model_id: str, speed: float = 1.0
+) -> dict:
+    idempotency_key = str(uuid.uuid4())
+    is_short_prompt = len(text.strip()) < 20
+    connect_timeouts = 0
+    last_err: dict = {"ok": False, "http_status": 500, "error": "VoiceLab synthesis error"}
+
+    for attempt in range(6):
+        try:
+            resp = requests.post(
+                VOICELAB_TTS_URL,
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json",
+                    "Idempotency-Key": idempotency_key,
+                    "Accept": "audio/wav",
+                },
+                json={
+                    "text": text,
+                    "language": "uz",
+                    "voice_id": voice_id,
+                    "model_id": model_id,
+                    "speed": speed,
+                },
+                timeout=(10, 50),
+            )
+        except requests.exceptions.ConnectTimeout as exc:
+            connect_timeouts += 1
+            last_err = {
+                "ok": False,
+                "http_status": 504,
+                "error_kind": "connect_timeout",
+                "error": f"ConnectTimeout: {exc}",
+            }
+            if connect_timeouts >= 2:
+                return last_err
+            time.sleep(1.0)
+            continue
+        except requests.RequestException as exc:
+            last_err = {"ok": False, "http_status": 503, "error": str(exc)}
+            if attempt < 5:
+                time.sleep(min(8.0, 1.0 * (2 ** min(attempt, 3))))
+                continue
+            return last_err
+
+        if resp.status_code in (401, 402, 403):
+            return {
+                "ok": False,
+                "http_status": resp.status_code,
+                "error_kind": "fatal_auth_or_credits",
+                "error": resp.text[:300],
+            }
+
+        if resp.status_code == 429:
+            reset_s = _parse_int_header(resp.headers, "Retry-After")
+            if reset_s is None:
+                reset_s = _parse_int_header(resp.headers, "Ratelimit-Reset")
+            wait_s = max(1, (reset_s if reset_s is not None else min(10, 2 ** min(attempt, 3))) + 1)
+            last_err = {"ok": False, "http_status": 429, "error": resp.text[:300]}
+            if attempt < 5:
+                time.sleep(wait_s)
+                continue
+            return last_err
+
+        if resp.status_code >= 500:
+            last_err = {"ok": False, "http_status": resp.status_code, "error": resp.text[:300]}
+            if attempt < 5:
+                time.sleep(min(8.0, 1.0 * (2 ** min(attempt, 3))))
+                continue
+            return last_err
+
+        audio_bytes: bytes | None = None
+        if resp.status_code == 202:
+            try:
+                job = resp.json()
+                status_url = urljoin(VOICELAB_TTS_URL, job.get("status_url") or f"/v1/tts/generations/{job.get('id', '')}")
+                for _ in range(25):
+                    time.sleep(1.0)
+                    poll = requests.get(
+                        status_url,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                        timeout=(10, 30),
+                    )
+                    poll.raise_for_status()
+                    poll_data = poll.json()
+                    if poll_data.get("status") == "completed" and poll_data.get("audio_url"):
+                        media = requests.get(poll_data["audio_url"], timeout=(10, 50))
+                        media.raise_for_status()
+                        audio_bytes = media.content
+                        break
+                    if poll_data.get("status") == "failed":
+                        return {"ok": False, "http_status": 502, "error": poll_data.get("error") or "Async job failed"}
+            except requests.RequestException as exc:
+                last_err = {"ok": False, "http_status": 503, "error": str(exc)}
+                if attempt < 5:
+                    time.sleep(min(8.0, 1.0 * (2 ** min(attempt, 3))))
+                    continue
+                return last_err
+            if audio_bytes is None:
+                return {"ok": False, "http_status": 504, "error": "Async TTS job timed out"}
+        elif resp.status_code >= 400:
+            return {"ok": False, "http_status": resp.status_code, "error": resp.text[:300]}
+        else:
+            audio_bytes = resp.content
+
+        if is_short_prompt and len(audio_bytes) > 576_044:
+            last_err = {
+                "ok": False,
+                "http_status": 502,
+                "error": f"Runaway audio guard triggered ({len(audio_bytes)} B for {len(text.strip())} chars)",
+            }
+            if attempt < 1:
+                idempotency_key = str(uuid.uuid4())
+                time.sleep(0.5)
+                continue
+            return last_err
+
+        return {
+            "ok": True,
+            "http_status": 200,
+            "audio_bytes": audio_bytes,
+            "credits_used": _parse_int_header(resp.headers, "X-Voicelab-Credits-Used"),
+        }
+
+    return last_err
+
+
+def run_voicelab_offline_full(
+    project_root: Path,
+    api_key: str,
+    voice_id: str,
+    model_id: str = DEFAULT_VOICELAB_MODEL_ID,
+    sync_csv_only: bool = False,
+    provider: str = "voicelab",
+    uzv_voice: str = "shoira",
+    workers: int = 3,
+    force_letters: bool = False,
+    only_tier1: bool = False,
+    letter_voice_id: str = MALIKA_VOICE_ID,
+) -> None:
+    """Synthesize ALL offline-required static MP3 clips strictly with VoiceLab Lison v2 by default."""
+    audio_dir = project_root / "public" / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = audio_dir / ".offline_tts_cache.json"
+    legacy_vl_cache_path = audio_dir / ".voicelab_cache.json"
+    ffmpeg_exe = None if sync_csv_only else find_ffmpeg()
+
+    use_uzv_direct = provider == "uzbekvoice"
+    strict_voicelab = provider == "voicelab"
+    uzv_key = "" if strict_voicelab else _load_optional_env_secret(project_root, "UZBEKVOICE_API_KEY")
+    vl_keys = [] if use_uzv_direct else _load_voicelab_api_keys(project_root, api_key)
+    vl_key = vl_keys[0] if vl_keys else ""
+
+    cache: dict[str, dict[str, str]] = {}
+    if legacy_vl_cache_path.exists():
+        try:
+            old_loaded = json.loads(legacy_vl_cache_path.read_text(encoding="utf-8"))
+            if isinstance(old_loaded, dict):
+                for k, v in old_loaded.items():
+                    if isinstance(v, dict):
+                        cache[k] = {
+                            "provider": "voicelab",
+                            "voice": VOICELAB_VOICE_NAMES.get(v.get("voice_id", ""), v.get("voice_id", "malika")),
+                            "text": str(v.get("text", "")),
+                        }
+        except Exception:
+            pass
+    if cache_path.exists():
+        try:
+            loaded = json.loads(cache_path.read_text(encoding="utf-8"))
+            if isinstance(loaded, dict):
+                cache.update(loaded)
+        except Exception:
+            pass
+
+    word_tasks, syl_tasks = load_curriculum_offline_tasks(project_root)
+    legacy_voices = read_existing_review_voices(project_root)
+
+    # (fname, text, kind, letter_pair_or_None, is_letter_clip, is_tier1)
+    offline_tasks: list[tuple[str, str, str, tuple[str, str] | None, bool, bool]] = []
+    for slug, plain_letter, ex_word, display in PLAIN_LETTER_SPEC:
+        offline_tasks.append((f"letter_{slug}.mp3", display, "letter recall", (plain_letter, ex_word), True, True))
+    for slug, plain_letter, _ex_word, _display in PLAIN_LETTER_SPEC:
+        if slug in LEGACY_LETTER_SOUNDS_TO_FIX or any(s == slug for s, _ in MISSING_LETTER_SOUNDS):
+            offline_tasks.append((f"sound_{slug}.mp3", plain_letter, "letter sound", None, True, True))
+    for key, phrase in INSTRUCTION_PHRASES:
+        offline_tasks.append((f"{key}.mp3", phrase, "instruction", None, False, True))
+    for key, phrase in FEEDBACK_PHRASES:
+        offline_tasks.append((f"{key}.mp3", phrase, "feedback", None, False, True))
+    for key, phrase in WRONG_FEEDBACK_PHRASES:
+        offline_tasks.append((f"{key}.mp3", phrase, "wrong feedback", None, False, True))
+    for key, phrase in PRAISE_PHRASES:
+        offline_tasks.append((f"{key}.mp3", phrase, "praise", None, False, True))
+    for key, kind, phrase in UI_PHRASES:
+        offline_tasks.append((f"{key}.mp3", phrase, kind, None, False, True))
+    for fname, text, kind in word_tasks:
+        offline_tasks.append((fname, text, kind, None, False, False))
+    for fname, text, kind in syl_tasks:
+        offline_tasks.append((fname, text, kind, None, False, False))
+
+    existing_offline_fnames = {t[0] for t in offline_tasks}
+    tier3_tasks: list[tuple[str, str, str, tuple[str, str] | None, bool, bool]] = []
+    if not only_tier1:
+        for item_id, kind, short_sound, teacher_prompt in CURRICULUM_AUDIO:
+            for fname, text, row_kind in (
+                (f"sound_{item_id}.mp3", short_sound, kind),
+                (f"item_{item_id}.mp3", teacher_prompt, "instruction"),
+            ):
+                if fname not in existing_offline_fnames and not legacy_voices.get(fname, "").startswith("voicelab:"):
+                    tier3_tasks.append((fname, text, row_kind, None, False, False))
+                    offline_tasks.append(tier3_tasks[-1])
+                    existing_offline_fnames.add(fname)
+    tier3_fnames = {t[0] for t in tier3_tasks}
+
+    synthesis_queue = [
+        (idx, t)
+        for idx, t in enumerate(offline_tasks, start=1)
+        if not only_tier1 or t[5]
+    ]
+    total = len(synthesis_queue)
+    ui_fnames = {f"{key}.mp3" for key, _kind, _phrase in UI_PHRASES}
+    legacy_sound_fnames = {f"sound_{s}.mp3" for s in LEGACY_LETTER_SOUNDS_TO_FIX}
+    legacy_curriculum_fnames = {
+        f"sound_{item_id}.mp3" for item_id, *_ in CURRICULUM_AUDIO
+    } | {
+        f"item_{item_id}.mp3" for item_id, *_ in CURRICULUM_AUDIO
+    }
+
+    vl_key_idx = 0
+    total_credits_used = 0
+    vl_exhausted = (not vl_keys) or use_uzv_direct
+    state_lock = threading.Lock()
+    pace_lock = threading.Lock()
+    last_vl_req_ts = 0.0
+    abort_event = threading.Event()
+    synthesized = 0
+    skipped = 0
+    errors: list[str] = []
+
+    print(
+        f"{'Syncing CSV for' if sync_csv_only else 'Synthesizing'} {total} offline static clips "
+        f"(provider={provider}, tier1_only={only_tier1}, workers={workers}, vl_keys={len(vl_keys)}) ...",
+        flush=True,
+    )
+
+    def synthesize_task(idx: int, task: tuple[str, str, str, tuple[str, str] | None, bool, bool]) -> None:
+        nonlocal vl_exhausted, synthesized, skipped, last_vl_req_ts
+        if abort_event.is_set():
+            return
+        fname, text, _kind, letter_pair, is_letter_clip, _is_tier1 = task
+        out_path = audio_dir / fname
+
+        cached = cache.get(fname)
+        should_skip = False
+        if out_path.exists() and out_path.stat().st_size > 1000 and cached:
+            if is_letter_clip and force_letters:
+                should_skip = False
+            elif strict_voicelab:
+                should_skip = cached.get("provider") == "voicelab" and cached.get("text") == text
+            elif cached.get("text") == text:
+                if is_letter_clip:
+                    should_skip = cached.get("provider") == "uzbekvoice" or cached.get("voice") == "gulnoza"
+                else:
+                    should_skip = True
+
+        if should_skip:
+            with state_lock:
+                skipped += 1
+            return
+
+        assert ffmpeg_exe is not None
+
+        def synth_text_bytes(txt: str, prefer_neutral: bool) -> tuple[bytes, str, str]:
+            nonlocal vl_exhausted, vl_key_idx, total_credits_used, last_vl_req_ts
+            if abort_event.is_set():
+                raise RuntimeError("Aborted due to earlier fatal VoiceLab error")
+            while True:
+                with state_lock:
+                    can_try_vl = (not vl_exhausted) and (vl_key_idx < len(vl_keys)) and (not use_uzv_direct)
+                    cur_idx = vl_key_idx
+                    cur_key = vl_keys[cur_idx] if can_try_vl else ""
+                if not can_try_vl:
+                    break
+                if strict_voicelab:
+                    with pace_lock:
+                        now = time.monotonic()
+                        wait_delta = 0.35 - (now - last_vl_req_ts)
+                        if wait_delta > 0:
+                            time.sleep(wait_delta)
+                        last_vl_req_ts = time.monotonic()
+                target_vid = letter_voice_id if prefer_neutral else voice_id
+                spd = 0.95 if prefer_neutral else 1.0
+                res_vl = _synthesize_single_voicelab_bytes(cur_key, txt, target_vid, model_id, speed=spd)
+                if res_vl["ok"]:
+                    credits = res_vl.get("credits_used") or 0
+                    if credits:
+                        with state_lock:
+                            total_credits_used += int(credits)
+                    vlabel = VOICELAB_VOICE_NAMES.get(target_vid, target_vid)
+                    return res_vl["audio_bytes"], "voicelab", f"{model_id}:{vlabel}"
+                if res_vl.get("http_status") in (401, 402, 403):
+                    should_retry = False
+                    with state_lock:
+                        if vl_key_idx == cur_idx and vl_key_idx + 1 < len(vl_keys):
+                            vl_key_idx += 1
+                            next_hash = hashlib.sha256(vl_keys[vl_key_idx].encode("utf-8")).hexdigest()[:12]
+                            print(
+                                f"  Rotating VoiceLab API key -> #{vl_key_idx + 1}/{len(vl_keys)} (sha256[:12]={next_hash})",
+                                flush=True,
+                            )
+                            should_retry = True
+                        elif vl_key_idx > cur_idx and vl_key_idx < len(vl_keys) and not vl_exhausted:
+                            should_retry = True
+                        else:
+                            vl_exhausted = True
+                            if strict_voicelab:
+                                abort_event.set()
+                    if should_retry:
+                        continue
+                elif res_vl.get("error_kind") == "connect_timeout" and strict_voicelab:
+                    abort_event.set()
+                if strict_voicelab or not uzv_key:
+                    raise RuntimeError(f"VoiceLab HTTP {res_vl.get('http_status')}: {res_vl.get('error')}")
+                break
+
+            if strict_voicelab:
+                raise RuntimeError("VoiceLab krediti tugagan yoki mavjud emas (strict VoiceLab rejimi).")
+            if not uzv_key:
+                raise RuntimeError("UZBEKVOICE_API_KEY topilmadi va VoiceLab mavjud emas.")
+            res_uv = synthesize_uzbekvoice_bytes(uzv_key, txt, uzv_voice)
+            if not res_uv["ok"]:
+                raise RuntimeError(f"UzbekVoice HTTP {res_uv.get('http_status')}: {res_uv.get('error')}")
+            return res_uv["audio_bytes"], "uzbekvoice", str(res_uv.get("actual_model") or uzv_voice)
+
+        if letter_pair is not None and not strict_voicelab:
+            part1_txt, part2_txt = letter_pair
+            b1, prov1, voice1 = synth_text_bytes(part1_txt, prefer_neutral=True)
+            b2, _prov2, _voice2 = synth_text_bytes(part2_txt, prefer_neutral=True)
+            concat_audio_with_silence(b1, b2, out_path, ffmpeg_exe, pause_ms=320)
+            used_prov, used_voice = prov1, voice1
+        else:
+            # In VoiceLab mode, each letter_<slug>.mp3 uses 1 single plain neutral API call (`display`).
+            b1, used_prov, used_voice = synth_text_bytes(text, prefer_neutral=is_letter_clip)
+            wav_bytes_to_mp3(b1, out_path, ffmpeg_exe)
+
+        with state_lock:
+            synthesized += 1
+            cache[fname] = {"provider": used_prov, "voice": used_voice, "text": text}
+            if synthesized % 5 == 0 or is_letter_clip:
+                cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(
+                f"  [{idx:03d}/{total}] {fname:<36} OK ({used_prov}:{used_voice}, {out_path.stat().st_size} B)",
+                flush=True,
+            )
+
+    try:
+        if not sync_csv_only:
+            max_w = max(1, min(workers, 4))
+            tier1_queue = [(idx, t) for idx, t in synthesis_queue if t[5]]
+            tier2_queue = [(idx, t) for idx, t in synthesis_queue if not t[5] and t[0] not in tier3_fnames]
+            tier3_queue = [(idx, t) for idx, t in synthesis_queue if t[0] in tier3_fnames]
+            for phase_queue in (tier1_queue, tier2_queue, tier3_queue):
+                if not phase_queue or abort_event.is_set():
+                    continue
+                with ThreadPoolExecutor(max_workers=max_w) as pool:
+                    futures = []
+                    for idx, t in phase_queue:
+                        if abort_event.is_set():
+                            break
+                        futures.append((idx, t[0], pool.submit(synthesize_task, idx, t)))
+                    for idx, fname, fut in futures:
+                        try:
+                            fut.result()
+                        except Exception as exc:
+                            errors.append(f"[{idx}/{total}] {fname}: {exc}")
+                            print(f"  ERR [{idx:03d}/{total}] {fname}: {exc}", flush=True)
+            cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    finally:
+        file_voice_map = dict(legacy_voices)
+        sound_text_overrides: dict[str, str] = {}
+        extra_rows: list[dict] = []
+        for fname in legacy_curriculum_fnames:
+            cached = cache.get(fname)
+            if cached and cached.get("provider") == "voicelab" and cached.get("voice"):
+                file_voice_map[fname] = f"voicelab:{cached['voice']}"
+        for fname, text, kind, _pair, _is_letter, _is_tier1 in offline_tasks:
+            out_path = audio_dir / fname
+            if not (out_path.exists() and out_path.stat().st_size > 1000):
+                continue
+            cached = cache.get(fname)
+            voice_tag = (
+                f"{cached['provider']}:{cached['voice']}"
+                if cached and cached.get("provider") and cached.get("voice")
+                else file_voice_map.get(fname, f"voicelab:{model_id}:malika")
+            )
+            if fname in ui_fnames or fname in legacy_curriculum_fnames:
+                file_voice_map[fname] = voice_tag
+                if fname in legacy_sound_fnames:
+                    sound_text_overrides[fname] = text
+            else:
+                extra_rows.append({
+                    "file": f"public/audio/{fname}",
+                    "text": text,
+                    "type": kind,
+                    "voice": voice_tag,
+                    "status": "needs teacher review",
+                })
+
+        csv_path = write_review_csv(
+            project_root,
+            [],
+            active_voice=uzv_voice if use_uzv_direct else VOICELAB_VOICE_NAMES.get(voice_id, voice_id),
+            provider="uzbekvoice" if use_uzv_direct else "voicelab",
+            file_voice_map=file_voice_map,
+            extra_rows=extra_rows,
+            sound_text_overrides=sound_text_overrides,
+        )
+        key_summary = ""
+        if vl_keys and not use_uzv_direct:
+            active_idx = min(vl_key_idx, len(vl_keys) - 1)
+            active_hash = hashlib.sha256(vl_keys[active_idx].encode("utf-8")).hexdigest()[:12]
+            key_summary = f", active_key=#{active_idx + 1}/{len(vl_keys)} (sha256[:12]={active_hash})"
+            if total_credits_used > 0:
+                key_summary += f", credits_used={total_credits_used}"
+        print(
+            f"Offline sync manifest updated ({len(extra_rows)} extra rows, new={synthesized}, skipped={skipped}{key_summary}): {csv_path}",
+            flush=True,
+        )
+
+    if errors:
+        sys.exit(f"{len(errors)} synthesis error(s). First: {errors[0]}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="Generate static TTS audio & review CSV")
-    ap.add_argument("--mode", choices=["samples", "full", "voicelab"], default="samples")
+    ap.add_argument(
+        "--mode",
+        choices=["samples", "full", "voicelab", "offline-full", "audition"],
+        default="samples",
+    )
     ap.add_argument("--voice", default="shoira", help="Voice model for --mode full")
     ap.add_argument(
         "--voice-id",
-        default=os.environ.get("VOICELAB_VOICE_ID", GULYA_VOICE_ID),
-        help="VoiceLab voice ID for --mode voicelab",
+        default=os.environ.get("VOICELAB_VOICE_ID", MALIKA_VOICE_ID),
+        help="VoiceLab voice ID for --mode voicelab / offline-full",
+    )
+    ap.add_argument(
+        "--letter-voice-id",
+        default=MALIKA_VOICE_ID,
+        help="VoiceLab voice ID for neutral plain letter clips (default: Malika)",
+    )
+    ap.add_argument(
+        "--model-id",
+        default=DEFAULT_VOICELAB_MODEL_ID,
+        help="VoiceLab model ID for --mode voicelab / offline-full (default: lison-v2)",
+    )
+    ap.add_argument(
+        "--provider",
+        choices=["voicelab", "auto", "uzbekvoice"],
+        default="voicelab",
+        help="TTS provider for --mode offline-full (default: voicelab)",
+    )
+    ap.add_argument(
+        "--uzv-voice",
+        default="shoira",
+        help="UzbekVoice model when --provider uzbekvoice/auto is explicitly selected (default: shoira)",
+    )
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=3,
+        help="Concurrent workers for --mode offline-full (default: 3)",
+    )
+    ap.add_argument(
+        "--only-tier1",
+        action="store_true",
+        help="Generate only Tier 1 clips (letters, sounds, instructions, feedback, wrong, praise)",
+    )
+    ap.add_argument(
+        "--force-letters",
+        action="store_true",
+        help="Force regeneration of all 30 letter_*.mp3 and plain sound_*.mp3 clips",
+    )
+    ap.add_argument(
+        "--sync-csv-only",
+        action="store_true",
+        help="Only refresh audio_review.csv from existing static files on disk without calling TTS API",
     )
     args = ap.parse_args()
 
     project_root = Path(__file__).resolve().parent.parent
-    if args.mode == "voicelab":
+    if args.mode == "audition":
+        run_audition(project_root)
+    elif args.mode == "offline-full":
+        vl_key = "" if (args.sync_csv_only or args.provider == "uzbekvoice") else _load_optional_env_secret(project_root, "VOICELAB_API_KEY")
+        run_voicelab_offline_full(
+            project_root,
+            vl_key,
+            args.voice_id,
+            model_id=args.model_id,
+            sync_csv_only=args.sync_csv_only,
+            provider=args.provider,
+            uzv_voice=args.uzv_voice,
+            workers=args.workers,
+            force_letters=args.force_letters,
+            only_tier1=args.only_tier1,
+            letter_voice_id=args.letter_voice_id,
+        )
+    elif args.mode == "voicelab":
         vl_key = load_voicelab_api_key(project_root)
-        run_voicelab_full(project_root, vl_key, args.voice_id)
+        run_voicelab_full(project_root, vl_key, args.voice_id, model_id=args.model_id)
     elif args.mode == "samples":
         uzv_key = load_api_key(project_root)
         run_samples(project_root, uzv_key)

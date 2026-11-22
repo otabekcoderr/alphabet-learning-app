@@ -9,12 +9,48 @@ export const MIC_AUTO_STOP_CONFIG = {
   silenceAfterSpeechMs: 1350,
   noSpeechTimeoutMs: 5000,
   maxDurationMs: 7000,
-  minSpeechThreshold: 0.025,
+  minSpeechThreshold: 0.012,
   maxSpeechThreshold: 0.25,
   noiseMultiplier: 3.0,
 } as const;
 
-export type MicAutoStopConfig = typeof MIC_AUTO_STOP_CONFIG;
+export type MicAutoStopConfig = {
+  readonly calibrationMs: number;
+  readonly silenceAfterSpeechMs: number;
+  readonly noSpeechTimeoutMs: number;
+  readonly maxDurationMs: number;
+  readonly minSpeechThreshold: number;
+  readonly maxSpeechThreshold: number;
+  readonly noiseMultiplier: number;
+};
+
+/**
+ * Extended silence patience for 1st-grade children spelling out syllables
+ * aloud (e.g., "k... i... ki... t... o... b... tob... kitob").
+ */
+export const SPELLING_FRIENDLY_MIC_CONFIG: MicAutoStopConfig = {
+  calibrationMs: 300,
+  silenceAfterSpeechMs: 1950,
+  noSpeechTimeoutMs: 6000,
+  maxDurationMs: 10000,
+  minSpeechThreshold: 0.012,
+  maxSpeechThreshold: 0.25,
+  noiseMultiplier: 3.0,
+};
+
+/**
+ * Extended multi-word reading patience for 2–4 word sentences in World 5
+ * so a 1st-grader is never cut off between words.
+ */
+export const SENTENCE_FRIENDLY_MIC_CONFIG: MicAutoStopConfig = {
+  calibrationMs: 300,
+  silenceAfterSpeechMs: 2200,
+  noSpeechTimeoutMs: 6500,
+  maxDurationMs: 14000,
+  minSpeechThreshold: 0.012,
+  maxSpeechThreshold: 0.25,
+  noiseMultiplier: 3.0,
+};
 
 export type MicAutoStopAction =
   | 'continue'
@@ -27,6 +63,7 @@ export interface MicAutoStopState {
   noiseCount: number;
   speechThreshold: number;
   speechStarted: boolean;
+  firstSpeechMs: number | null;
   lastSpeechMs: number | null;
 }
 
@@ -36,6 +73,7 @@ export function createMicAutoStopState(config: MicAutoStopConfig = MIC_AUTO_STOP
     noiseCount: 0,
     speechThreshold: config.minSpeechThreshold,
     speechStarted: false,
+    firstSpeechMs: null,
     lastSpeechMs: null,
   };
 }
@@ -74,6 +112,7 @@ export function stepMicAutoStop(
       state: {
         ...state,
         speechStarted: true,
+        firstSpeechMs: state.firstSpeechMs ?? elapsedMs,
         lastSpeechMs: elapsedMs,
       },
       action: 'continue',

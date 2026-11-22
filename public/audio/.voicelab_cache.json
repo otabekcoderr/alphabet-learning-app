@@ -122,5 +122,240 @@
   "sound_lo.mp3": {
     "voice_id": "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c",
     "text": "Lo."
+  },
+  "letter_o.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Ooooo — Olma!"
+  },
+  "letter_a.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Aaaaa — Anor!"
+  },
+  "letter_n.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Nnnnn — Non!"
+  },
+  "letter_i.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Iiiii — Ilon!"
+  },
+  "letter_m.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Mmmmm — Mushuk!"
+  },
+  "letter_t.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "T tovushi — Tog‘!"
+  },
+  "letter_l.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Lllll — Lola!"
+  },
+  "letter_b.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "B tovushi — Baliq!"
+  },
+  "letter_k.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "K tovushi — Kitob!"
+  },
+  "letter_r.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Rrrrr — Ro‘mol!"
+  },
+  "letter_u.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Uuuuu — Uzum!"
+  },
+  "letter_s.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Sssss — Sabzi!"
+  },
+  "letter_d.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "D tovushi — Daraxt!"
+  },
+  "letter_e.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Eeeee — Eshik!"
+  },
+  "letter_z.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Zzzzz — Zebra!"
+  },
+  "letter_sh.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Shshsh — Shar!"
+  },
+  "letter_v.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Vvvvv — Vagon!"
+  },
+  "letter_y.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Yyyy — Yulduz!"
+  },
+  "letter_g.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "G tovushi — Gilos!"
+  },
+  "letter_ng.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Ng tovushi — Tong!"
+  },
+  "letter_o_apostrophe.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "O‘o‘o‘ — O‘rdak!"
+  },
+  "letter_ch.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Ch tovushi — Choynak!"
+  },
+  "letter_q.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Q tovushi — Qalam!"
+  },
+  "letter_g_apostrophe.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "G‘g‘g‘ — G‘oz!"
+  },
+  "letter_h.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Hhhh — Havo!"
+  },
+  "letter_j.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "J tovushi — Jo‘ja!"
+  },
+  "letter_x.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Xxxx — Xo‘roz!"
+  },
+  "letter_f.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Ffff — Fil!"
+  },
+  "letter_p.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "P tovushi — Pomidor!"
+  },
+  "letter_tutuq.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Tutuq belgisi — qisqa to‘xtash!"
+  },
+  "sound_z.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Zzzzz."
+  },
+  "sound_sh.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Shshsh."
+  },
+  "sound_y.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Yyyy."
+  },
+  "sound_g.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "G!"
+  },
+  "sound_ng.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Ng tovushi."
+  },
+  "sound_o_apostrophe.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "O‘o‘o‘."
+  },
+  "sound_ch.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Ch!"
+  },
+  "sound_q.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Q!"
+  },
+  "sound_g_apostrophe.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "G‘g‘g‘."
+  },
+  "sound_h.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Hhhh."
+  },
+  "sound_j.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "J!"
+  },
+  "sound_x.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Xxxx."
+  },
+  "sound_f.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Ffff."
+  },
+  "sound_p.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "P!"
+  },
+  "sound_tutuq.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Tutuq belgisi."
+  },
+  "instr_home_welcome.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Salom, bolajon! Bugun yangi so‘zlarni birga o‘qiymiz! Qani boshladik!"
+  },
+  "instr_home_sleep.mp3": {
+    "voice_id": "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a",
+    "model_id": "lison-v2",
+    "text": "Barakalla! Bugungi mashqni a’lo bajarding! Endi ko‘zlarimiz dam olsin, ertaga yana o‘ynaymiz!"
   }
 }

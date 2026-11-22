@@ -1,26 +1,72 @@
 import type { CurriculumItem } from '../data/curriculum';
 import { getLocalDateString, type AlifboState } from '../storage/progressStorage';
+import type { ItemProgress } from './pedagogy';
 
 export interface AvatarOption {
   id: string;
   emoji: string;
   label: string;
+  mascotName: string;
   bg: string;
   border: string;
 }
 
 export const AVATAR_OPTIONS: AvatarOption[] = [
-  { id: 'fox', emoji: '🦊', label: 'Tulki', bg: '#fff3e0', border: '#ff9600' },
-  { id: 'lion', emoji: '🦁', label: 'Sher', bg: '#fef9c3', border: '#eab308' },
-  { id: 'panda', emoji: '🐼', label: 'Panda', bg: '#f1f5f9', border: '#64748b' },
-  { id: 'rabbit', emoji: '🐰', label: 'Quyon', bg: '#fce7f3', border: '#ec4899' },
-  { id: 'tiger', emoji: '🐯', label: 'Yo‘lbars', bg: '#ffedd5', border: '#f97316' },
-  { id: 'unicorn', emoji: '🦄', label: 'Yakkashox', bg: '#f3e8ff', border: '#a855f7' },
-  { id: 'astronaut', emoji: '🚀', label: 'Kosmonavt', bg: '#e0f2fe', border: '#0284c7' },
-  { id: 'owl', emoji: '🦉', label: 'Boyo‘g‘li', bg: '#ecfdf5', border: '#10b981' },
+  { id: 'fox', emoji: '🦊', label: 'Tulki', mascotName: 'Zukko Tulki', bg: '#fff3e0', border: '#ff9600' },
+  { id: 'lion', emoji: '🦁', label: 'Sher', mascotName: 'Jasur Sher', bg: '#fef9c3', border: '#eab308' },
+  { id: 'panda', emoji: '🐼', label: 'Panda', mascotName: 'Quvnoq Panda', bg: '#f1f5f9', border: '#64748b' },
+  { id: 'rabbit', emoji: '🐰', label: 'Quyon', mascotName: 'Chaqqon Quyon', bg: '#fce7f3', border: '#ec4899' },
+  { id: 'tiger', emoji: '🐯', label: 'Yo‘lbars', mascotName: 'Epchil Yo‘lbars', bg: '#ffedd5', border: '#f97316' },
+  { id: 'unicorn', emoji: '🦄', label: 'Yakkashox', mascotName: 'Sehrli Yakkashox', bg: '#f3e8ff', border: '#a855f7' },
+  { id: 'astronaut', emoji: '🚀', label: 'Kosmonavt', mascotName: 'Yosh Kosmonavt', bg: '#e0f2fe', border: '#0284c7' },
+  { id: 'owl', emoji: '🦉', label: 'Boyo‘g‘li', mascotName: 'Bilimdon Boyo‘g‘li', bg: '#ecfdf5', border: '#10b981' },
 ];
 
+export interface MascotPresentation {
+  avatarId: string;
+  name: string;
+  emoji: string;
+  usesFoxSvg: boolean;
+}
+
+export function resolveMascotPresentation(params: {
+  avatarId?: string;
+  explicitName?: string;
+}): MascotPresentation {
+  const trimmedName = (params.explicitName ?? '').trim();
+  if (trimmedName.toLowerCase() === 'zukko tulki') {
+    const fox = AVATAR_OPTIONS[0]!;
+    return {
+      avatarId: 'fox',
+      name: fox.mascotName,
+      emoji: fox.emoji,
+      usesFoxSvg: true,
+    };
+  }
+  const option = getAvatarOption(params.avatarId ?? 'fox');
+  return {
+    avatarId: option.id,
+    name: trimmedName || option.mascotName,
+    emoji: option.emoji,
+    usesFoxSvg: option.id === 'fox',
+  };
+}
+
 export const DAILY_GOAL_OPTIONS = [30, 60, 100] as const;
+
+export const NICKNAME_PRESETS = ['Bolajon', 'Yulduzcha', 'Zukko', 'Kitobxon'] as const;
+
+export interface ParentAchievementsSummary {
+  totalLessons: number;
+  effortCompletedCount: number;
+  totalEffortStars: number;
+  masteredCount: number;
+  parentConfirmedCount: number;
+  aiConfirmedCount: number;
+  totalMasteryStars: number;
+  practiceDaysCount: number;
+  unlockedStagesCount: number;
+}
 
 export function getAvatarOption(avatarId: string): AvatarOption {
   return AVATAR_OPTIONS.find((a) => a.id === avatarId) ?? AVATAR_OPTIONS[0]!;
@@ -117,7 +163,6 @@ export function getAchievements(items: CurriculumItem[], state: AlifboState): Ac
   const masteredSyllables = masteredItems.filter((item) => item.kind === 'syllable').length;
   const masteredWords = masteredItems.filter((item) => item.kind === 'word').length;
   const threeStarCount = masteredItems.filter((item) => (state.progressByItem[item.id]?.stars ?? 0) >= 3).length;
-  const totalXp = calculateTotalXp(state.totalStars, state.totalEffortStars);
   const streakCount = state.practiceDates.length;
 
   const specs: Array<Omit<AchievementBadge, 'unlocked'>> = [
@@ -163,11 +208,11 @@ export function getAchievements(items: CurriculumItem[], state: AlifboState): Ac
     },
     {
       id: 'xp_300',
-      icon: '⚡',
-      titleUz: '300 XP kuch',
-      descUz: 'Jami 300 XP ball to‘plang',
-      current: Math.min(300, totalXp),
-      target: 300,
+      icon: '✨',
+      titleUz: '15 yulduzli kuch',
+      descUz: 'Jami 15 ta tasdiqlangan yulduz to‘plang',
+      current: Math.min(15, state.totalStars),
+      target: 15,
     },
     {
       id: 'perfect_five',
@@ -191,4 +236,106 @@ export function getAchievements(items: CurriculumItem[], state: AlifboState): Ac
     ...spec,
     unlocked: spec.current >= spec.target,
   }));
+}
+
+export function getParentAchievementsSummary(
+  items: CurriculumItem[],
+  state: AlifboState,
+): ParentAchievementsSummary {
+  let effortCompletedCount = 0;
+  let masteredCount = 0;
+  let parentConfirmedCount = 0;
+  let aiConfirmedCount = 0;
+
+  for (const item of items) {
+    const p = state.progressByItem[item.id];
+    if (isItemCompletedByEffort(p)) {
+      effortCompletedCount++;
+    }
+    if (p?.mastered) {
+      masteredCount++;
+      const isParent =
+        p.confirmationSource === 'parent_single' ||
+        p.confirmationSource === 'parent_bulk' ||
+        (p.confirmationSource !== 'ai' && p.parentVerified);
+      if (isParent) {
+        parentConfirmedCount++;
+      } else {
+        aiConfirmedCount++;
+      }
+    }
+  }
+
+  const stageNumbers = Array.from(new Set(items.map((item) => item.stage)));
+  let unlockedStagesCount = 0;
+  for (const stageNum of stageNumbers) {
+    if (isStageEffortComplete(stageNum, items, state.progressByItem)) {
+      unlockedStagesCount++;
+    }
+  }
+
+  return {
+    totalLessons: items.length,
+    effortCompletedCount,
+    totalEffortStars: state.totalEffortStars,
+    masteredCount,
+    parentConfirmedCount,
+    aiConfirmedCount,
+    totalMasteryStars: state.totalStars,
+    practiceDaysCount: state.practiceDates.length,
+    unlockedStagesCount,
+  };
+}
+
+export function isItemCompletedByEffort(progress: ItemProgress | undefined): boolean {
+  return Boolean(
+    progress &&
+      (progress.mastered ||
+        progress.status === 'unverified' ||
+        progress.effortStars > 0 ||
+        progress.stars > 0),
+  );
+}
+
+export function getStageEffortCount(
+  stageNumber: number,
+  items: CurriculumItem[],
+  progressByItem: Record<string, ItemProgress>,
+): number {
+  let count = 0;
+  for (const item of items) {
+    if (item.stage === stageNumber && isItemCompletedByEffort(progressByItem[item.id])) {
+      count++;
+    }
+  }
+  return count;
+}
+
+export function isStageEffortComplete(
+  stageNumber: number,
+  items: CurriculumItem[],
+  progressByItem: Record<string, ItemProgress>,
+): boolean {
+  const stageItems = items.filter((item) => item.stage === stageNumber);
+  return stageItems.length > 0 && stageItems.every((item) => isItemCompletedByEffort(progressByItem[item.id]));
+}
+
+export function getNewlyUnlockedStageRewards(
+  stages: Array<{ stage: number }>,
+  items: CurriculumItem[],
+  progressByItem: Record<string, ItemProgress>,
+  shownStageRewards: number[],
+): number[] {
+  const shownSet = new Set(shownStageRewards);
+  const newlyUnlocked: number[] = [];
+  for (const stage of stages) {
+    if (!shownSet.has(stage.stage) && isStageEffortComplete(stage.stage, items, progressByItem)) {
+      newlyUnlocked.push(stage.stage);
+    }
+  }
+  return newlyUnlocked;
+}
+
+export function markStageRewardsShown(shownStageRewards: number[], newlyShown: number[]): number[] {
+  return Array.from(new Set([...shownStageRewards, ...newlyShown])).sort((a, b) => a - b);
 }

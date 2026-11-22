@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { motion } from 'framer-motion';
 import {
   createInitialPin,
   getLockoutStatus,
@@ -6,6 +7,8 @@ import {
   verifyPinWithLockout,
   type PinLockoutState,
 } from '../logic/pin';
+import { playFeedbackChime } from '../utils/audioRecorder';
+import { ArrowLeft, CheckIcon, CloseIcon, CopyIcon, Lock } from './Icons';
 
 interface PinModalProps {
   pinSalt: string | null;
@@ -41,12 +44,12 @@ export function PinModal({
   const [confirmPin, setConfirmPin] = useState('');
   const [recoveryInput, setRecoveryInput] = useState('');
   const [createdRecoveryCode, setCreatedRecoveryCode] = useState<string | null>(null);
+  const [hasCopied, setHasCopied] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [nowMs, setNowMs] = useState<number>(() => Date.now());
   const [holdProgress, setHoldProgress] = useState<number>(0);
 
   const holdTimerRef = useRef<number | null>(null);
-
   const lockoutStatus = getLockoutStatus(lockout, nowMs);
 
   useEffect(() => {
@@ -97,18 +100,57 @@ export function PinModal({
     setError(null);
     const res = createInitialPin(existingPinHash, pin.trim(), confirmPin.trim());
     if (!res.ok) {
+      playFeedbackChime('soft-bonk');
       setError(res.errorUz);
       return;
     }
+    playFeedbackChime('chime');
     onCreatePin({
       salt: res.salt,
       pinHash: res.pinHash,
       recoveryCodeHash: res.recoveryCodeHash,
     });
     setCreatedRecoveryCode(res.recoveryCode);
+    setHasCopied(false);
     setPin('');
     setConfirmPin('');
     setMode('show_recovery');
+  };
+
+  const handleCopyRecoveryCode = async () => {
+    if (!createdRecoveryCode) return;
+    let copied = false;
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(createdRecoveryCode);
+        copied = true;
+      }
+    } catch {
+      copied = false;
+    }
+    if (!copied && typeof document !== 'undefined') {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = createdRecoveryCode;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        copied = document.execCommand('copy');
+        document.body.removeChild(ta);
+      } catch {
+        copied = false;
+      }
+    }
+    if (copied) {
+      playFeedbackChime('pop');
+      setHasCopied(true);
+      setError(null);
+    } else {
+      playFeedbackChime('soft-bonk');
+      setError('Avtomatik nusxalab bo‘lmadi — kodni yozib oling va qayta urinib ko‘ring.');
+    }
   };
 
   const handleEnterSubmit = (e: FormEvent) => {
@@ -127,10 +169,12 @@ export function PinModal({
     onUpdateLockout(res.lockout);
 
     if (!res.ok) {
+      playFeedbackChime('soft-bonk');
       setError(res.errorUz);
       setPin('');
       return;
     }
+    playFeedbackChime('chime');
     onUnlocked();
   };
 
@@ -152,22 +196,57 @@ export function PinModal({
     onUpdateLockout(res.lockout);
 
     if (!res.ok) {
+      playFeedbackChime('soft-bonk');
       setError(res.errorUz);
       return;
     }
+    playFeedbackChime('chime');
     onUpdatePinAfterRecovery(res.pinHash, res.lockout);
     onUnlocked();
   };
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="pin-modal-title">
-      <div className="modal-card">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: 14 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: 'spring', stiffness: 320, damping: 24 }}
+        className="modal-card"
+      >
+        <div className="modal-header-row">
+          <div className="modal-title-with-icon">
+            <span className="modal-icon-badge">
+              <Lock size={18} />
+            </span>
+            <h2 id="pin-modal-title" className="modal-title">
+              {mode === 'setup'
+                ? 'Ota-ona uchun PIN-kod yarating'
+                : mode === 'show_recovery'
+                  ? 'Bir martalik tiklash kodi'
+                  : mode === 'enter'
+                    ? 'Ota-ona bo‘limi'
+                    : 'PIN-kodni tiklash'}
+            </h2>
+          </div>
+
+          <button
+            type="button"
+            className="btn-circle-close"
+            onClick={() => {
+              playFeedbackChime('pop');
+              onClose();
+            }}
+            aria-label="Yopish"
+          >
+            <CloseIcon size={18} />
+          </button>
+        </div>
+
         {mode === 'setup' && (
           <>
-            <h2 id="pin-modal-title">🔒 Ota-ona uchun PIN-kod yarating</h2>
             <p className="muted-text">
-              Birinchi kirishda 4 xonali PIN-kod o‘rnating. Bu bolalar uchun oddiy cheklov bo‘lib, kuchli
-              kriptografik himoya emas.
+              Birinchi kirishda 4 xonali PIN-kod o‘rnating. Bu farzandingiz sozlamalarni tasodifan
+              o‘zgartirib yubormasligi uchun oddiy qulf vazifasini bajaradi.
             </p>
             <form onSubmit={handleSetupSubmit} className="pin-form">
               <label className="pin-label">
@@ -197,12 +276,19 @@ export function PinModal({
                   className="pin-input"
                 />
               </label>
-              {error && <div className="feedback-banner feedback-gentle">{error}</div>}
+              {error && (
+                <motion.div
+                  animate={{ x: [0, -6, 6, -4, 4, 0] }}
+                  className="feedback-banner feedback-gentle"
+                >
+                  {error}
+                </motion.div>
+              )}
               <div className="pin-actions">
-                <button type="button" className="btn-secondary" onClick={onClose}>
+                <button type="button" className="btn-3d-cream" onClick={onClose}>
                   Bekor qilish
                 </button>
-                <button type="submit" className="btn-primary">
+                <button type="submit" className="btn-3d-emerald">
                   Saqlash
                 </button>
               </div>
@@ -212,28 +298,54 @@ export function PinModal({
 
         {mode === 'show_recovery' && createdRecoveryCode && (
           <>
-            <h2 id="pin-modal-title">🔑 Bir martalik tiklash kodi</h2>
             <p className="muted-text">
               PIN-kodni unutib qo‘ysangiz, ma’lumotlarni yo‘qotmasdan tiklash uchun ushbu 10 belgili kodni
-              yozib oling. U boshqa ko‘rsatilmaydi:
+              yozib oling yoki nusxalang. U boshqa ko‘rsatilmaydi:
             </p>
             <div className="recovery-code-box" aria-label="Tiklash kodi">
               {createdRecoveryCode}
             </div>
+            {error && <div className="feedback-banner feedback-gentle">{error}</div>}
             <div className="pin-actions">
-              <button type="button" className="btn-primary" onClick={onUnlocked}>
-                Kodni saqladim — Kirish
-              </button>
+              {!hasCopied ? (
+                <button
+                  type="button"
+                  className="btn-3d-emerald btn-with-icon"
+                  style={{ width: '100%' }}
+                  onClick={() => void handleCopyRecoveryCode()}
+                >
+                  <CopyIcon size={16} />
+                  <span>Kodni nusxalash</span>
+                </button>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    className="btn-3d-cream btn-with-icon"
+                    onClick={() => void handleCopyRecoveryCode()}
+                  >
+                    <CheckIcon size={16} />
+                    <span>✅ Nusxalandi!</span>
+                  </button>
+                  <motion.button
+                    type="button"
+                    initial={{ opacity: 0, y: 6 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    className="btn-3d-emerald"
+                    onClick={onUnlocked}
+                  >
+                    Ota-ona paneliga kirish
+                  </motion.button>
+                </>
+              )}
             </div>
           </>
         )}
 
         {mode === 'enter' && (
           <>
-            <h2 id="pin-modal-title">🔒 Ota-ona bo‘limi</h2>
             <p className="muted-text">
-              Kirish uchun 4 xonali PIN-kodni kiriting. (Bu bolalar uchun oddiy cheklov, kuchli xavfsizlik tizimi
-              emas.)
+              Ota-ona bo‘limiga kirish uchun 4 xonali PIN-kodni kiriting.
             </p>
             <form onSubmit={handleEnterSubmit} className="pin-form">
               <label className="pin-label">
@@ -256,11 +368,18 @@ export function PinModal({
                   Ko‘p xato urinish. {lockoutStatus.remainingSeconds} soniya kutib turing.
                 </div>
               )}
-              {error && !lockoutStatus.locked && <div className="feedback-banner feedback-gentle">{error}</div>}
+              {error && !lockoutStatus.locked && (
+                <motion.div
+                  animate={{ x: [0, -6, 6, -4, 4, 0] }}
+                  className="feedback-banner feedback-gentle"
+                >
+                  {error}
+                </motion.div>
+              )}
               <div className="pin-actions">
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="btn-3d-cream"
                   onClick={() => {
                     setError(null);
                     setPin('');
@@ -270,10 +389,11 @@ export function PinModal({
                 >
                   PIN unutildimi?
                 </button>
-                <button type="button" className="btn-secondary" onClick={onClose}>
-                  Yopish
-                </button>
-                <button type="submit" disabled={lockoutStatus.locked} className="btn-primary">
+                <button
+                  type="submit"
+                  disabled={lockoutStatus.locked}
+                  className="btn-3d-emerald"
+                >
                   Kirish
                 </button>
               </div>
@@ -283,7 +403,6 @@ export function PinModal({
 
         {mode === 'recover' && (
           <>
-            <h2 id="pin-modal-title">🔑 PIN-kodni tiklash</h2>
             <p className="muted-text">
               Saqlab qo‘ygan 10 belgili tiklash kodingizni kiriting — barcha dars natijalari saqlanib qoladi:
             </p>
@@ -326,19 +445,31 @@ export function PinModal({
                   className="pin-input"
                 />
               </label>
-              {error && <div className="feedback-banner feedback-gentle">{error}</div>}
+              {error && (
+                <motion.div
+                  animate={{ x: [0, -6, 6, -4, 4, 0] }}
+                  className="feedback-banner feedback-gentle"
+                >
+                  {error}
+                </motion.div>
+              )}
               <div className="pin-actions">
                 <button
                   type="button"
-                  className="btn-secondary"
+                  className="btn-3d-cream btn-with-icon"
                   onClick={() => {
                     setError(null);
                     setMode('enter');
                   }}
                 >
-                  ← Orqaga
+                  <ArrowLeft size={16} />
+                  <span>Orqaga</span>
                 </button>
-                <button type="submit" disabled={lockoutStatus.locked} className="btn-primary">
+                <button
+                  type="submit"
+                  disabled={lockoutStatus.locked}
+                  className="btn-3d-emerald"
+                >
                   PIN-kodni tiklash
                 </button>
               </div>
@@ -346,9 +477,9 @@ export function PinModal({
 
             <div className="erase-reset-box">
               <p className="warning-note">
-                ⚠️ Agar PIN-kod ham, tiklash kodi ham yo‘qolgan bo‘lsa: quyidagi tugmani{' '}
-                <strong>2 soniya bosib turing</strong>. Barcha dars natijalari, yulduzchalar va PIN-kod butunlay
-                o‘chiriladi!
+                Agar PIN-kod ham, tiklash kodi ham yo‘qolgan bo‘lsa: quyidagi tugmani{' '}
+                <strong>2 soniya bosib turing</strong>. Barcha dars natijalari, yulduzchalar va PIN-kod
+                butunlay o‘chiriladi!
               </p>
               <button
                 type="button"
@@ -365,7 +496,7 @@ export function PinModal({
             </div>
           </>
         )}
-      </div>
+      </motion.div>
     </div>
   );
 }
