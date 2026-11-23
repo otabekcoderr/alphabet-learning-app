@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { playAudioClip, playFeedbackChime, stopActiveAudio } from '../utils/audioRecorder';
+import {
+  playAudioClip,
+  playAudioClipWithStatus,
+  playFeedbackChime,
+  stopActiveAudio,
+  type AudioClipPlayStatus,
+} from '../utils/audioRecorder';
 import { AnimatedCharacter } from './AnimatedCharacter';
 import { ArrowLeft, ArrowRight, Check, Mic, Play, RotateCcw, Sparkles, Square, Volume2 } from './Icons';
 import { StorybookBackdrop } from './StorybookBackdrop';
@@ -12,9 +18,12 @@ export const ALHAMDULILLAH_TEXT_UZ =
   'Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!';
 
 const BISMILLAH_MIN_DISPLAY_MS = 3000;
-const BISMILLAH_MAX_WAIT_MS = 10000;
+const BISMILLAH_MAX_WAIT_MS = 7500;
 const BISMILLAH_POST_AUDIO_PAUSE_MS = 350;
 const ALHAMDULILLAH_MAX_RECORD_MS = 4000;
+
+const useIsomorphicLayoutEffect =
+  typeof window !== 'undefined' && typeof document !== 'undefined' ? useLayoutEffect : useEffect;
 
 /**
  * Check whether the browser supports microphone recording + local playback via MediaRecorder.
@@ -72,10 +81,19 @@ export function BismillahStartCard({
   onContinue,
   onBack,
 }: BismillahStartCardProps) {
+  const [audioAutoplayBlocked, setAudioAutoplayBlocked] = useState(false);
   const doneRef = useRef(false);
   const autoAdvanceCancelledRef = useRef(false);
   const onContinueRef = useRef(onContinue);
   onContinueRef.current = onContinue;
+
+  useIsomorphicLayoutEffect(() => {
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    } catch {
+      // Ignore environments without window.scrollTo
+    }
+  }, []);
 
   const finishOnce = useCallback(() => {
     if (doneRef.current) return;
@@ -86,8 +104,11 @@ export function BismillahStartCard({
 
   useEffect(() => {
     let cancelled = false;
+    doneRef.current = false;
     autoAdvanceCancelledRef.current = false;
+    setAudioAutoplayBlocked(false);
     const timers: number[] = [];
+    let removeGestureListeners = () => {};
 
     const waitMs = (ms: number) =>
       new Promise<void>((resolve) => {
@@ -99,7 +120,63 @@ export function BismillahStartCard({
         timers.push(id);
       });
 
-    const audioPromise = playAudioClip(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ).catch(() => false);
+    let audioPromise: Promise<AudioClipPlayStatus>;
+    try {
+      audioPromise = playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ, {
+        adoptGestureClip: true,
+      }).catch(() => 'unavailable' as const);
+    } catch {
+      audioPromise = Promise.resolve('unavailable');
+    }
+
+    void audioPromise.then((status) => {
+      if (cancelled || status !== 'autoplay_blocked') return;
+      setAudioAutoplayBlocked(true);
+
+      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
+        return;
+      }
+
+      const shouldSkipTarget = (target: EventTarget | null): boolean => {
+        if (!target || typeof target !== 'object' || !('closest' in target)) return false;
+        const maybeClosest = (target as { closest?: unknown }).closest;
+        if (typeof maybeClosest !== 'function') return false;
+        const closestFn = maybeClosest as (selector: string) => unknown;
+        return Boolean(
+          closestFn.call(target, '.bismillah-skip-btn') ||
+            closestFn.call(target, '.btn-squircle-back') ||
+            closestFn.call(target, '.bismillah-listen-btn'),
+        );
+      };
+
+      const onUnlockGesture = (event: Event) => {
+        removeGestureListeners();
+        if (cancelled || doneRef.current || shouldSkipTarget(event.target)) {
+          return;
+        }
+        setAudioAutoplayBlocked(false);
+        try {
+          void playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ).catch(
+            () => 'unavailable' as const,
+          );
+        } catch {
+          // Audio playback must never break UI
+        }
+      };
+
+      const eventNames = ['pointerdown', 'touchstart', 'keydown'] as const;
+      for (const evtName of eventNames) {
+        window.addEventListener(evtName, onUnlockGesture, { capture: true, once: true });
+      }
+      removeGestureListeners = () => {
+        for (const evtName of eventNames) {
+          if (typeof window.removeEventListener === 'function') {
+            window.removeEventListener(evtName, onUnlockGesture, { capture: true });
+          }
+        }
+        removeGestureListeners = () => {};
+      };
+    });
 
     void Promise.all([
       waitMs(BISMILLAH_MIN_DISPLAY_MS),
@@ -114,6 +191,7 @@ export function BismillahStartCard({
 
     return () => {
       cancelled = true;
+      removeGestureListeners();
       for (const id of timers) {
         if (typeof window !== 'undefined') {
           window.clearTimeout(id);
@@ -146,10 +224,7 @@ export function BismillahStartCard({
       )}
 
       <main className="bismillah-stage">
-        <motion.section
-          initial={{ opacity: 0, scale: 0.94, y: 14 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ type: 'spring', stiffness: 280, damping: 22 }}
+        <section
           className="bismillah-card"
           aria-labelledby="bismillah-heading"
         >
@@ -171,21 +246,32 @@ export function BismillahStartCard({
           </p>
 
           <div className="bismillah-progress-track" aria-hidden="true">
-            <motion.div
+            <div
               className="bismillah-progress-fill"
-              initial={{ width: '0%' }}
-              animate={{ width: '100%' }}
-              transition={{ duration: BISMILLAH_MIN_DISPLAY_MS / 1000, ease: 'linear' }}
+              style={{ animationDuration: `${BISMILLAH_MIN_DISPLAY_MS}ms` }}
             />
           </div>
+
+          {audioAutoplayBlocked && (
+            <p className="bismillah-audio-hint" role="status">
+              Ovozni eshitish uchun «Eshitish» tugmasini bosing
+            </p>
+          )}
 
           <div className="bismillah-actions">
             <button
               type="button"
-              className="btn-3d-cream btn-compact btn-with-icon"
+              className="btn-3d-cream btn-compact btn-with-icon bismillah-listen-btn"
               onClick={() => {
                 autoAdvanceCancelledRef.current = true;
-                void playAudioClip(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ);
+                setAudioAutoplayBlocked(false);
+                try {
+                  void playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ).catch(
+                    () => 'unavailable' as const,
+                  );
+                } catch {
+                  // Ignore mobile audio replay failures
+                }
               }}
             >
               <Volume2 size={17} />
@@ -206,7 +292,7 @@ export function BismillahStartCard({
               <ArrowRight size={19} strokeWidth={2.6} />
             </motion.button>
           </div>
-        </motion.section>
+        </section>
       </main>
     </div>
   );

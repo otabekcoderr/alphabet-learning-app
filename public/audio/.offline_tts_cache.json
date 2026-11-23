@@ -1677,7 +1677,7 @@
   "bismillah.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Ilming ziyoda bo‘lishi uchun, «Bismillah» deb boshla!"
+    "text": "Ilming ziyoda bo‘lishi uchun, «Бисмиллаҳ» deb boshla!"
   },
   "alhamdulillah.mp3": {
     "provider": "voicelab",

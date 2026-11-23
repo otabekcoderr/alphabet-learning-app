@@ -410,6 +410,16 @@ def _detect_audio_mime(audio_bytes: bytes) -> str:
     return "audio/mpeg"
 
 
+def _prepare_voicelab_tts_text(text: str) -> str:
+    """Prevent VoiceLab G2P rounding of 'Bismillah' into 'bismilloh'."""
+    return re.sub(
+        r"\bbismill[ao]h\b",
+        lambda m: "бисмиллаҳ" if m.group(0).islower() else "Бисмиллаҳ",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
 async def _synthesize_voicelab_wav(
     cfg: dict[str, str], text: str, voice_style: str = "friendly"
 ) -> bytes:
@@ -426,7 +436,7 @@ async def _synthesize_voicelab_wav(
 
     idempotency_key = str(uuid.uuid4())
     payload = {
-        "text": text,
+        "text": _prepare_voicelab_tts_text(text),
         "language": "uz",
         "voice_id": voice_id,
         "model_id": model_id,
@@ -515,7 +525,8 @@ async def handle_tts(request: web.Request) -> web.Response:
         if voice_style == "neutral"
         else cfg["voice_id"]
     )
-    vl_digest = hashlib.sha256(f"{cfg['model_id']}:{vl_voice}:{text}".encode("utf-8")).hexdigest()[:24]
+    tts_text = _prepare_voicelab_tts_text(text)
+    vl_digest = hashlib.sha256(f"{cfg['model_id']}:{vl_voice}:{tts_text}".encode("utf-8")).hexdigest()[:24]
     vl_file = cache_dir / f"vl_{vl_digest}.wav"
 
     if not vl_file.exists():

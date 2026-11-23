@@ -38,7 +38,7 @@ import {
 } from './storage/progressStorage';
 import { AlphabetRecallDrawer } from './components/AlphabetRecallDrawer';
 import { AuthScreen } from './components/AuthScreen';
-import { BismillahStartCard } from './components/BismillahAlhamdulillah';
+import { BISMILLAH_AUDIO_PATH, BismillahStartCard } from './components/BismillahAlhamdulillah';
 import { ChildHome } from './components/ChildHome';
 import { Lock, Star } from './components/Icons';
 import { LessonPlayer, type WordAttemptReport } from './components/LessonPlayer';
@@ -48,7 +48,7 @@ import { ParentOnboardingModal } from './components/ParentOnboardingModal';
 import { PinModal } from './components/PinModal';
 import { StorybookBackdrop } from './components/StorybookBackdrop';
 import { WelcomeScreen } from './components/WelcomeScreen';
-import { playFeedbackChime } from './utils/audioRecorder';
+import { playFeedbackChime, startGestureAudioClip } from './utils/audioRecorder';
 
 type ViewTab = 'home' | 'alphabet' | 'lesson' | 'parent';
 type GateView = { screen: 'welcome' } | { screen: 'auth'; mode: 'signup' | 'login' };
@@ -242,6 +242,13 @@ export function App() {
         letterHintCounts: state.letterHintCounts,
         recentSessionWordIds,
       });
+      if (state.bismillahAlhamdulillahEnabled) {
+        try {
+          startGestureAudioClip(BISMILLAH_AUDIO_PATH);
+        } catch {
+          // Audio playback must never block Bismillah screen transition
+        }
+      }
       setRoundWorldId(worldId);
       setSessionItems(items);
       setLessonSessionKey((prev) => prev + 1);

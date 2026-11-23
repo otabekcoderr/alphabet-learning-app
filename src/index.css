@@ -4666,10 +4666,13 @@ h4,
    ========================================================================== */
 .bismillah-shell {
   position: relative;
+  z-index: 2;
+  width: 100%;
+  min-height: 100svh;
   min-height: 100dvh;
   display: flex;
   flex-direction: column;
-  padding: 18px 24px 36px;
+  padding: max(16px, env(safe-area-inset-top)) 20px max(24px, env(safe-area-inset-bottom));
 }
 
 .bismillah-stage {
@@ -4741,10 +4744,29 @@ h4,
   margin-top: 4px;
 }
 
+@keyframes bismillahProgressFill {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
 .bismillah-progress-fill {
+  width: 100%;
   height: 100%;
   border-radius: 999px;
   background: linear-gradient(90deg, #10B981, #34D399);
+  transform-origin: left center;
+  animation: bismillahProgressFill 3s linear forwards;
+}
+
+.bismillah-audio-hint {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--orange-dark);
 }
 
 .bismillah-actions {
@@ -5094,13 +5116,44 @@ h4,
   white-space: nowrap;
 }
 
-@media (max-width: 720px) {
+@media (max-width: 767px) {
   .bismillah-shell {
-    padding: 14px 16px 28px;
+    padding: max(10px, env(safe-area-inset-top)) 14px max(16px, env(safe-area-inset-bottom));
+  }
+
+  .bismillah-shell .victory-topbar {
+    margin-bottom: 8px;
+  }
+
+  .bismillah-card {
+    padding: 20px 18px;
+    border-radius: 26px;
+    gap: 10px;
+  }
+
+  .bismillah-card .animated-char-figure,
+  .bismillah-card .zukko-hero-png {
+    width: 104px !important;
+    height: 104px !important;
+  }
+
+  .bismillah-title {
+    font-size: 1.75rem;
+  }
+
+  .bismillah-sub {
+    font-size: 14.5px;
+    line-height: 1.45;
   }
 
   .bismillah-actions {
     flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+  }
+
+  .bismillah-actions > button {
+    width: 100%;
   }
 
   .bismillah-skip-btn {

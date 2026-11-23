@@ -27,6 +27,12 @@ function detectAudioMime(buf: Buffer): string {
   return 'audio/mpeg';
 }
 
+function prepareVoiceLabTtsText(text: string): string {
+  return text.replace(/\bbismill[ao]h\b/gi, (match) =>
+    match === match.toLowerCase() ? 'бисмиллаҳ' : 'Бисмиллаҳ',
+  );
+}
+
 async function synthesizeVoiceLabWav(
   text: string,
   voiceStyle: 'friendly' | 'neutral' = 'friendly',
@@ -45,8 +51,9 @@ async function synthesizeVoiceLabWav(
   }
 
   const idempotencyKey = randomUUID();
+  const ttsText = prepareVoiceLabTtsText(text);
   const payload = JSON.stringify({
-    text,
+    text: ttsText,
     language: 'uz',
     voice_id: voiceId,
     model_id: modelId,

@@ -22,6 +22,11 @@ let activeSpeechSynth = false;
 let playbackGeneration = 0;
 let playedSessionEntryKey: InstructionAudioKey | null = null;
 let activeEntryAttemptKey: InstructionAudioKey | null = null;
+let pendingGestureClip: {
+  url: string;
+  generation: number;
+  promise: Promise<StaticPlaybackResult>;
+} | null = null;
 const ttsBlobUrlCache = new Map<string, string>();
 
 const DEFAULT_AUTO_ENTRY_SKIP_SELECTORS: readonly string[] = [
@@ -46,16 +51,26 @@ function targetMatchesSelectorList(target: EventTarget | null, selectors: readon
   );
 }
 
+/** Ensure any accidental "bismilloh" spelling is normalized to "Bismillah" before TTS/speech. */
+export function enforceBismillahPronunciationText(text: string): string {
+  return (text || '').replace(/\bbismilloh\b/gi, (match) =>
+    match === match.toLowerCase() ? 'bismillah' : 'Bismillah',
+  );
+}
+
 /** Strip decorative emojis and normalize whitespace before sending Uzbek text to VoiceLab TTS. */
 export function sanitizeSpeechTextForTts(text: string): string {
-  return (text || '')
-    .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
+  return enforceBismillahPronunciationText(
+    (text || '')
+      .replace(/\p{Extended_Pictographic}|\uFE0F|\u200D/gu, ' ')
+      .replace(/\s+/g, ' ')
+      .trim(),
+  );
 }
 
 export function stopActiveAudio(): void {
   playbackGeneration += 1;
+  pendingGestureClip = null;
   try {
     if (activeAbortController) {
       activeAbortController.abort();
@@ -319,6 +334,7 @@ export async function speakUzbekText(text: string): Promise<void> {
 }
 
 type StaticPlaybackResult = 'played' | 'aborted' | 'autoplay_blocked' | 'unavailable';
+export type AudioClipPlayStatus = 'played' | 'autoplay_blocked' | 'aborted' | 'unavailable';
 
 function tryPlayStaticUrl(
   url: string,
@@ -332,6 +348,14 @@ function tryPlayStaticUrl(
         return;
       }
       const audio = new Audio(url);
+      try {
+        audio.preload = 'auto';
+        if (typeof audio.setAttribute === 'function') {
+          audio.setAttribute('playsinline', 'true');
+        }
+      } catch {
+        // Ignore attribute/preload errors in mocked or restricted environments
+      }
       activeAudio = audio;
       audio.onended = () => {
         if (activeAudio === audio) {
@@ -375,31 +399,85 @@ function tryPlayStaticUrl(
   });
 }
 
+/**
+ * Prime and start an audio clip synchronously inside a user tap/click handler so mobile
+ * browsers (iOS Safari / Android Chrome) preserve user-gesture autoplay activation across
+ * the subsequent React screen transition.
+ */
+export function startGestureAudioClip(url: string): boolean {
+  try {
+    if (!url || typeof Audio === 'undefined') {
+      return false;
+    }
+    stopActiveAudio();
+    const myGen = playbackGeneration;
+    const promise = tryPlayStaticUrl(url, myGen);
+    pendingGestureClip = { url, generation: myGen, promise };
+    return true;
+  } catch {
+    pendingGestureClip = null;
+    return false;
+  }
+}
+
+export async function playAudioClipWithStatus(
+  url: string,
+  fallbackText?: string,
+  opts?: { voiceStyle?: 'friendly' | 'neutral'; adoptGestureClip?: boolean },
+): Promise<AudioClipPlayStatus> {
+  try {
+    if (
+      opts?.adoptGestureClip &&
+      pendingGestureClip &&
+      pendingGestureClip.url === url &&
+      pendingGestureClip.generation === playbackGeneration
+    ) {
+      const adopted = pendingGestureClip;
+      pendingGestureClip = null;
+      const res = await adopted.promise;
+      if (res === 'played' || res === 'aborted' || res === 'autoplay_blocked') {
+        return res;
+      }
+      if (adopted.generation === playbackGeneration && fallbackText) {
+        const ttsRes = await synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
+        if (ttsRes === 'played' || ttsRes === 'aborted') {
+          return ttsRes;
+        }
+        const spoke = await speakWithBrowserFallback(fallbackText, playbackGeneration);
+        return spoke ? 'played' : 'unavailable';
+      }
+      return adopted.generation !== playbackGeneration ? 'aborted' : 'unavailable';
+    }
+
+    stopActiveAudio();
+    const myGen = playbackGeneration;
+    if (url) {
+      const res = await tryPlayStaticUrl(url, myGen);
+      if (res === 'played' || res === 'aborted' || res === 'autoplay_blocked') {
+        return res;
+      }
+    }
+    if (myGen === playbackGeneration && fallbackText) {
+      const ttsRes = await synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
+      if (ttsRes === 'played' || ttsRes === 'aborted') {
+        return ttsRes;
+      }
+      const spoke = await speakWithBrowserFallback(fallbackText, playbackGeneration);
+      return spoke ? 'played' : 'unavailable';
+    }
+    return myGen !== playbackGeneration ? 'aborted' : 'unavailable';
+  } catch {
+    return 'unavailable';
+  }
+}
+
 async function playAudioClipInternal(
   url: string,
   fallbackText?: string,
   opts?: { voiceStyle?: 'friendly' | 'neutral' },
 ): Promise<TtsPlaybackResult> {
-  stopActiveAudio();
-  const myGen = playbackGeneration;
-  if (url) {
-    const res = await tryPlayStaticUrl(url, myGen);
-    if (res === 'played' || res === 'aborted') {
-      return res;
-    }
-    if (res === 'autoplay_blocked') {
-      return 'unavailable';
-    }
-  }
-  if (myGen === playbackGeneration && fallbackText) {
-    const ttsRes = await synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
-    if (ttsRes === 'played' || ttsRes === 'aborted') {
-      return ttsRes;
-    }
-    const spoke = await speakWithBrowserFallback(fallbackText, playbackGeneration);
-    return spoke ? 'played' : 'unavailable';
-  }
-  return myGen !== playbackGeneration ? 'aborted' : 'unavailable';
+  const status = await playAudioClipWithStatus(url, fallbackText, opts);
+  return status === 'autoplay_blocked' ? 'unavailable' : status;
 }
 
 export async function playAudioClip(

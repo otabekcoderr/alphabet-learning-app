@@ -6,7 +6,15 @@ import {
   BISMILLAH_TEXT_UZ,
   isVoicePlaybackRecordingSupported,
 } from '../../components/BismillahAlhamdulillah';
-import { findStaticAudioUrlForText } from '../../utils/audioRecorder';
+import {
+  enforceBismillahPronunciationText,
+  findStaticAudioUrlForText,
+  HABIT_AUDIO_FALLBACK_TEXT,
+  playAudioClipWithStatus,
+  sanitizeSpeechTextForTts,
+  startGestureAudioClip,
+  stopActiveAudio,
+} from '../../utils/audioRecorder';
 import {
   FEEDBACK_DISAPPOINTMENT_OPTIONS,
   FEEDBACK_MIN_SESSIONS_FOR_RESULT,
@@ -58,6 +66,7 @@ function createMockLocalStorage(): Storage {
 
 describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismillah/Alhamdulillah', () => {
   afterEach(() => {
+    stopActiveAudio();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
@@ -405,5 +414,102 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
       expect(matchingLine).toContain('voicelab:lison-v2:malika');
       expect(matchingLine?.toLowerCase()).not.toContain('uzbekvoice');
     }
+  });
+
+  it('enforces "Bismillah" spelling/pronunciation text and supports mobile gesture-primed audio & autoplay-blocked fallback safely', async () => {
+    expect(enforceBismillahPronunciationText('«Bismilloh» deb boshla!')).toBe(
+      '«Bismillah» deb boshla!',
+    );
+    expect(enforceBismillahPronunciationText('bismilloh')).toBe('bismillah');
+    expect(sanitizeSpeechTextForTts('🌟 «Bismilloh» deb boshla!')).toBe(
+      '«Bismillah» deb boshla!',
+    );
+    expect(BISMILLAH_TEXT_UZ).toContain('Bismillah');
+    expect(BISMILLAH_TEXT_UZ.toLowerCase()).not.toContain('bismilloh');
+    expect(HABIT_AUDIO_FALLBACK_TEXT.bismillah).toContain('Bismillah');
+    expect(HABIT_AUDIO_FALLBACK_TEXT.bismillah.toLowerCase()).not.toContain('bismilloh');
+
+    // 1. Safe no-op when Audio is undefined or throws synchronously
+    vi.stubGlobal('Audio', undefined);
+    expect(() => startGestureAudioClip(BISMILLAH_AUDIO_PATH)).not.toThrow();
+    expect(startGestureAudioClip(BISMILLAH_AUDIO_PATH)).toBe(false);
+    await expect(
+      playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ, { adoptGestureClip: true }),
+    ).resolves.toBe('unavailable');
+
+    class ThrowingAudioMock {
+      constructor() {
+        throw new Error('Audio construction blocked');
+      }
+    }
+    vi.stubGlobal('Audio', ThrowingAudioMock);
+    expect(() => startGestureAudioClip(BISMILLAH_AUDIO_PATH)).not.toThrow();
+    await expect(
+      playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, undefined, { adoptGestureClip: true }),
+    ).resolves.toBe('unavailable');
+
+    // 2. Gesture-primed clip is adopted cleanly without creating a duplicate Audio element
+    const createdUrls: string[] = [];
+    class PlayingAudioMock {
+      src: string;
+      preload = '';
+      paused = false;
+      currentTime = 0;
+      onended: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(src: string) {
+        this.src = src;
+        createdUrls.push(src);
+      }
+      setAttribute(): void {}
+      play(): Promise<void> {
+        queueMicrotask(() => this.onended?.());
+        return Promise.resolve();
+      }
+      pause(): void {
+        this.paused = true;
+      }
+    }
+    vi.stubGlobal('Audio', PlayingAudioMock);
+    expect(startGestureAudioClip(BISMILLAH_AUDIO_PATH)).toBe(true);
+    const adoptedStatus = await playAudioClipWithStatus(
+      BISMILLAH_AUDIO_PATH,
+      BISMILLAH_TEXT_UZ,
+      { adoptGestureClip: true },
+    );
+    expect(adoptedStatus).toBe('played');
+    expect(createdUrls).toEqual([BISMILLAH_AUDIO_PATH]);
+
+    // 3. NotAllowedError resolves 'autoplay_blocked' cleanly without calling /api/tts fetch
+    const fetchSpy = vi.fn();
+    vi.stubGlobal('fetch', fetchSpy);
+    class BlockedAudioMock {
+      src: string;
+      preload = '';
+      paused = true;
+      currentTime = 0;
+      onended: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(src: string) {
+        this.src = src;
+      }
+      play(): Promise<void> {
+        const err = new Error('Autoplay blocked');
+        err.name = 'NotAllowedError';
+        return Promise.reject(err);
+      }
+      pause(): void {
+        this.paused = true;
+      }
+    }
+    vi.stubGlobal('Audio', BlockedAudioMock);
+    expect(startGestureAudioClip(BISMILLAH_AUDIO_PATH)).toBe(true);
+    const blockedStatus = await playAudioClipWithStatus(
+      BISMILLAH_AUDIO_PATH,
+      BISMILLAH_TEXT_UZ,
+      { adoptGestureClip: true },
+    );
+    expect(blockedStatus).toBe('autoplay_blocked');
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 });

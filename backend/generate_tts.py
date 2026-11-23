@@ -255,6 +255,11 @@ HABIT_PHRASES = [
     ),
 ]
 
+# Phonetic VoiceLab prompt overrides (keeps Latin display text in audio_review.csv while avoiding "bismilloh" rounding)
+HABIT_TTS_OVERRIDES = {
+    "bismillah": "Ilming ziyoda bo‘lishi uchun, «Бисмиллаҳ» deb boshla!",
+}
+
 EXISTING_DYNAMIC_SOUND_IDS = {
     "ona", "ana", "non", "nima", "lola", "olma", "oila", "limon",
     "arra", "asal", "suv", "bola", "bobo", "ota", "dada", "kitob",
@@ -1140,6 +1145,7 @@ def run_voicelab_offline_full(
         offline_tasks.append((f"{key}.mp3", phrase, kind, None, False, True))
     for key, phrase in HABIT_PHRASES:
         offline_tasks.append((f"{key}.mp3", phrase, "habit", None, False, True))
+    tts_override_by_fname = {f"{key}.mp3": prompt for key, prompt in HABIT_TTS_OVERRIDES.items()}
     for fname, text, kind in word_tasks:
         offline_tasks.append((fname, text, kind, None, False, False))
     for fname, text, kind in syl_tasks:
@@ -1195,6 +1201,7 @@ def run_voicelab_offline_full(
         if abort_event.is_set():
             return
         fname, text, _kind, letter_pair, is_letter_clip, _is_tier1 = task
+        effective_tts_text = tts_override_by_fname.get(fname, text)
         out_path = audio_dir / fname
 
         cached = cache.get(fname)
@@ -1203,8 +1210,10 @@ def run_voicelab_offline_full(
             if is_letter_clip and force_letters:
                 should_skip = False
             elif strict_voicelab:
-                should_skip = cached.get("provider") == "voicelab" and cached.get("text") == text
-            elif cached.get("text") == text:
+                should_skip = (
+                    cached.get("provider") == "voicelab" and cached.get("text") == effective_tts_text
+                )
+            elif cached.get("text") == effective_tts_text:
                 if is_letter_clip:
                     should_skip = cached.get("provider") == "uzbekvoice" or cached.get("voice") == "gulnoza"
                 else:
@@ -1287,12 +1296,12 @@ def run_voicelab_offline_full(
             used_prov, used_voice = prov1, voice1
         else:
             # In VoiceLab mode, each letter_<slug>.mp3 uses 1 single plain neutral API call (`display`).
-            b1, used_prov, used_voice = synth_text_bytes(text, prefer_neutral=is_letter_clip)
+            b1, used_prov, used_voice = synth_text_bytes(effective_tts_text, prefer_neutral=is_letter_clip)
             wav_bytes_to_mp3(b1, out_path, ffmpeg_exe)
 
         with state_lock:
             synthesized += 1
-            cache[fname] = {"provider": used_prov, "voice": used_voice, "text": text}
+            cache[fname] = {"provider": used_prov, "voice": used_voice, "text": effective_tts_text}
             if synthesized % 5 == 0 or is_letter_clip:
                 cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
             print(

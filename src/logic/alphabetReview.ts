@@ -14,16 +14,62 @@ export interface LetterMasteryEntry {
 export const DEFAULT_ALPHABET_ROUND_SIZE = 5;
 
 /**
- * Select a sequential 5-letter queue for the interactive alphabet review game:
+ * Shuffle an alphabet round queue via Fisher–Yates while avoiding repeating the exact
+ * previous round order and avoiding boundary repeats (next[0] === prev[last]).
+ */
+export function shuffleAlphabetQueue(
+  queue: readonly AlifbeLetterInfo[],
+  previousRoundLetters: readonly string[] = [],
+  rng: () => number = Math.random,
+): AlifbeLetterInfo[] {
+  if (queue.length <= 1) return [...queue];
+
+  const prevLast =
+    previousRoundLetters.length > 0
+      ? (previousRoundLetters[previousRoundLetters.length - 1] ?? null)
+      : null;
+  const isSameAsPrev = (candidate: readonly AlifbeLetterInfo[]) =>
+    previousRoundLetters.length === candidate.length &&
+    candidate.every((entry, idx) => entry.letter === previousRoundLetters[idx]);
+
+  for (let attempt = 0; attempt < 16; attempt++) {
+    const candidate = fisherYatesShuffle(queue, rng);
+    if (!isSameAsPrev(candidate) && (prevLast === null || candidate[0]!.letter !== prevLast)) {
+      return candidate;
+    }
+  }
+
+  for (let shift = 1; shift < queue.length; shift++) {
+    const rotated = [...queue.slice(shift), ...queue.slice(0, shift)];
+    if (!isSameAsPrev(rotated) && (prevLast === null || rotated[0]!.letter !== prevLast)) {
+      return rotated;
+    }
+  }
+
+  const fallback = [...queue.slice(1), queue[0]!];
+  if (isSameAsPrev(fallback) && fallback.length > 1) {
+    const tmp = fallback[0]!;
+    fallback[0] = fallback[fallback.length - 1]!;
+    fallback[fallback.length - 1] = tmp;
+  }
+  return fallback;
+}
+
+/**
+ * Select a 5-letter queue for the interactive alphabet review game:
  * 1) Tapped-for-help unmastered letters (highest tap count first)
- * 2) Remaining unmastered letters in 1-sinf Alifbe textbook sequence
+ * 2) Remaining unmastered letters in 1-sinf Alifbe textbook sequence (preferring letters not in `previousRoundLetters`)
  * 3) Oldest mastered letters as review backfill if fewer than `roundSize` remain
+ * Optional `shuffleQueue` shuffles the selected round to prevent positional memorization.
  */
 export function selectAlphabetReviewQueue(params: {
   catalog?: AlifbeLetterInfo[];
   letterHintCounts: Record<string, number>;
   letterMastery: Record<string, LetterMasteryEntry>;
   roundSize?: number;
+  previousRoundLetters?: readonly string[];
+  shuffleQueue?: boolean;
+  rng?: () => number;
 }): AlifbeLetterInfo[] {
   const catalog = params.catalog ?? ALIFBE_LETTERS_29;
   const roundSize = Math.max(1, params.roundSize ?? DEFAULT_ALPHABET_ROUND_SIZE);
@@ -65,22 +111,45 @@ export function selectAlphabetReviewQueue(params: {
     return (catalogIndex.get(a.letter) ?? 0) - (catalogIndex.get(b.letter) ?? 0);
   });
 
+  let orderedOtherUnmastered = otherUnmastered;
+  let orderedMastered = mastered;
+  if (params.previousRoundLetters && params.previousRoundLetters.length > 0) {
+    const recentSet = new Set(params.previousRoundLetters);
+    orderedOtherUnmastered = [
+      ...otherUnmastered.filter((entry) => !recentSet.has(entry.letter)),
+      ...otherUnmastered.filter((entry) => recentSet.has(entry.letter)),
+    ];
+    orderedMastered = [
+      ...mastered.filter((entry) => !recentSet.has(entry.letter)),
+      ...mastered.filter((entry) => recentSet.has(entry.letter)),
+    ];
+  }
+
   const combined: AlifbeLetterInfo[] = [];
   const used = new Set<string>();
 
-  for (const entry of [...tappedUnmastered, ...otherUnmastered, ...mastered]) {
+  for (const entry of [...tappedUnmastered, ...orderedOtherUnmastered, ...orderedMastered]) {
     if (combined.length >= roundSize) break;
     if (used.has(entry.letter)) continue;
     used.add(entry.letter);
     combined.push(entry);
   }
 
+  if (params.shuffleQueue) {
+    return shuffleAlphabetQueue(combined, params.previousRoundLetters, params.rng);
+  }
   return combined;
 }
 
+export interface LetterQuizAntiRepeatOptions {
+  previousSameStepCorrectIndex?: number | null;
+  sameStepRepeatStreak?: number;
+  recentDistractorLetters?: readonly string[];
+}
+
 /**
- * Pick 2 distinct distractors (preferring the same letter category) and shuffle
- * via Fisher–Yates with anti-streak protection alongside `target` for 3-option quiz steps.
+ * Pick 2 distinct distractors (preferring fresh distractors in the same letter category) and
+ * shuffle via Fisher–Yates with anti-streak protection alongside `target` for 3-option quiz steps.
  */
 export function buildLetterQuizChoices(
   target: AlifbeLetterInfo,
@@ -88,6 +157,7 @@ export function buildLetterQuizChoices(
   _seed?: string,
   previousCorrectIndex: number | null = null,
   rng: () => number = Math.random,
+  antiRepeat?: LetterQuizAntiRepeatOptions,
 ): AlifbeLetterInfo[] {
   const sameCategory = catalog.filter(
     (entry) =>
@@ -102,9 +172,17 @@ export function buildLetterQuizChoices(
       entry.category !== target.category,
   );
 
+  const recentDistSet = new Set(antiRepeat?.recentDistractorLetters ?? []);
+  const freshSame = sameCategory.filter((entry) => !recentDistSet.has(entry.letter));
+  const recentSame = sameCategory.filter((entry) => recentDistSet.has(entry.letter));
+  const freshOther = otherCategory.filter((entry) => !recentDistSet.has(entry.letter));
+  const recentOther = otherCategory.filter((entry) => recentDistSet.has(entry.letter));
+
   const orderedPool = [
-    ...fisherYatesShuffle(sameCategory, rng),
-    ...fisherYatesShuffle(otherCategory, rng),
+    ...fisherYatesShuffle(freshSame, rng),
+    ...fisherYatesShuffle(freshOther, rng),
+    ...fisherYatesShuffle(recentSame, rng),
+    ...fisherYatesShuffle(recentOther, rng),
   ];
 
   const distractors: AlifbeLetterInfo[] = [];
@@ -119,12 +197,44 @@ export function buildLetterQuizChoices(
     distractors.push(cand);
   }
 
-  return shuffleOptionsWithAntiStreak(
+  const shuffled = shuffleOptionsWithAntiStreak(
     [target, ...distractors],
     (entry) => entry.letter === target.letter,
     previousCorrectIndex,
     rng,
   );
+
+  const prevSameIdx = antiRepeat?.previousSameStepCorrectIndex;
+  if (
+    shuffled.length >= 3 &&
+    prevSameIdx !== null &&
+    prevSameIdx !== undefined &&
+    prevSameIdx >= 0 &&
+    prevSameIdx < shuffled.length &&
+    prevSameIdx !== previousCorrectIndex
+  ) {
+    const currentIdx = shuffled.findIndex((entry) => entry.letter === target.letter);
+    if (currentIdx === prevSameIdx) {
+      const altIndices: number[] = [];
+      for (let i = 0; i < shuffled.length; i++) {
+        if (i !== currentIdx && i !== previousCorrectIndex && i !== prevSameIdx) {
+          altIndices.push(i);
+        }
+      }
+      const shouldBreakRepeat =
+        (antiRepeat?.sameStepRepeatStreak ?? 0) >= 1 || rng() < 0.75;
+      if (altIndices.length > 0 && shouldBreakRepeat) {
+        const raw = rng();
+        const clamped = Number.isFinite(raw) ? Math.min(0.999999999999, Math.max(0, raw)) : 0;
+        const swapIdx = altIndices[Math.floor(clamped * altIndices.length)]!;
+        const tmp = shuffled[currentIdx]!;
+        shuffled[currentIdx] = shuffled[swapIdx]!;
+        shuffled[swapIdx] = tmp;
+      }
+    }
+  }
+
+  return shuffled;
 }
 
 /**

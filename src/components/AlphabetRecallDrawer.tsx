@@ -8,6 +8,7 @@ import {
 } from '../logic/alphabetReview';
 import { getAvatarOption } from '../logic/gamification';
 import { MIC_AUTO_STOP_CONFIG, type MicAutoStopAction } from '../logic/micAutoStop';
+import { fisherYatesShuffle } from '../logic/optionShuffle';
 import { validateSttReading } from '../logic/sttValidator';
 import {
   playFeedbackAudio,
@@ -109,6 +110,7 @@ export function AlphabetRecallDrawer({
       catalog: ALIFBE_LETTERS_29,
       letterHintCounts,
       letterMastery,
+      shuffleQueue: true,
     }),
   );
   const [idx, setIdx] = useState(0);
@@ -119,6 +121,12 @@ export function AlphabetRecallDrawer({
   const [roundStars, setRoundStars] = useState(0);
   const [roundResults, setRoundResults] = useState<RoundLetterOutcome[]>([]);
   const [roundDone, setRoundDone] = useState(false);
+  const [stepChoices, setStepChoices] = useState<AlifbeLetterInfo[]>(() =>
+    queue[0] ? buildLetterQuizChoices(queue[0], ALIFBE_LETTERS_29) : [],
+  );
+  const [stepTileAccents, setStepTileAccents] = useState<string[]>(() =>
+    fisherYatesShuffle(TILE_ACCENTS),
+  );
 
   const [isRecording, setIsRecording] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
@@ -131,45 +139,89 @@ export function AlphabetRecallDrawer({
 
   const micRef = useRef<MicSession | null>(null);
   const timerRef = useRef<number | null>(null);
+  const wrongClearTimerRef = useRef<number | null>(null);
   const praiseTimerRef = useRef<number | null>(null);
   const wrongSeqRef = useRef<number>(0);
-  const prevChoiceCorrectIdxRef = useRef<number | null>(null);
+  const lastRoundLettersRef = useRef<string[]>([]);
+  const slotHistoryRef = useRef<{
+    lastOverallIdx: number | null;
+    lastByStep: Record<'listen_pick' | 'picture_match', number | null>;
+    sameStepStreak: Record<'listen_pick' | 'picture_match', number>;
+    recentDistractors: string[];
+  }>({
+    lastOverallIdx: null,
+    lastByStep: { listen_pick: null, picture_match: null },
+    sameStepStreak: { listen_pick: 0, picture_match: 0 },
+    recentDistractors: [],
+  });
 
   const avatar = getAvatarOption(avatarId);
   const letters29 = orderedAlphabet.filter((entry) => entry.category !== 'mark');
   const markEntries = orderedAlphabet.filter((entry) => entry.category === 'mark');
   const current = queue[idx] ?? null;
 
-  const choices = useMemo(() => {
-    if (!current) return [];
-    return buildLetterQuizChoices(
-      current,
+  const prepareStepChoices = (
+    target: AlifbeLetterInfo,
+    step: 'listen_pick' | 'picture_match',
+  ) => {
+    const history = slotHistoryRef.current;
+    const nextChoices = buildLetterQuizChoices(
+      target,
       ALIFBE_LETTERS_29,
       undefined,
-      prevChoiceCorrectIdxRef.current,
+      history.lastOverallIdx,
+      Math.random,
+      {
+        previousSameStepCorrectIndex: history.lastByStep[step],
+        sameStepRepeatStreak: history.sameStepStreak[step],
+        recentDistractorLetters: history.recentDistractors,
+      },
     );
-  }, [current, microStep, roundEpoch]);
-
-  useEffect(() => {
-    if (
-      mode === 'game' &&
-      !roundDone &&
-      current &&
-      (microStep === 'listen_pick' || microStep === 'picture_match')
-    ) {
-      const correctIdx = choices.findIndex((entry) => entry.letter === current.letter);
-      if (correctIdx !== -1) {
-        prevChoiceCorrectIdxRef.current = correctIdx;
-      }
+    const correctIdx = nextChoices.findIndex((entry) => entry.letter === target.letter);
+    if (correctIdx !== -1) {
+      history.sameStepStreak[step] =
+        history.lastByStep[step] === correctIdx ? history.sameStepStreak[step] + 1 : 0;
+      history.lastByStep[step] = correctIdx;
+      history.lastOverallIdx = correctIdx;
     }
-  }, [mode, roundDone, current, microStep, choices]);
+    history.recentDistractors = nextChoices
+      .filter((entry) => entry.letter !== target.letter)
+      .map((entry) => entry.letter);
+    setStepChoices(nextChoices);
+    setStepTileAccents(fisherYatesShuffle(TILE_ACCENTS).slice(0, nextChoices.length));
+  };
 
-  const cancelOngoingMedia = () => {
+  const clearInteractionTimers = () => {
     wrongSeqRef.current += 1;
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
       timerRef.current = null;
     }
+    if (wrongClearTimerRef.current !== null) {
+      window.clearTimeout(wrongClearTimerRef.current);
+      wrongClearTimerRef.current = null;
+    }
+  };
+
+  const resetStepInteractionState = (opts?: { resetMistake?: boolean }) => {
+    clearInteractionTimers();
+    setPickedCorrectKey(null);
+    setWrongKey(null);
+    setVoiceMsg(null);
+    if (opts?.resetMistake) {
+      setHadMistake(false);
+    }
+    try {
+      if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement) {
+        document.activeElement.blur();
+      }
+    } catch {
+      // Ignore focus blur errors
+    }
+  };
+
+  const cancelOngoingMedia = () => {
+    clearInteractionTimers();
     if (praiseTimerRef.current !== null) {
       window.clearTimeout(praiseTimerRef.current);
       praiseTimerRef.current = null;
@@ -219,32 +271,49 @@ export function AlphabetRecallDrawer({
     onClose();
   };
 
+  const startFreshGameRound = () => {
+    cancelOngoingMedia();
+    resetStepInteractionState({ resetMistake: true });
+    setSttFallbackActive(false);
+
+    const nextQueue = selectAlphabetReviewQueue({
+      catalog: ALIFBE_LETTERS_29,
+      letterHintCounts,
+      letterMastery,
+      previousRoundLetters: lastRoundLettersRef.current,
+      shuffleQueue: true,
+    });
+    lastRoundLettersRef.current = nextQueue.map((entry) => entry.letter);
+    setQueue(nextQueue);
+    setRoundEpoch((prev) => prev + 1);
+    setIdx(0);
+    setMicroStep('listen_pick');
+    setRoundStars(0);
+    setRoundResults([]);
+    setRoundDone(false);
+    if (nextQueue[0]) {
+      prepareStepChoices(nextQueue[0], 'listen_pick');
+    } else {
+      setStepChoices([]);
+    }
+  };
+
   const handleSwitchMode = (nextMode: DrawerMode) => {
     if (nextMode === mode) return;
     playFeedbackChime('pop');
+    if (nextMode === 'game') {
+      startFreshGameRound();
+      setMode('game');
+      return;
+    }
     cancelOngoingMedia();
+    resetStepInteractionState({ resetMistake: true });
     setMode(nextMode);
   };
 
   const handleStartNewRound = () => {
     playFeedbackChime('pop');
-    cancelOngoingMedia();
-    const nextQueue = selectAlphabetReviewQueue({
-      catalog: ALIFBE_LETTERS_29,
-      letterHintCounts,
-      letterMastery,
-    });
-    setQueue(nextQueue);
-    setRoundEpoch((prev) => prev + 1);
-    setIdx(0);
-    setMicroStep('listen_pick');
-    setHadMistake(false);
-    setPickedCorrectKey(null);
-    setWrongKey(null);
-    setRoundStars(0);
-    setRoundResults([]);
-    setRoundDone(false);
-    setVoiceMsg(null);
+    startFreshGameRound();
   };
 
   const handleChartTap = (entry: AlifbeLetterInfo) => {
@@ -257,21 +326,31 @@ export function AlphabetRecallDrawer({
   const handlePickLetterChoice = (entry: AlifbeLetterInfo) => {
     if (!current || pickedCorrectKey !== null) return;
     if (entry.letter === current.letter) {
+      clearInteractionTimers();
       setPickedCorrectKey(entry.letter);
       setWrongKey(null);
       playFeedbackChime('chime');
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
-        setPickedCorrectKey(null);
-        setWrongKey(null);
+        resetStepInteractionState();
+        prepareStepChoices(current, 'picture_match');
         setMicroStep('picture_match');
       }, 420);
       return;
     }
 
+    if (wrongClearTimerRef.current !== null) {
+      window.clearTimeout(wrongClearTimerRef.current);
+      wrongClearTimerRef.current = null;
+    }
     setHadMistake(true);
     setWrongKey(entry.letter);
     playFeedbackChime('soft-bonk');
+    wrongClearTimerRef.current = window.setTimeout(() => {
+      wrongClearTimerRef.current = null;
+      setWrongKey((prev) => (prev === entry.letter ? null : prev));
+    }, 550);
+
     if (timerRef.current !== null) {
       window.clearTimeout(timerRef.current);
     }
@@ -291,28 +370,36 @@ export function AlphabetRecallDrawer({
   const handlePickPictureChoice = (entry: AlifbeLetterInfo) => {
     if (!current || pickedCorrectKey !== null) return;
     if (entry.letter === current.letter) {
+      clearInteractionTimers();
       setPickedCorrectKey(entry.letter);
       setWrongKey(null);
       playFeedbackChime('chime');
       timerRef.current = window.setTimeout(() => {
         timerRef.current = null;
-        setPickedCorrectKey(null);
-        setWrongKey(null);
-        setVoiceMsg(null);
+        resetStepInteractionState();
         setMicroStep('say_or_confirm');
       }, 420);
       return;
     }
 
+    if (wrongClearTimerRef.current !== null) {
+      window.clearTimeout(wrongClearTimerRef.current);
+      wrongClearTimerRef.current = null;
+    }
     setHadMistake(true);
     setWrongKey(entry.letter);
     playFeedbackChime('soft-bonk');
+    wrongClearTimerRef.current = window.setTimeout(() => {
+      wrongClearTimerRef.current = null;
+      setWrongKey((prev) => (prev === entry.letter ? null : prev));
+    }, 550);
     void playWrongFeedbackAudio();
   };
 
   const finishCurrentLetter = (usedVoiceAi: boolean) => {
     if (!current) return;
     cancelOngoingMedia();
+    resetStepInteractionState({ resetMistake: true });
     const perfectRound = !hadMistake;
     const starsEarned = perfectRound ? 2 : 1;
 
@@ -327,12 +414,10 @@ export function AlphabetRecallDrawer({
     setRoundResults((prev) => [...prev, { entry: current, perfect: perfectRound, usedVoiceAi }]);
 
     if (idx + 1 < queue.length) {
+      const nextLetter = queue[idx + 1]!;
+      prepareStepChoices(nextLetter, 'listen_pick');
       setIdx((prev) => prev + 1);
       setMicroStep('listen_pick');
-      setHadMistake(false);
-      setPickedCorrectKey(null);
-      setWrongKey(null);
-      setVoiceMsg(null);
     } else {
       triggerCelebrationBurst('round');
       praiseTimerRef.current = window.setTimeout(() => {
@@ -705,13 +790,14 @@ export function AlphabetRecallDrawer({
                 </button>
 
                 <div className="alphabet-quiz-choices">
-                  {choices.map((entry, cIdx) => {
+                  {stepChoices.map((entry, cIdx) => {
                     const isCorrect = pickedCorrectKey === entry.letter;
                     const isWrong = wrongKey === entry.letter;
-                    const accentClass = TILE_ACCENTS[cIdx % TILE_ACCENTS.length];
+                    const accentClass =
+                      stepTileAccents[cIdx] ?? TILE_ACCENTS[cIdx % TILE_ACCENTS.length];
                     return (
                       <motion.button
-                        key={entry.letter}
+                        key={`${roundEpoch}-${idx}-${microStep}-${entry.letter}`}
                         type="button"
                         whileHover={{ scale: 1.05 }}
                         whileTap={{ scale: 0.94 }}
@@ -750,12 +836,12 @@ export function AlphabetRecallDrawer({
                 </div>
 
                 <div className="emoji-choices-row">
-                  {choices.map((entry) => {
+                  {stepChoices.map((entry) => {
                     const isCorrect = pickedCorrectKey === entry.letter;
                     const isWrong = wrongKey === entry.letter;
                     return (
                       <motion.button
-                        key={entry.letter}
+                        key={`${roundEpoch}-${idx}-${microStep}-${entry.letter}`}
                         type="button"
                         whileHover={{ scale: 1.06 }}
                         whileTap={{ scale: 0.93 }}
