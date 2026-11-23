@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutGroup, motion } from 'framer-motion';
+import { AnimatePresence, LayoutGroup, motion } from 'framer-motion';
 import {
   countUzbekSyllables,
   DYNAMIC_WORD_POOL,
   type WordPoolItem,
   type WordPoolKind,
 } from '../data/curriculum';
+import { resolveVisualRenderSrc } from '../data/wordVisuals';
 import {
   applyBubbleSpeechResult,
   BUBBLE_OFFLINE_PAUSE_MS,
@@ -40,7 +41,9 @@ import {
 } from '../logic/scaffoldingTimer';
 import { validateSttReading } from '../logic/sttValidator';
 import {
+  buildInterleavedSessionQueue,
   buildSentenceWordBank,
+  evaluateConstructorSelection,
   getOfflineFallbackEmojiChoices,
   getSentenceComprehensionAudioKey,
   getSentenceComprehensionPromptUz,
@@ -61,6 +64,7 @@ import {
   playWrongFeedbackAudio,
   startMicRecording,
   stopActiveAudio,
+  SttRequestError,
   verifyAudioWithStt,
   type FeedbackAudioKey,
   type InstructionAudioKey,
@@ -70,8 +74,8 @@ import {
 import { triggerCelebrationBurst } from '../utils/soundEffects';
 import { AnimatedCharacter } from './AnimatedCharacter';
 import { GameVisual } from './GameVisual';
-import { ArrowRight, Check, CloseIcon, Home, Mic, RotateCcw, Sparkles, Square, Star, Volume2 } from './Icons';
-import { LetterBlock } from './LetterBlock';
+import { ArrowRight, Check, CloseIcon, Home, Mic, Sparkles, Square, Star, Volume2 } from './Icons';
+import { LetterBlock, tokenizeUzbekLettersOrdered } from './LetterBlock';
 import { StorybookBackdrop } from './StorybookBackdrop';
 
 export interface WordAttemptReport {
@@ -126,6 +130,53 @@ export function getLessonInstructionKey(params: {
     : 'instr_stage3_exam_voice_word';
 }
 
+export const BUBBLES_INSTRUCTION_TEXT_UZ =
+  'Rasmga qara! Uning nomidagi bo‘g‘inlarni ketma-ket yor!';
+
+export function computeSessionProgress(params: {
+  stepIdx: number;
+  totalSteps: number;
+  isWordDone: boolean;
+}): {
+  totalSteps: number;
+  completedSteps: number;
+  currentStepDisplay: number;
+  progressPct: number;
+} {
+  const safeTotal = Math.max(1, params.totalSteps);
+  const clampedIdx = Math.max(0, Math.min(params.stepIdx, safeTotal - 1));
+  const completedSteps = params.isWordDone ? clampedIdx + 1 : clampedIdx;
+  const currentStepDisplay = Math.min(
+    completedSteps + (params.isWordDone ? 0 : 1),
+    safeTotal,
+  );
+  const progressPct = Math.min(
+    100,
+    Math.round(((completedSteps + (params.isWordDone ? 0 : 0.4)) / safeTotal) * 100),
+  );
+  return {
+    totalSteps: safeTotal,
+    completedSteps,
+    currentStepDisplay,
+    progressPct,
+  };
+}
+
+export const STT_FALLBACK_FAILURE_THRESHOLD = 2;
+
+export function computeNextSttFailureCount(currentFailures: number, err: unknown): number {
+  if (
+    err instanceof SttRequestError &&
+    (err.reason === 'unauthorized' ||
+      err.reason === 'insufficient_credits' ||
+      err.reason === 'endpoint_not_found' ||
+      err.reason === 'unconfigured')
+  ) {
+    return Math.max(currentFailures + 1, STT_FALLBACK_FAILURE_THRESHOLD);
+  }
+  return currentFailures + 1;
+}
+
 const CONSTRUCTOR_BTN_CLASSES = ['cube-btn-orange', 'cube-btn-emerald', 'cube-btn-purple'] as const;
 
 export function LessonPlayer({
@@ -139,37 +190,45 @@ export function LessonPlayer({
   onPlayAnotherRound,
   onBack,
 }: LessonPlayerProps) {
-  const [wordIdx, setWordIdx] = useState(0);
   const [retryIndex, setRetryIndex] = useState(0);
+  const sessionQueue = useMemo(
+    () => buildInterleavedSessionQueue(sessionItems),
+    [sessionItems],
+  );
+  const [stepIdx, setStepIdx] = useState(0);
+  const [showingWordDone, setShowingWordDone] = useState(false);
   const [roundFinished, setRoundFinished] = useState(false);
   const [roundStars, setRoundStars] = useState(0);
   const [completedResults, setCompletedResults] = useState<
     Record<string, ReadingAttemptEvaluation['status']>
   >({});
 
-  const currentSession = sessionItems[wordIdx] ?? sessionItems[0] ?? null;
+  const currentStep = sessionQueue[stepIdx] ?? sessionQueue[0] ?? null;
+  const wordPhase: WordPhase = showingWordDone
+    ? 'word_done'
+    : (currentStep?.phase ?? 'exam');
+  const currentSession = currentStep?.entry ?? sessionItems[0] ?? null;
   const currentItem = currentSession?.item ?? null;
   const currentProgress = currentItem ? wordProgressMap[currentItem.id] : undefined;
-
-  const initialPhaseForItem = (session: AdaptiveSessionWord | null): WordPhase =>
-    session?.expressExamOnly ? 'exam' : 'stage1_build';
-
-  const [wordPhase, setWordPhase] = useState<WordPhase>(() => initialPhaseForItem(currentSession));
 
   // Stage 1: Train Blending Slider, Constructor, Bubbles, or Sentence Builder
   const buildGameMode = useMemo(() => {
     if (!currentItem) return 'constructor' as const;
-    return getStage1GameMode(wordIdx, currentItem);
-  }, [wordIdx, currentItem]);
+    return getStage1GameMode(currentStep?.stage1OrderIndex ?? 0, currentItem);
+  }, [currentStep?.stage1OrderIndex, currentItem]);
 
   const [pickedMissingPart, setPickedMissingPart] = useState<string | null>(null);
+  const [selectedConstructorPart, setSelectedConstructorPart] = useState<string | null>(null);
   const [wrongPart, setWrongPart] = useState<string | null>(null);
   const [wrongShakeTick, setWrongShakeTick] = useState(0);
 
   const [bubbleGate, setBubbleGate] = useState<BubbleGateState>(() =>
     createBubbleGateState(currentItem?.parts ?? []),
   );
-  const [wrongBubbleKey, setWrongBubbleKey] = useState<string | null>(null);
+  const [poppedBubbleKeys, setPoppedBubbleKeys] = useState<string[]>([]);
+  const [wrongBubbleState, setWrongBubbleState] = useState<{ key: string; tick: number } | null>(
+    null,
+  );
   const [wrongBubblePicEmoji, setWrongBubblePicEmoji] = useState<string | null>(null);
   const [bubbleMicRecording, setBubbleMicRecording] = useState(false);
   const [bubbleMicChecking, setBubbleMicChecking] = useState(false);
@@ -208,6 +267,7 @@ export function LessonPlayer({
   } | null>(null);
   const [showVisualSplit, setShowVisualSplit] = useState(false);
   const [showAudioHint, setShowAudioHint] = useState(false);
+  const [examRevealed, setExamRevealed] = useState(false);
   const [lastEval, setLastEval] = useState<ReadingAttemptEvaluation | null>(null);
   const [lastStarsEarned, setLastStarsEarned] = useState(0);
 
@@ -219,15 +279,20 @@ export function LessonPlayer({
   const stage1TimerRef = useRef<number | null>(null);
   const bubblePauseTimerRef = useRef<number | null>(null);
   const praiseTimerRef = useRef<number | null>(null);
+  const examRevealTimerRef = useRef<number | null>(null);
+  const wrongBubbleTimerRef = useRef<number | null>(null);
   const bubbleGenRef = useRef<number>(0);
   const suppressNextAutoInstrRef = useRef<boolean>(false);
   const trainCompletedRef = useRef<boolean>(false);
   const recordedIdsRef = useRef<Set<string>>(new Set());
+  const prevSessionItemsRef = useRef(sessionItems);
   const scaffoldingRef = useRef<ScaffoldingTimerState>(createScaffoldingState(0));
   const audioHintPlayedRef = useRef<boolean>(false);
   const lowConfRetriesRef = useRef<number>(0);
   const examRenderStartRef = useRef<number>(0);
   const isCheckingRef = useRef<boolean>(false);
+  const examRevealedRef = useRef<boolean>(false);
+  const consecutiveSttFailuresRef = useRef<number>(0);
   const prevConstructorCorrectIdxRef = useRef<number | null>(null);
   const prevBubbleCorrectIdxRef = useRef<number | null>(null);
   const prevSpotlightCorrectIdxRef = useRef<number | null>(null);
@@ -236,7 +301,10 @@ export function LessonPlayer({
   const avatar = getAvatarOption(avatarId);
 
   const isOfflineFallbackActive =
-    !aiOnline || !browserOnline || consecutiveSttFailures >= 2 || micPermissionBlocked;
+    !aiOnline ||
+    !browserOnline ||
+    consecutiveSttFailures >= STT_FALLBACK_FAILURE_THRESHOLD ||
+    micPermissionBlocked;
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -257,7 +325,7 @@ export function LessonPlayer({
       (emoji) => emoji === currentItem.emoji,
       prevSpotlightCorrectIdxRef.current,
     );
-  }, [currentItem, wordPhase, retryIndex]);
+  }, [currentItem, wordPhase, stepIdx, retryIndex]);
 
   const offlineEmojiChoices = useMemo(() => {
     if (!currentItem) return [];
@@ -266,7 +334,32 @@ export function LessonPlayer({
       DYNAMIC_WORD_POOL,
       prevOfflineCorrectIdxRef.current,
     );
-  }, [currentItem, wordPhase, retryIndex]);
+  }, [currentItem, wordPhase, stepIdx, retryIndex]);
+
+  useEffect(() => {
+    if (!currentItem || typeof Image === 'undefined') return;
+    const candidates: Array<{ emoji: string; image?: string; wordId?: string }> = [
+      { emoji: currentItem.emoji, image: currentItem.image, wordId: currentItem.id },
+      ...spotlightEmojiChoices.map((emoji) => ({
+        emoji,
+        image: emoji === currentItem.emoji ? currentItem.image : undefined,
+        wordId: emoji === currentItem.emoji ? currentItem.id : undefined,
+      })),
+      ...offlineEmojiChoices.map((emoji) => ({
+        emoji,
+        image: emoji === currentItem.emoji ? currentItem.image : undefined,
+        wordId: emoji === currentItem.emoji ? currentItem.id : undefined,
+      })),
+    ];
+    const seen = new Set<string>();
+    for (const entry of candidates) {
+      const src = resolveVisualRenderSrc(entry);
+      if (!src || src.startsWith('data:') || seen.has(src)) continue;
+      seen.add(src);
+      const img = new Image();
+      img.src = src;
+    }
+  }, [currentItem, spotlightEmojiChoices, offlineEmojiChoices]);
 
   const constructorChoices = useMemo(() => {
     if (!currentItem) return [];
@@ -279,7 +372,7 @@ export function LessonPlayer({
       (part) => part === targetLastPart,
       prevConstructorCorrectIdxRef.current,
     );
-  }, [currentItem, wordPhase, retryIndex]);
+  }, [currentItem, wordPhase, stepIdx, retryIndex]);
 
   const bubbleChoices = useMemo(() => {
     if (!currentItem) return [];
@@ -295,7 +388,7 @@ export function LessonPlayer({
       (bubble) => bubble.key.startsWith('target-0-'),
       prevBubbleCorrectIdxRef.current,
     );
-  }, [currentItem, wordPhase, retryIndex]);
+  }, [currentItem, wordPhase, stepIdx, retryIndex]);
 
   useEffect(() => {
     if (!currentItem) return;
@@ -329,10 +422,23 @@ export function LessonPlayer({
   const sentenceBank = useMemo(() => {
     if (!currentItem || currentItem.kind !== 'sentence') return [];
     return buildSentenceWordBank(currentItem);
-  }, [currentItem]);
+  }, [currentItem, wordPhase, stepIdx, retryIndex]);
 
-  // Reset per-word state when switching to a new session item
+  // Defensive sync if parent swaps sessionItems without remounting
   useEffect(() => {
+    if (prevSessionItemsRef.current === sessionItems) return;
+    prevSessionItemsRef.current = sessionItems;
+    recordedIdsRef.current.clear();
+    setCompletedResults({});
+    setRoundStars(0);
+    setRoundFinished(false);
+    setShowingWordDone(false);
+    setStepIdx(0);
+  }, [sessionItems]);
+
+  // Reset per-step UI state when moving across exercise steps/items (never call setWordPhase here)
+  useEffect(() => {
+    if (wordPhase === 'word_done') return;
     bubbleGenRef.current += 1;
     if (stage1TimerRef.current !== null) {
       window.clearTimeout(stage1TimerRef.current);
@@ -342,17 +448,22 @@ export function LessonPlayer({
       window.clearTimeout(bubblePauseTimerRef.current);
       bubblePauseTimerRef.current = null;
     }
-    if (praiseTimerRef.current !== null) {
-      window.clearTimeout(praiseTimerRef.current);
-      praiseTimerRef.current = null;
+    if (examRevealTimerRef.current !== null) {
+      window.clearTimeout(examRevealTimerRef.current);
+      examRevealTimerRef.current = null;
+    }
+    if (wrongBubbleTimerRef.current !== null) {
+      window.clearTimeout(wrongBubbleTimerRef.current);
+      wrongBubbleTimerRef.current = null;
     }
     trainCompletedRef.current = false;
-    setWordPhase(initialPhaseForItem(currentSession));
     setPickedMissingPart(null);
+    setSelectedConstructorPart(null);
     setWrongPart(null);
     setWrongShakeTick(0);
     setBubbleGate(createBubbleGateState(currentItem?.parts ?? []));
-    setWrongBubbleKey(null);
+    setPoppedBubbleKeys([]);
+    setWrongBubbleState(null);
     setWrongBubblePicEmoji(null);
     setBubbleMicRecording(false);
     setBubbleMicChecking(false);
@@ -372,8 +483,8 @@ export function LessonPlayer({
     setExamFeedback(null);
     setShowVisualSplit(false);
     setShowAudioHint(false);
-    setLastEval(null);
-    setLastStarsEarned(0);
+    examRevealedRef.current = false;
+    setExamRevealed(false);
     setOfflineWrongEmojis([]);
     lowConfRetriesRef.current = 0;
     audioHintPlayedRef.current = false;
@@ -387,6 +498,10 @@ export function LessonPlayer({
       bubbleMicRef.current.cancel();
       bubbleMicRef.current = null;
     }
+  }, [wordPhase, stepIdx, currentItem, retryIndex]);
+
+  // Full cleanup on unmount
+  useEffect(() => {
     return () => {
       bubbleGenRef.current += 1;
       if (stage1TimerRef.current !== null) {
@@ -401,6 +516,14 @@ export function LessonPlayer({
         window.clearTimeout(praiseTimerRef.current);
         praiseTimerRef.current = null;
       }
+      if (examRevealTimerRef.current !== null) {
+        window.clearTimeout(examRevealTimerRef.current);
+        examRevealTimerRef.current = null;
+      }
+      if (wrongBubbleTimerRef.current !== null) {
+        window.clearTimeout(wrongBubbleTimerRef.current);
+        wrongBubbleTimerRef.current = null;
+      }
       stopActiveAudio();
       if (micRef.current) {
         micRef.current.cancel();
@@ -411,7 +534,7 @@ export function LessonPlayer({
         bubbleMicRef.current = null;
       }
     };
-  }, [currentSession, currentItem]);
+  }, []);
 
   // Auto-play static instruction clip on stage/mode transitions (Stage 3 never reads target word)
   useEffect(() => {
@@ -429,7 +552,7 @@ export function LessonPlayer({
     if (instrKey) {
       void playInstructionAudio(instrKey);
     }
-  }, [roundFinished, currentItem, wordPhase, buildGameMode, isOfflineFallbackActive]);
+  }, [roundFinished, stepIdx, currentItem, wordPhase, buildGameMode, isOfflineFallbackActive]);
 
   // Stage 3 Exam: Progressive Scaffolding Timer (4.5s split, 8.0s audio hint)
   useEffect(() => {
@@ -446,7 +569,7 @@ export function LessonPlayer({
     }
 
     const intervalId = window.setInterval(() => {
-      if (isCheckingRef.current) return;
+      if (isCheckingRef.current || examRevealedRef.current) return;
       const next = tickScaffolding(scaffoldingRef.current, performance.now(), READING_THRESHOLDS);
       scaffoldingRef.current = next;
       if (next.usedVisualSplit) {
@@ -462,7 +585,7 @@ export function LessonPlayer({
     }, 150);
 
     return () => window.clearInterval(intervalId);
-  }, [wordPhase, currentItem, isOfflineFallbackActive]);
+  }, [wordPhase, stepIdx, currentItem, isOfflineFallbackActive]);
 
   const handleTapLetterRecall = (letter: string) => {
     onLetterHintTap(letter);
@@ -476,20 +599,35 @@ export function LessonPlayer({
     setShowAudioHint(true);
   };
 
-  const enterSpotlightStage = () => {
-    playFeedbackChime('chime');
-    setSpotlightIndex(0);
-    setWrongSpotlightEmoji(null);
-    setWordPhase('stage2_spotlight');
+  const completeSessionRound = () => {
+    setShowingWordDone(false);
+    triggerCelebrationBurst('round');
+    if (praiseTimerRef.current !== null) {
+      window.clearTimeout(praiseTimerRef.current);
+    }
+    praiseTimerRef.current = window.setTimeout(() => {
+      praiseTimerRef.current = null;
+      void playPraiseAudio('round_complete');
+    }, 800);
+    setRoundFinished(true);
   };
 
-  const scheduleStage2Advance = (delayMs: number) => {
+  const advanceAfterStage1 = () => {
+    playFeedbackChime('chime');
+    if (stepIdx + 1 < sessionQueue.length) {
+      setStepIdx((prev) => prev + 1);
+      return;
+    }
+    completeSessionRound();
+  };
+
+  const scheduleStage1Advance = (delayMs: number) => {
     if (stage1TimerRef.current !== null) {
       window.clearTimeout(stage1TimerRef.current);
     }
     stage1TimerRef.current = window.setTimeout(() => {
       stage1TimerRef.current = null;
-      enterSpotlightStage();
+      advanceAfterStage1();
     }, delayMs);
   };
 
@@ -500,20 +638,53 @@ export function LessonPlayer({
       setBlendProgress(100);
       playFeedbackChime('chime');
       void playWordItemAudio(currentItem);
-      scheduleStage2Advance(720);
+      scheduleStage1Advance(720);
     }
   };
 
-  const enterExamStage = () => {
+  const advanceAfterStage2 = () => {
     stopActiveAudio();
-    playFeedbackChime('pop');
-    setExamFeedback(null);
-    setOfflineWrongEmojis([]);
-    lowConfRetriesRef.current = 0;
-    setWordPhase('exam');
+    if (stepIdx + 1 < sessionQueue.length) {
+      const nextStep = sessionQueue[stepIdx + 1];
+      playFeedbackChime(nextStep?.phase === 'exam' ? 'pop' : 'chime');
+      setStepIdx((prev) => prev + 1);
+      return;
+    }
+    completeSessionRound();
   };
 
-  const finishCurrentWord = (report: WordAttemptReport) => {
+  const handleSelectConstructorChoice = (part: string) => {
+    if (pickedMissingPart !== null) return;
+    setSelectedConstructorPart(part);
+    setWrongPart(null);
+    playFeedbackChime('pop');
+  };
+
+  const handleConstructorCheck = () => {
+    if (!currentItem || pickedMissingPart !== null) return;
+    const targetLast = currentItem.parts[currentItem.parts.length - 1] ?? '';
+    const outcome = evaluateConstructorSelection(selectedConstructorPart, targetLast);
+    if (outcome === 'no_selection') return;
+
+    if (outcome === 'correct' && selectedConstructorPart) {
+      setPickedMissingPart(selectedConstructorPart);
+      setSelectedConstructorPart(null);
+      setWrongPart(null);
+      playFeedbackChime('chime');
+      scheduleStage1Advance(540);
+      return;
+    }
+
+    if (selectedConstructorPart) {
+      setWrongPart(selectedConstructorPart);
+      setSelectedConstructorPart(null);
+      setWrongShakeTick((t) => t + 1);
+      playFeedbackChime('soft-bonk');
+      void playWrongFeedbackAudio();
+    }
+  };
+
+  const recordWordCompletion = (report: WordAttemptReport) => {
     if (!recordedIdsRef.current.has(report.item.id)) {
       recordedIdsRef.current.add(report.item.id);
       setRoundStars((prev) => prev + report.starsEarned);
@@ -525,6 +696,10 @@ export function LessonPlayer({
     }
     setLastEval(report.evaluation);
     setLastStarsEarned(report.starsEarned);
+  };
+
+  const finishCurrentWord = (report: WordAttemptReport) => {
+    recordWordCompletion(report);
     triggerCelebrationBurst('word');
     if (praiseTimerRef.current !== null) {
       window.clearTimeout(praiseTimerRef.current);
@@ -533,7 +708,7 @@ export function LessonPlayer({
       praiseTimerRef.current = null;
       void playPraiseAudio();
     }, 350);
-    setWordPhase('word_done');
+    setShowingWordDone(true);
   };
 
   const handleBubbleTap = (bubbleKey: string, bubbleText: string) => {
@@ -549,14 +724,26 @@ export function LessonPlayer({
     setBubbleGate(res.state);
 
     if (res.result === 'wrong') {
-      setWrongBubbleKey(bubbleKey);
+      if (wrongBubbleTimerRef.current !== null) {
+        window.clearTimeout(wrongBubbleTimerRef.current);
+      }
+      setWrongBubbleState({ key: bubbleKey, tick: Date.now() });
       setWrongShakeTick((t) => t + 1);
+      wrongBubbleTimerRef.current = window.setTimeout(() => {
+        wrongBubbleTimerRef.current = null;
+        setWrongBubbleState(null);
+      }, 420);
       playFeedbackChime('soft-bonk');
       void playWrongFeedbackAudio();
       return;
     }
 
-    setWrongBubbleKey(null);
+    if (wrongBubbleTimerRef.current !== null) {
+      window.clearTimeout(wrongBubbleTimerRef.current);
+      wrongBubbleTimerRef.current = null;
+    }
+    setWrongBubbleState(null);
+    setPoppedBubbleKeys((prev) => (prev.includes(bubbleKey) ? prev : [...prev, bubbleKey]));
     setBubbleFeedback(null);
     playFeedbackChime('pop');
 
@@ -603,6 +790,7 @@ export function LessonPlayer({
     try {
       const sttResp = await verifyAudioWithStt(result.wavBlob, targetSpoken, acceptAliases);
       if (bubbleGenRef.current !== myGen) return;
+      consecutiveSttFailuresRef.current = 0;
       setConsecutiveSttFailures(0);
       const validation = validateSttReading({
         targetWord: targetSpoken,
@@ -622,7 +810,7 @@ export function LessonPlayer({
         setBubbleFeedback(null);
         if (nextGate.phase === 'completed') {
           void playWordItemAudio(currentItem);
-          scheduleStage2Advance(550);
+          scheduleStage1Advance(550);
         } else if (nextGate.phase === 'awaiting_word_speech') {
           void playInstructionAudio('instr_stage1_bubble_read_word');
         }
@@ -644,19 +832,66 @@ export function LessonPlayer({
         });
         void playFeedbackAudio('fb_bubble_try_again');
       }
-    } catch {
+    } catch (err) {
       if (bubbleGenRef.current !== myGen) return;
-      const nextFails = consecutiveSttFailures + 1;
-      if (!isOfflineFallbackActive && nextFails >= 2) {
+      const nextFailures = computeNextSttFailureCount(consecutiveSttFailuresRef.current, err);
+      consecutiveSttFailuresRef.current = nextFailures;
+      setConsecutiveSttFailures(nextFailures);
+
+      if (nextFailures < STT_FALLBACK_FAILURE_THRESHOLD) {
+        playFeedbackChime('soft-bonk');
+        setBubbleGate((prev) => applyBubbleSpeechResult(prev, false));
+        setBubbleFeedback({
+          text: 'Yana bir bor balandroq va aniqroq aytib ko‘r!',
+          audioKey: 'fb_louder_clearer',
+        });
+        void playFeedbackAudio('fb_louder_clearer');
+        return;
+      }
+
+      if (!isOfflineFallbackActive) {
         suppressNextAutoInstrRef.current = true;
       }
-      setConsecutiveSttFailures(nextFails);
-      setBubbleGate((prev) => applyBubbleSpeechResult(prev, false));
-      setBubbleFeedback({
-        text: 'Ovoz serveri bilan aloqa uzildi — eshitib davom etamiz.',
-        audioKey: 'fb_bubble_server_offline',
-      });
-      void playFeedbackAudio('fb_bubble_server_offline');
+      setBubbleFeedback(null);
+      if (isFullWordStep) {
+        setBubbleGate((prev) => ({
+          ...prev,
+          phase: 'offline_word_confirm',
+          activePart: null,
+          speechFailuresInStep: 0,
+        }));
+        void playInstructionAudio('instr_stage1_bubble_confirm_word');
+      } else {
+        const pauseStartedAtMs = performance.now();
+        setBubbleGate((prev) => ({
+          ...prev,
+          phase: 'audio_pause',
+          pauseStartedAtMs,
+          speechFailuresInStep: 0,
+        }));
+        const pauseWait = new Promise<void>((resolve) => {
+          if (bubblePauseTimerRef.current !== null) {
+            window.clearTimeout(bubblePauseTimerRef.current);
+          }
+          bubblePauseTimerRef.current = window.setTimeout(() => {
+            bubblePauseTimerRef.current = null;
+            resolve();
+          }, BUBBLE_OFFLINE_PAUSE_MS);
+        });
+        void Promise.all([playSyllableAudio(targetSpoken), pauseWait]).then(() => {
+          if (bubbleGenRef.current !== myGen) return;
+          setBubbleGate((prev) => {
+            const next = completeOfflineSyllablePause(
+              prev,
+              pauseStartedAtMs + BUBBLE_OFFLINE_PAUSE_MS,
+            );
+            if (next.phase === 'offline_word_confirm') {
+              void playInstructionAudio('instr_stage1_bubble_confirm_word');
+            }
+            return next;
+          });
+        });
+      }
     } finally {
       if (bubbleGenRef.current === myGen) {
         setBubbleMicChecking(false);
@@ -758,7 +993,7 @@ export function LessonPlayer({
       setBubbleGate((prev) => {
         const next = applyBubbleSpeechResult(prev, true);
         if (next.phase === 'completed') {
-          scheduleStage2Advance(450);
+          scheduleStage1Advance(450);
         } else if (next.phase === 'awaiting_word_speech') {
           void playInstructionAudio('instr_stage1_bubble_read_word');
         }
@@ -769,6 +1004,7 @@ export function LessonPlayer({
 
   const processRecordedSpeech = async (result: MicRecordingResult) => {
     if (!currentItem) return;
+    const stepGen = bubbleGenRef.current;
     isCheckingRef.current = true;
     setIsChecking(true);
     setExamFeedback(null);
@@ -783,6 +1019,8 @@ export function LessonPlayer({
         currentItem.text,
         currentItem.accept,
       );
+      if (bubbleGenRef.current !== stepGen) return;
+      consecutiveSttFailuresRef.current = 0;
       setConsecutiveSttFailures(0);
 
       const syllableCount =
@@ -894,7 +1132,7 @@ export function LessonPlayer({
       const starsEarned =
         evaluation.status === 'mastered' ? 3 : evaluation.status === 'syllable' ? 2 : 1;
 
-      finishCurrentWord({
+      recordWordCompletion({
         item: currentItem,
         evaluation,
         reactionMs: durations.reactionMs,
@@ -903,26 +1141,51 @@ export function LessonPlayer({
         usedVoiceAi: true,
         starsEarned,
       });
-    } catch {
+
+      examRevealedRef.current = true;
+      setExamRevealed(true);
+      setExamFeedback({
+        kind: 'success',
+        text: 'Barakalla! Rasm ochildi!',
+      });
+      playFeedbackChime('chime');
+      triggerCelebrationBurst('word');
+      void playWordItemAudio(currentItem);
+      if (examRevealTimerRef.current !== null) {
+        window.clearTimeout(examRevealTimerRef.current);
+      }
+      examRevealTimerRef.current = window.setTimeout(() => {
+        examRevealTimerRef.current = null;
+        setShowingWordDone(true);
+        void playPraiseAudio();
+      }, 1450);
+    } catch (err) {
+      if (bubbleGenRef.current !== stepGen) return;
       scaffoldingRef.current = resumeScaffoldingAfterFalseStart(
         scaffoldingRef.current,
         performance.now(),
         READING_THRESHOLDS,
       );
-      const nextFails = consecutiveSttFailures + 1;
-      if (!isOfflineFallbackActive && nextFails >= 2) {
-        suppressNextAutoInstrRef.current = true;
+      const nextFailures = computeNextSttFailureCount(consecutiveSttFailuresRef.current, err);
+      consecutiveSttFailuresRef.current = nextFailures;
+      setConsecutiveSttFailures(nextFailures);
+
+      if (nextFailures >= STT_FALLBACK_FAILURE_THRESHOLD) {
+        setExamFeedback(null);
+        setOfflineWrongEmojis([]);
+      } else {
+        setExamFeedback({
+          kind: 'gentle',
+          text: 'Yana bir bor balandroq va aniqroq aytib ko‘r!',
+          audioKey: 'fb_louder_clearer',
+        });
+        void playFeedbackAudio('fb_louder_clearer');
       }
-      setConsecutiveSttFailures(nextFails);
-      setExamFeedback({
-        kind: 'gentle',
-        text: 'Ovoz serveri bilan aloqa uzildi. Rasm tanlash orqali davom etamiz.',
-        audioKey: 'fb_server_offline_pic',
-      });
-      void playFeedbackAudio('fb_server_offline_pic');
     } finally {
-      isCheckingRef.current = false;
-      setIsChecking(false);
+      if (bubbleGenRef.current === stepGen) {
+        isCheckingRef.current = false;
+        setIsChecking(false);
+      }
     }
   };
 
@@ -971,7 +1234,7 @@ export function LessonPlayer({
   };
 
   const toggleRecording = async () => {
-    if (isChecking || wordPhase !== 'exam') return;
+    if (isChecking || examRevealed || wordPhase !== 'exam') return;
     if (!isRecording) {
       setExamFeedback(null);
       try {
@@ -1014,7 +1277,7 @@ export function LessonPlayer({
   };
 
   const handleExamAudioAssist = () => {
-    if (!currentItem || wordPhase !== 'exam') return;
+    if (!currentItem || examRevealed || wordPhase !== 'exam') return;
     scaffoldingRef.current = markScaffoldingAudioHint(scaffoldingRef.current);
     setShowVisualSplit(true);
     setShowAudioHint(true);
@@ -1100,18 +1363,15 @@ export function LessonPlayer({
 
   const handleAdvanceRound = () => {
     playFeedbackChime('pop');
-    if (wordIdx + 1 < sessionItems.length) {
-      setWordIdx((prev) => prev + 1);
+    if (praiseTimerRef.current !== null) {
+      window.clearTimeout(praiseTimerRef.current);
+      praiseTimerRef.current = null;
+    }
+    if (stepIdx + 1 < sessionQueue.length) {
+      setShowingWordDone(false);
+      setStepIdx((prev) => prev + 1);
     } else {
-      triggerCelebrationBurst('round');
-      if (praiseTimerRef.current !== null) {
-        window.clearTimeout(praiseTimerRef.current);
-      }
-      praiseTimerRef.current = window.setTimeout(() => {
-        praiseTimerRef.current = null;
-        void playPraiseAudio('round_complete');
-      }, 800);
-      setRoundFinished(true);
+      completeSessionRound();
     }
   };
 
@@ -1131,6 +1391,10 @@ export function LessonPlayer({
 
   // Mockup 10: Victory / Sessiya yakuni
   if (roundFinished) {
+    const completedWordsCount = sessionItems.filter(
+      ({ item }) => completedResults[item.id] !== undefined,
+    ).length;
+
     return (
       <div className="victory-screen-shell">
         <StorybookBackdrop />
@@ -1185,7 +1449,7 @@ export function LessonPlayer({
                 <span>+{roundStars} Yulduz</span>
               </span>
               <span className="victory-words-pill">
-                {sessionItems.length} / {sessionItems.length} so‘z
+                {completedWordsCount} / {sessionItems.length} so‘z
               </span>
             </div>
 
@@ -1194,7 +1458,13 @@ export function LessonPlayer({
                 const st = completedResults[item.id] ?? 'assisted';
                 return (
                   <span key={item.id} className={`round-word-pill status-badge-${st}`}>
-                    <GameVisual emoji={item.emoji} wordId={item.id} alt={item.text} size={20} />
+                    <GameVisual
+                      emoji={item.emoji}
+                      image={item.image}
+                      wordId={item.id}
+                      alt={item.text}
+                      size={20}
+                    />
                     <span>{item.text}</span>
                   </span>
                 );
@@ -1214,18 +1484,52 @@ export function LessonPlayer({
                 whileTap={{ scale: 0.97 }}
                 className="btn-3d-emerald victory-continue-btn btn-with-icon"
                 onClick={() => {
+                  if (stage1TimerRef.current !== null) {
+                    window.clearTimeout(stage1TimerRef.current);
+                    stage1TimerRef.current = null;
+                  }
+                  if (bubblePauseTimerRef.current !== null) {
+                    window.clearTimeout(bubblePauseTimerRef.current);
+                    bubblePauseTimerRef.current = null;
+                  }
+                  if (praiseTimerRef.current !== null) {
+                    window.clearTimeout(praiseTimerRef.current);
+                    praiseTimerRef.current = null;
+                  }
+                  if (examRevealTimerRef.current !== null) {
+                    window.clearTimeout(examRevealTimerRef.current);
+                    examRevealTimerRef.current = null;
+                  }
+                  if (wrongBubbleTimerRef.current !== null) {
+                    window.clearTimeout(wrongBubbleTimerRef.current);
+                    wrongBubbleTimerRef.current = null;
+                  }
+                  if (micRef.current) {
+                    micRef.current.cancel();
+                    micRef.current = null;
+                  }
+                  if (bubbleMicRef.current) {
+                    bubbleMicRef.current.cancel();
+                    bubbleMicRef.current = null;
+                  }
+                  stopActiveAudio();
                   playFeedbackChime('pop');
                   recordedIdsRef.current.clear();
+                  prevConstructorCorrectIdxRef.current = null;
+                  prevBubbleCorrectIdxRef.current = null;
+                  prevSpotlightCorrectIdxRef.current = null;
+                  prevOfflineCorrectIdxRef.current = null;
                   setCompletedResults({});
-                  setWordIdx(0);
+                  setShowingWordDone(false);
+                  setStepIdx(0);
                   setRetryIndex((n) => n + 1);
                   setRoundStars(0);
                   setRoundFinished(false);
                   onPlayAnotherRound();
                 }}
               >
-                <RotateCcw size={20} />
                 <span>Davom etish!</span>
+                <ArrowRight size={20} />
               </motion.button>
 
               <button
@@ -1246,9 +1550,11 @@ export function LessonPlayer({
     );
   }
 
-  const progressPct = Math.round(
-    ((wordIdx + (wordPhase === 'word_done' ? 1 : 0.4)) / sessionItems.length) * 100,
-  );
+  const { totalSteps, currentStepDisplay, progressPct } = computeSessionProgress({
+    stepIdx,
+    totalSteps: sessionQueue.length,
+    isWordDone: wordPhase === 'word_done',
+  });
 
   const stagePrompt = (() => {
     if (wordPhase === 'stage1_build') {
@@ -1256,7 +1562,7 @@ export function LessonPlayer({
       if (buildGameMode === 'sentence_builder') return 'So‘zlarni to‘g‘ri tartibda ter!';
       return buildGameMode === 'constructor'
         ? 'Qaysi bo‘g‘in mos?'
-        : 'Bo‘g‘in pufakchalarini yor!';
+        : BUBBLES_INSTRUCTION_TEXT_UZ;
     }
     if (wordPhase === 'stage2_spotlight') {
       return currentItem.kind === 'sentence'
@@ -1269,6 +1575,7 @@ export function LessonPlayer({
           ? 'Gapni o‘qi va mos rasmni tanla!'
           : 'So‘zni o‘qi va mos rasmni tanla!';
       }
+      if (examRevealed) return `Barakalla! «${currentItem.text}» rasmi ochildi!`;
       if (isRecording) return 'Tinglayapman... bemalol o‘qi!';
       if (examFeedback?.kind === 'gentle') return 'Yana bir bor urinib ko‘r!';
       return 'Barakalla! Endi o‘zing o‘qi!';
@@ -1279,9 +1586,14 @@ export function LessonPlayer({
   })();
 
   const charMoodForScreen =
-    wordPhase === 'word_done'
+    wordPhase === 'word_done' || (wordPhase === 'exam' && examRevealed)
       ? 'celebrating'
-      : wrongShakeTick > 0 && (wrongPart !== null || wrongBubbleKey !== null || offlineWrongEmojis.length > 0 || wrongSpotlightEmoji !== null || wrongSentenceKey !== null)
+      : wrongShakeTick > 0 &&
+          (wrongPart !== null ||
+            wrongBubbleState !== null ||
+            offlineWrongEmojis.length > 0 ||
+            wrongSpotlightEmoji !== null ||
+            wrongSentenceKey !== null)
         ? 'encouraging'
         : isRecording || bubbleMicRecording
           ? 'listening'
@@ -1329,9 +1641,9 @@ export function LessonPlayer({
           className="lesson-hud-progress-track"
           role="progressbar"
           aria-label="Mashq jarayoni"
-          aria-valuenow={wordIdx + 1}
+          aria-valuenow={currentStepDisplay}
           aria-valuemin={1}
-          aria-valuemax={sessionItems.length}
+          aria-valuemax={totalSteps}
         >
           <motion.div
             className="lesson-hud-progress-fill"
@@ -1345,14 +1657,14 @@ export function LessonPlayer({
         <span className="stars-pill-3d lesson-hud-counter">
           <Star size={17} fill="#F59E0B" color="#B45309" />
           <span>
-            {wordIdx + 1} / {sessionItems.length}
+            {currentStepDisplay} / {totalSteps}
           </span>
         </span>
       </header>
 
       <main className="lesson-stage-main">
         <motion.div
-          key={`${currentItem.id}-${wordPhase}`}
+          key={`${currentItem.id}-${wordPhase}-${stepIdx}`}
           initial={{ opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.22 }}
@@ -1384,6 +1696,7 @@ export function LessonPlayer({
                       >
                         <GameVisual
                           emoji={currentItem.emoji}
+                          image={currentItem.image}
                           wordId={currentItem.id}
                           alt={currentItem.text}
                           size={124}
@@ -1423,25 +1736,32 @@ export function LessonPlayer({
                       </div>
                     </div>
 
-                    {/* Choices row (Thumb Zone on Mobile) */}
+                    {/* Choices row + "Tekshirish" CTA (Thumb Zone on Mobile) */}
                     <div className="constructor-choices-thumbzone">
-                      <div className="constructor-choices-row">
+                      <div
+                        className="constructor-choices-row"
+                        role="radiogroup"
+                        aria-label="Mos bo‘g‘in variantlari"
+                      >
                         {constructorChoices.map((part, idx) => {
-                          const targetLast = currentItem.parts[currentItem.parts.length - 1] ?? '';
                           const isPicked = pickedMissingPart === part;
+                          const isSelected = selectedConstructorPart === part;
                           const isWrong = wrongPart === part;
                           const colorCls =
                             CONSTRUCTOR_BTN_CLASSES[idx % CONSTRUCTOR_BTN_CLASSES.length] ??
                             'cube-btn-orange';
+                          const letters = tokenizeUzbekLettersOrdered(part);
 
                           return (
                             <div key={part} className="constructor-choice-slot">
                               {!isPicked ? (
-                                <motion.button
-                                  type="button"
+                                <motion.div
+                                  role="radio"
+                                  aria-checked={isSelected}
+                                  aria-label={`${part} variantini tanlash`}
+                                  tabIndex={0}
                                   layoutId={`ctor-tile-${currentItem.id}-${part}`}
-                                  whileHover={{ y: -3, scale: 1.04 }}
-                                  whileTap={{ y: 3, scale: 0.94 }}
+                                  whileHover={{ y: -3, scale: 1.03 }}
                                   animate={
                                     isWrong
                                       ? { x: [0, -10, 10, -7, 7, -3, 0] }
@@ -1453,24 +1773,64 @@ export function LessonPlayer({
                                     damping: 22,
                                   }}
                                   className={`constructor-3d-cube ${colorCls} ${
-                                    isWrong ? 'choice-wrong-cube' : ''
-                                  }`}
-                                  onClick={() => {
-                                    if (part === targetLast) {
-                                      setPickedMissingPart(part);
-                                      setWrongPart(null);
-                                      playFeedbackChime('chime');
-                                      scheduleStage2Advance(540);
-                                    } else {
-                                      setWrongPart(part);
-                                      setWrongShakeTick((t) => t + 1);
-                                      playFeedbackChime('soft-bonk');
-                                      void playWrongFeedbackAudio();
+                                    isSelected ? 'constructor-cube-selected' : ''
+                                  } ${isWrong ? 'choice-wrong-cube' : ''}`}
+                                  onClick={() => handleSelectConstructorChoice(part)}
+                                  onKeyDown={(e) => {
+                                    if (e.target !== e.currentTarget) return;
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault();
+                                      handleSelectConstructorChoice(part);
                                     }
                                   }}
                                 >
-                                  {part}
-                                </motion.button>
+                                  <div className="constructor-cube-letters">
+                                    {(letters.length > 0 ? letters : [...part]).map(
+                                      (unit, letterIdx) => {
+                                        const normalizedUnit = unit
+                                          .toUpperCase()
+                                          .replace(/[‘ʻʼ`´]/g, "'");
+                                        return (
+                                          <motion.button
+                                            key={`${part}-l-${unit}-${letterIdx}`}
+                                            type="button"
+                                            whileTap={{ scale: 1.22, y: -3 }}
+                                            transition={{
+                                              type: 'spring',
+                                              stiffness: 450,
+                                              damping: 20,
+                                            }}
+                                            className="constructor-cube-letter-btn"
+                                            aria-label={`«${unit}» harf tovushini eshitish`}
+                                            title={`«${unit}» tovushini eshitish`}
+                                            onPointerDown={(e) => e.stopPropagation()}
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              if (pickedMissingPart !== null) return;
+                                              handleTapLetterRecall(normalizedUnit);
+                                            }}
+                                          >
+                                            {unit}
+                                          </motion.button>
+                                        );
+                                      },
+                                    )}
+                                  </div>
+                                  <span
+                                    className={`constructor-cube-select-pill ${
+                                      isSelected ? 'is-selected' : ''
+                                    }`}
+                                  >
+                                    {isSelected ? (
+                                      <>
+                                        <Check size={12} strokeWidth={3} />
+                                        <span>Tanlandi</span>
+                                      </>
+                                    ) : (
+                                      <span>Tanlash</span>
+                                    )}
+                                  </span>
+                                </motion.div>
                               ) : (
                                 <div className="constructor-choice-placeholder" aria-hidden="true" />
                               )}
@@ -1478,6 +1838,26 @@ export function LessonPlayer({
                           );
                         })}
                       </div>
+
+                      <motion.button
+                        type="button"
+                        disabled={!selectedConstructorPart || pickedMissingPart !== null}
+                        whileHover={
+                          selectedConstructorPart && !pickedMissingPart
+                            ? { scale: 1.02 }
+                            : undefined
+                        }
+                        whileTap={
+                          selectedConstructorPart && !pickedMissingPart
+                            ? { scale: 0.97 }
+                            : undefined
+                        }
+                        className="btn-3d-emerald constructor-check-btn btn-with-icon"
+                        onClick={handleConstructorCheck}
+                      >
+                        <Check size={20} strokeWidth={3} />
+                        <span>Tekshirish</span>
+                      </motion.button>
                     </div>
 
                     <div className="lesson-zukko-corner">
@@ -1512,6 +1892,7 @@ export function LessonPlayer({
                   >
                     <GameVisual
                       emoji={currentItem.emoji}
+                      image={currentItem.image}
                       wordId={currentItem.id}
                       alt={currentItem.text}
                       size={96}
@@ -1601,6 +1982,7 @@ export function LessonPlayer({
                     >
                       <GameVisual
                         emoji={currentItem.emoji}
+                        image={currentItem.image}
                         wordId={currentItem.id}
                         alt={currentItem.text}
                         size={96}
@@ -1669,7 +2051,7 @@ export function LessonPlayer({
                                 if (nextPlaced.length >= currentItem.parts.length) {
                                   playFeedbackChime('chime');
                                   void playWordItemAudio(currentItem);
-                                  scheduleStage2Advance(600);
+                                  scheduleStage1Advance(600);
                                 }
                               } else {
                                 setWrongSentenceKey(tile.key);
@@ -1702,39 +2084,76 @@ export function LessonPlayer({
                     onReplaySpeech={replayActiveInstruction}
                   />
 
+                  {bubbleGate.phase !== 'offline_word_confirm' && (
+                    <motion.div
+                      animate={{ y: [0, -5, 0] }}
+                      transition={{ duration: 2.5, repeat: Infinity, ease: 'easeInOut' }}
+                      className="bubble-target-visual"
+                    >
+                      <GameVisual
+                        emoji={currentItem.emoji}
+                        image={currentItem.image}
+                        wordId={currentItem.id}
+                        alt={currentItem.text}
+                        size={104}
+                      />
+                    </motion.div>
+                  )}
+
                   <div className="bubble-mystery-badge">
-                    Bo‘g‘inlab o‘qing ({bubbleGate.confirmedCount}/{bubbleGate.parts.length})
+                    Bo‘g‘inlar ({bubbleGate.confirmedCount}/{bubbleGate.parts.length})
                   </div>
 
-                  <div className="bubble-assembled-row">
-                    {currentItem.parts.map((part, idx) => (
-                      <span
-                        key={`assembled-${part}-${idx}`}
-                        className={`assembled-chip ${
-                          idx < bubbleGate.confirmedCount
-                            ? 'assembled-chip-done'
-                            : bubbleGate.activePart === part && idx === bubbleGate.confirmedCount
-                              ? 'assembled-chip-active'
-                              : ''
-                        }`}
-                      >
-                        {idx < bubbleGate.confirmedCount ||
-                        (idx === bubbleGate.confirmedCount && bubbleGate.activePart === part)
-                          ? part
-                          : '•••'}
-                      </span>
-                    ))}
+                  <div className="bubble-assembled-row" aria-label="Yig‘ilayotgan bo‘g‘in kataklari">
+                    {currentItem.parts.map((part, idx) => {
+                      const isDone = idx < bubbleGate.confirmedCount;
+                      const isActive =
+                        idx === bubbleGate.confirmedCount && bubbleGate.activePart !== null;
+                      const displayText = isDone
+                        ? part
+                        : isActive
+                          ? bubbleGate.activePart
+                          : null;
+                      return (
+                        <span
+                          key={`assembled-${part}-${idx}`}
+                          className={`assembled-chip ${
+                            isDone
+                              ? 'assembled-chip-done'
+                              : isActive
+                                ? 'assembled-chip-active'
+                                : 'assembled-chip-empty'
+                          }`}
+                        >
+                          {displayText ? (
+                            <motion.span
+                              key={`slot-${idx}-${displayText}`}
+                              initial={{ scale: 0.45, y: 14, opacity: 0 }}
+                              animate={{ scale: 1, y: 0, opacity: 1 }}
+                              transition={{ type: 'spring', stiffness: 420, damping: 20 }}
+                            >
+                              {displayText}
+                            </motion.span>
+                          ) : (
+                            <span
+                              className="assembled-slot-blank"
+                              aria-label={`${idx + 1}-bo‘g‘in bo‘sh katagi`}
+                            >
+                              ___
+                            </span>
+                          )}
+                        </span>
+                      );
+                    })}
                   </div>
 
                   {bubbleGate.phase !== 'offline_word_confirm' &&
                     bubbleGate.phase !== 'awaiting_word_speech' && (
                       <div className="bubbles-field">
                         {bubbleChoices.map((bubble, idx) => {
-                          const isAlreadyPopped =
-                            bubble.key.startsWith('target-') &&
-                            Number(bubble.key.split('-')[1]) < bubbleGate.confirmedCount;
+                          const isAlreadyPopped = poppedBubbleKeys.includes(bubble.key);
                           const isLocked = bubbleGate.phase !== 'pick_bubble';
-                          const isWrong = wrongBubbleKey === bubble.key;
+                          const isWrong = wrongBubbleState?.key === bubble.key;
                           return (
                             <motion.button
                               key={bubble.key}
@@ -1744,13 +2163,13 @@ export function LessonPlayer({
                                 isAlreadyPopped
                                   ? { scale: 0.8, opacity: 0.3 }
                                   : isWrong
-                                    ? { x: [0, -9, 9, -6, 6, 0] }
+                                    ? { x: [0, -8, 8, -6, 6, -3, 0] }
                                     : isLocked
                                       ? { opacity: 0.55 }
                                       : { y: [0, idx % 2 === 0 ? -7 : 7, 0] }
                               }
                               transition={{
-                                duration: isWrong ? 0.32 : 2.4,
+                                duration: isWrong ? 0.36 : 2.4,
                                 repeat: isAlreadyPopped || isLocked || isWrong ? 0 : Infinity,
                               }}
                               whileTap={isLocked ? undefined : { scale: 1.12 }}
@@ -1886,7 +2305,7 @@ export function LessonPlayer({
                                     setWrongBubblePicEmoji(null);
                                     playFeedbackChime('chime');
                                     void playWordItemAudio(currentItem);
-                                    scheduleStage2Advance(650);
+                                    scheduleStage1Advance(650);
                                   } else {
                                     setWrongBubblePicEmoji(emoji);
                                     setWrongShakeTick((t) => t + 1);
@@ -1900,6 +2319,7 @@ export function LessonPlayer({
                               >
                                 <GameVisual
                                   emoji={emoji}
+                                  image={emoji === currentItem.emoji ? currentItem.image : undefined}
                                   wordId={emoji === currentItem.emoji ? currentItem.id : undefined}
                                   alt={emoji === currentItem.emoji ? currentItem.text : undefined}
                                   size={68}
@@ -1925,7 +2345,7 @@ export function LessonPlayer({
                 <Volume2 size={15} />
                 <span>
                   {buildGameMode === 'constructor'
-                    ? 'Bo‘g‘inni unutdingmi? Istalgan harf ustiga bos!'
+                    ? 'Harfni eshitish uchun ustiga bos, variantni tanlab «Tekshirish»ni bos!'
                     : 'Harfni unutdingmi? Istalgan harf ustiga bos!'}
                 </span>
               </button>
@@ -2033,7 +2453,7 @@ export function LessonPlayer({
                       className={`emoji-choice-btn ${isWrong ? 'choice-wrong' : ''}`}
                       onClick={() => {
                         if (emoji === currentItem.emoji) {
-                          enterExamStage();
+                          advanceAfterStage2();
                         } else {
                           setWrongSpotlightEmoji(emoji);
                           setWrongShakeTick((t) => t + 1);
@@ -2047,6 +2467,7 @@ export function LessonPlayer({
                     >
                       <GameVisual
                         emoji={emoji}
+                        image={emoji === currentItem.emoji ? currentItem.image : undefined}
                         wordId={emoji === currentItem.emoji ? currentItem.id : undefined}
                         alt={emoji === currentItem.emoji ? currentItem.text : undefined}
                         size={72}
@@ -2121,6 +2542,7 @@ export function LessonPlayer({
                         >
                           <GameVisual
                             emoji={emoji}
+                            image={emoji === currentItem.emoji ? currentItem.image : undefined}
                             wordId={emoji === currentItem.emoji ? currentItem.id : undefined}
                             alt={emoji === currentItem.emoji ? currentItem.text : undefined}
                             size={96}
@@ -2162,6 +2584,48 @@ export function LessonPlayer({
                       <span className="step-pill-tag">
                         {currentSession.expressExamOnly ? 'Ekspress-Imtihon' : 'Ovozli Imtihon'}
                       </span>
+
+                      {/* Hidden Mystery Card — reveals image with animation only after correct speech */}
+                      <div className="exam-mystery-stage">
+                        <AnimatePresence mode="wait">
+                          {!examRevealed ? (
+                            <motion.div
+                              key="mystery-closed"
+                              className="exam-mystery-card"
+                              initial={{ opacity: 0, scale: 0.9 }}
+                              animate={{ opacity: 1, scale: 1 }}
+                              exit={{ rotateY: -90, scale: 0.85, opacity: 0 }}
+                              transition={{ duration: 0.24 }}
+                              aria-label="Yashirilgan sirli rasm"
+                            >
+                              <span className="exam-mystery-qmark" aria-hidden="true">
+                                ?
+                              </span>
+                              <span className="exam-mystery-label">Sirli rasm</span>
+                            </motion.div>
+                          ) : (
+                            <motion.div
+                              key="mystery-open"
+                              className="exam-mystery-card exam-mystery-card-revealed"
+                              initial={{ rotateY: 90, scale: 0.65, opacity: 0 }}
+                              animate={{ rotateY: 0, scale: 1, opacity: 1 }}
+                              transition={{ type: 'spring', stiffness: 320, damping: 18 }}
+                            >
+                              <GameVisual
+                                emoji={currentItem.emoji}
+                                image={currentItem.image}
+                                wordId={currentItem.id}
+                                alt={currentItem.text}
+                                size={88}
+                              />
+                              <span className="exam-revealed-badge">
+                                <Sparkles size={13} />
+                                <span>Ochildi!</span>
+                              </span>
+                            </motion.div>
+                          )}
+                        </AnimatePresence>
+                      </div>
 
                       <div className="exam-word-hero">
                         {showVisualSplit ? (
@@ -2251,7 +2715,7 @@ export function LessonPlayer({
                         )}
                         <motion.button
                           type="button"
-                          disabled={isChecking}
+                          disabled={isChecking || examRevealed}
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.94 }}
                           className={`btn-mic-circle ${isRecording ? 'btn-mic-circle-active' : ''}`}
@@ -2291,6 +2755,7 @@ export function LessonPlayer({
 
                       <button
                         type="button"
+                        disabled={examRevealed}
                         className="btn-3d-cream btn-compact btn-with-icon"
                         onClick={handleExamAudioAssist}
                       >
@@ -2326,6 +2791,7 @@ export function LessonPlayer({
                 <div className="word-done-visual">
                   <GameVisual
                     emoji={currentItem.emoji}
+                    image={currentItem.image}
                     wordId={currentItem.id}
                     alt={currentItem.text}
                     size={96}
@@ -2364,7 +2830,7 @@ export function LessonPlayer({
                   onClick={handleAdvanceRound}
                 >
                   <span>
-                    {wordIdx + 1 < sessionItems.length ? 'Keyingi so‘z' : 'Natijani ko‘rish'}
+                    {stepIdx + 1 < sessionQueue.length ? 'Keyingi mashq' : 'Natijani ko‘rish'}
                   </span>
                   <ArrowRight size={20} />
                 </motion.button>

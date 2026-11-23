@@ -1,4 +1,9 @@
-import { ALIFBE_LETTERS_29, toSyllableSlug, type WordPoolItem } from '../data/curriculum';
+import {
+  ALIFBE_LETTERS_29,
+  DYNAMIC_WORD_POOL,
+  toSyllableSlug,
+  type WordPoolItem,
+} from '../data/curriculum';
 import { normalizeAsrBaseUrl } from '../logic/asrHealth';
 import {
   createMicAutoStopState,
@@ -13,6 +18,7 @@ const TARGET_SAMPLE_RATE = 16_000;
 
 let activeAudio: HTMLAudioElement | null = null;
 let activeAbortController: AbortController | null = null;
+let activeSpeechSynth = false;
 let playbackGeneration = 0;
 let playedSessionEntryKey: InstructionAudioKey | null = null;
 let activeEntryAttemptKey: InstructionAudioKey | null = null;
@@ -60,9 +66,21 @@ export function stopActiveAudio(): void {
       activeAudio.currentTime = 0;
       activeAudio = null;
     }
+    if (activeSpeechSynth) {
+      activeSpeechSynth = false;
+      if (
+        typeof window !== 'undefined' &&
+        'speechSynthesis' in window &&
+        window.speechSynthesis &&
+        typeof window.speechSynthesis.cancel === 'function'
+      ) {
+        window.speechSynthesis.cancel();
+      }
+    }
   } catch {
     activeAudio = null;
     activeAbortController = null;
+    activeSpeechSynth = false;
   }
 }
 
@@ -176,12 +194,122 @@ async function synthesizeAndPlayVoiceLab(
   return played ? 'played' : 'unavailable';
 }
 
+function normalizeAudioLookupKey(text: string): string {
+  return sanitizeSpeechTextForTts(text)
+    .replace(/[‘ʻʼ`´]/g, "'")
+    .toLowerCase()
+    .replace(/[.!?]+$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function findStaticAudioUrlForText(text: string): string | null {
+  const key = normalizeAudioLookupKey(text);
+  if (!key) return null;
+
+  for (const item of DYNAMIC_WORD_POOL) {
+    if (item.audioSound && normalizeAudioLookupKey(item.text) === key) {
+      return item.audioSound;
+    }
+  }
+
+  for (const entry of ALIFBE_LETTERS_29) {
+    if (
+      normalizeAudioLookupKey(entry.letter) === key ||
+      normalizeAudioLookupKey(entry.exampleWord) === key ||
+      normalizeAudioLookupKey(entry.phoneticTtsPrompt) === key
+    ) {
+      return entry.audioRecall;
+    }
+  }
+
+  for (const [audioKey, phrase] of Object.entries(INSTRUCTION_FALLBACK_TEXT)) {
+    if (normalizeAudioLookupKey(phrase) === key) {
+      return `/audio/${audioKey}.mp3`;
+    }
+  }
+
+  for (const [audioKey, phrase] of Object.entries(FEEDBACK_FALLBACK_TEXT)) {
+    if (normalizeAudioLookupKey(phrase) === key) {
+      return `/audio/${audioKey}.mp3`;
+    }
+  }
+
+  for (let i = 0; i < WRONG_FEEDBACK_PHRASES.length; i++) {
+    if (normalizeAudioLookupKey(WRONG_FEEDBACK_PHRASES[i] ?? '') === key) {
+      return `/audio/wrong_${i + 1}.mp3`;
+    }
+  }
+
+  for (let i = 0; i < PRAISE_PHRASES.length; i++) {
+    if (normalizeAudioLookupKey(PRAISE_PHRASES[i] ?? '') === key) {
+      return `/audio/praise_${i + 1}.mp3`;
+    }
+  }
+
+  return null;
+}
+
+function speakWithBrowserFallback(text: string, generation: number): Promise<boolean> {
+  const cleanText = sanitizeSpeechTextForTts(text);
+  if (!cleanText || generation !== playbackGeneration) {
+    return Promise.resolve(false);
+  }
+  try {
+    if (
+      typeof window === 'undefined' ||
+      typeof SpeechSynthesisUtterance === 'undefined' ||
+      !('speechSynthesis' in window)
+    ) {
+      return Promise.resolve(false);
+    }
+    const synth = window.speechSynthesis;
+    if (!synth || typeof synth.speak !== 'function') {
+      return Promise.resolve(false);
+    }
+
+    return new Promise((resolve) => {
+      try {
+        const utterance = new SpeechSynthesisUtterance(cleanText);
+        utterance.lang = 'uz-UZ';
+        utterance.rate = 0.92;
+        activeSpeechSynth = true;
+        utterance.onend = () => {
+          activeSpeechSynth = false;
+          resolve(generation === playbackGeneration);
+        };
+        utterance.onerror = () => {
+          activeSpeechSynth = false;
+          resolve(false);
+        };
+        synth.speak(utterance);
+      } catch {
+        activeSpeechSynth = false;
+        resolve(false);
+      }
+    });
+  } catch {
+    activeSpeechSynth = false;
+    return Promise.resolve(false);
+  }
+}
+
 /**
- * Speak Uzbek text aloud exclusively via /api/tts (VoiceLab Lison v2 / UzbekVoice failover).
- * Never falls back to browser Web Speech API (speechSynthesis).
+ * Speak Uzbek text aloud via /api/tts, smoothly falling back to matching static
+ * `public/audio/` MP3 clips and then browser SpeechSynthesis if the server is unavailable.
  */
 export async function speakUzbekText(text: string): Promise<void> {
-  await synthesizeAndPlayVoiceLab(text);
+  const res = await synthesizeAndPlayVoiceLab(text);
+  if (res !== 'unavailable') return;
+  const gen = playbackGeneration;
+  const staticUrl = findStaticAudioUrlForText(text);
+  if (staticUrl) {
+    const staticRes = await tryPlayStaticUrl(staticUrl, gen);
+    if (staticRes !== 'unavailable') return;
+  }
+  if (gen === playbackGeneration) {
+    await speakWithBrowserFallback(text, gen);
+  }
 }
 
 type StaticPlaybackResult = 'played' | 'aborted' | 'autoplay_blocked' | 'unavailable';
@@ -258,7 +386,12 @@ async function playAudioClipInternal(
     }
   }
   if (myGen === playbackGeneration && fallbackText) {
-    return synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
+    const ttsRes = await synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
+    if (ttsRes === 'played' || ttsRes === 'aborted') {
+      return ttsRes;
+    }
+    const spoke = await speakWithBrowserFallback(fallbackText, playbackGeneration);
+    return spoke ? 'played' : 'unavailable';
   }
   return myGen !== playbackGeneration ? 'aborted' : 'unavailable';
 }
@@ -403,8 +536,7 @@ export const INSTRUCTION_FALLBACK_TEXT: Record<InstructionAudioKey, string> = {
   instr_stage1_train: 'Slayderni surib bo‘g‘inlarni bir-biriga yaqinlashtir va birlashtir!',
   instr_stage1_constructor:
     'Bo‘g‘inlarni qo‘shib so‘z yasa! Rasmga qarab yetishmayotgan bo‘g‘inni tanla!',
-  instr_stage1_bubbles:
-    'Bo‘g‘in pufakchalarini tartib bilan yorib, har birini ovoz chiqarib o‘qi!',
+  instr_stage1_bubbles: 'Rasmga qara! Uning nomidagi bo‘g‘inlarni ketma-ket yor!',
   instr_stage1_bubble_speak: 'Ajoyib! Endi bu bo‘g‘inni ovoz chiqarib ayt!',
   instr_stage1_bubble_read_word: 'Zo‘r! Endi yig‘ilgan butun so‘zni ovoz chiqarib o‘qi!',
   instr_stage1_bubble_confirm_word: 'Zo‘r! Endi yig‘ilgan so‘zni o‘qib, mos rasmni tanla!',
@@ -528,7 +660,7 @@ export async function playPraiseAudio(
   await playAudioClip(`/audio/praise_${idx + 1}.mp3`, fallback);
 }
 
-/** Play static syllable MP3 first (syl_<slug>.mp3 or sound_<slug>.mp3), falling back to /api/tts. */
+/** Play static syllable MP3 first (syl_<slug>.mp3 or sound_<slug>.mp3), falling back to /api/tts and browser speech. */
 export async function playSyllableAudio(syllable: string): Promise<void> {
   const slug = toSyllableSlug(syllable);
   stopActiveAudio();
@@ -540,11 +672,15 @@ export async function playSyllableAudio(syllable: string): Promise<void> {
     if (soundRes !== 'unavailable') return;
   }
   if (myGen === playbackGeneration) {
-    await synthesizeAndPlayVoiceLab(`${syllable.toLowerCase()}.`);
+    const prompt = `${syllable.toLowerCase()}.`;
+    const ttsRes = await synthesizeAndPlayVoiceLab(prompt);
+    if (ttsRes === 'unavailable') {
+      await speakWithBrowserFallback(prompt, playbackGeneration);
+    }
   }
 }
 
-/** Play pure plain letter + reminder word via static offline MP3 first (with neutral /api/tts fallback). */
+/** Play pure plain letter + reminder word via static offline MP3 first (with /api/tts and browser speech fallback). */
 export async function playLetterRecallAudio(
   letter: string,
   opts?: { skipChime?: boolean },
@@ -567,11 +703,14 @@ export async function playLetterRecallAudio(
   const soundRes = await tryPlayStaticUrl(entry.audioSound, myGen);
   if (soundRes !== 'unavailable') return;
   if (myGen === playbackGeneration) {
-    await synthesizeAndPlayVoiceLab(entry.phoneticTtsPrompt, 'neutral');
+    const ttsRes = await synthesizeAndPlayVoiceLab(entry.phoneticTtsPrompt, 'neutral');
+    if (ttsRes === 'unavailable') {
+      await speakWithBrowserFallback(entry.phoneticTtsPrompt, playbackGeneration);
+    }
   }
 }
 
-/** Play audio for a WordPoolItem via static offline MP3 first (with /api/tts fallback). */
+/** Play audio for a WordPoolItem via static offline MP3 first (with /api/tts and browser speech fallback). */
 export async function playWordItemAudio(item: WordPoolItem): Promise<void> {
   stopActiveAudio();
   const myGen = playbackGeneration;
@@ -580,7 +719,11 @@ export async function playWordItemAudio(item: WordPoolItem): Promise<void> {
     if (res !== 'unavailable') return;
   }
   if (myGen === playbackGeneration) {
-    await synthesizeAndPlayVoiceLab(item.text.toLowerCase());
+    const prompt = item.text.toLowerCase();
+    const ttsRes = await synthesizeAndPlayVoiceLab(prompt);
+    if (ttsRes === 'unavailable') {
+      await speakWithBrowserFallback(prompt, playbackGeneration);
+    }
   }
 }
 
@@ -695,6 +838,78 @@ export function encodeWav16k(samples: Float32Array): Blob {
   return new Blob([buffer], { type: 'audio/wav' });
 }
 
+const MIC_CAPTURE_WORKLET_NAME = 'alifbo-mic-capture';
+const MIC_CAPTURE_CHUNK_SIZE = 2048;
+const MIC_CAPTURE_WORKLET_SOURCE = `
+class AlifboMicCaptureProcessor extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this._buffer = new Float32Array(${MIC_CAPTURE_CHUNK_SIZE});
+    this._offset = 0;
+  }
+  process(inputs) {
+    const input = inputs[0];
+    const channel = input && input[0];
+    if (!channel) return true;
+    let i = 0;
+    while (i < channel.length) {
+      const take = Math.min(channel.length - i, this._buffer.length - this._offset);
+      this._buffer.set(channel.subarray(i, i + take), this._offset);
+      this._offset += take;
+      i += take;
+      if (this._offset >= this._buffer.length) {
+        const out = this._buffer;
+        this.port.postMessage(out, [out.buffer]);
+        this._buffer = new Float32Array(${MIC_CAPTURE_CHUNK_SIZE});
+        this._offset = 0;
+      }
+    }
+    return true;
+  }
+}
+registerProcessor('${MIC_CAPTURE_WORKLET_NAME}', AlifboMicCaptureProcessor);
+`;
+
+export type SttErrorReason =
+  | 'unauthorized'
+  | 'insufficient_credits'
+  | 'endpoint_not_found'
+  | 'rate_limited'
+  | 'timeout'
+  | 'network_error'
+  | 'bad_request'
+  | 'provider_job_failed'
+  | 'upstream_error'
+  | 'invalid_response'
+  | 'unconfigured';
+
+export class SttRequestError extends Error {
+  readonly status: number;
+  readonly code?: string;
+  readonly provider?: string;
+  readonly reason?: SttErrorReason;
+  readonly upstreamStatus?: number | null;
+
+  constructor(
+    message: string,
+    details: {
+      status: number;
+      code?: string;
+      provider?: string;
+      reason?: SttErrorReason;
+      upstreamStatus?: number | null;
+    },
+  ) {
+    super(message);
+    this.name = 'SttRequestError';
+    this.status = details.status;
+    this.code = details.code;
+    this.provider = details.provider;
+    this.reason = details.reason;
+    this.upstreamStatus = details.upstreamStatus;
+  }
+}
+
 export interface MicRecordingResult {
   wavBlob: Blob;
   durationMs: number;
@@ -736,7 +951,11 @@ export async function startMicRecording(
     await ctx.resume();
   }
   const source = ctx.createMediaStreamSource(stream);
-  const processor = ctx.createScriptProcessor(2048, 1, 1);
+  const silentGain = ctx.createGain();
+  silentGain.gain.value = 0;
+
+  let captureNode: AudioWorkletNode | ScriptProcessorNode | null = null;
+  let detachCaptureHandlers: (() => void) | null = null;
   const chunks: Float32Array[] = [];
   let totalSamples = 0;
   let autoState = createMicAutoStopState(micConfig);
@@ -745,7 +964,9 @@ export async function startMicRecording(
 
   const cleanup = () => {
     try {
-      processor.disconnect();
+      detachCaptureHandlers?.();
+      captureNode?.disconnect();
+      silentGain.disconnect();
       source.disconnect();
       stream.getTracks().forEach((t) => t.stop());
       void ctx.close();
@@ -775,11 +996,8 @@ export async function startMicRecording(
     };
   };
 
-  processor.onaudioprocess = (event) => {
-    if (stopped) return;
-    const input = event.inputBuffer.getChannelData(0);
-    const copy = new Float32Array(input.length);
-    copy.set(input);
+  const handleAudioChunk = (copy: Float32Array) => {
+    if (stopped || copy.length === 0) return;
     chunks.push(copy);
     totalSamples += copy.length;
 
@@ -807,8 +1025,75 @@ export async function startMicRecording(
     }
   };
 
-  source.connect(processor);
-  processor.connect(ctx.destination);
+  let attachedWorklet = false;
+  if (
+    typeof AudioWorkletNode !== 'undefined' &&
+    ctx.audioWorklet &&
+    typeof ctx.audioWorklet.addModule === 'function' &&
+    typeof URL !== 'undefined' &&
+    typeof URL.createObjectURL === 'function'
+  ) {
+    const moduleUrl = URL.createObjectURL(
+      new Blob([MIC_CAPTURE_WORKLET_SOURCE], { type: 'application/javascript' }),
+    );
+    try {
+      await ctx.audioWorklet.addModule(moduleUrl);
+      const workletNode = new AudioWorkletNode(ctx, MIC_CAPTURE_WORKLET_NAME, {
+        numberOfInputs: 1,
+        numberOfOutputs: 1,
+        channelCount: 1,
+      });
+      workletNode.port.onmessage = (event: MessageEvent<unknown>) => {
+        if (event.data instanceof Float32Array) {
+          handleAudioChunk(event.data);
+        } else if (event.data instanceof ArrayBuffer) {
+          handleAudioChunk(new Float32Array(event.data));
+        }
+      };
+      detachCaptureHandlers = () => {
+        workletNode.port.onmessage = null;
+      };
+      captureNode = workletNode;
+      source.connect(workletNode);
+      workletNode.connect(silentGain);
+      silentGain.connect(ctx.destination);
+      attachedWorklet = true;
+    } catch {
+      try {
+        captureNode?.disconnect();
+      } catch {
+        // Ignore partial worklet cleanup error
+      }
+      captureNode = null;
+      detachCaptureHandlers = null;
+    } finally {
+      if (typeof URL.revokeObjectURL === 'function') {
+        URL.revokeObjectURL(moduleUrl);
+      }
+    }
+  }
+
+  if (!attachedWorklet) {
+    try {
+      const processor = ctx.createScriptProcessor(MIC_CAPTURE_CHUNK_SIZE, 1, 1);
+      processor.onaudioprocess = (event) => {
+        const input = event.inputBuffer.getChannelData(0);
+        const copy = new Float32Array(input.length);
+        copy.set(input);
+        handleAudioChunk(copy);
+      };
+      detachCaptureHandlers = () => {
+        processor.onaudioprocess = null;
+      };
+      captureNode = processor;
+      source.connect(processor);
+      processor.connect(silentGain);
+      silentGain.connect(ctx.destination);
+    } catch (err) {
+      cleanup();
+      throw err;
+    }
+  }
 
   return {
     stop: async () => {
@@ -826,6 +1111,7 @@ export async function startMicRecording(
 
 export interface SttApiResponse {
   ok: boolean;
+  provider?: string;
   transcript: string;
   normalized: string;
   accepted: boolean;
@@ -835,6 +1121,9 @@ export interface SttApiResponse {
   latency_ms: number;
   orig_ms: number;
   trimmed_ms: number;
+  code?: string;
+  reason?: SttErrorReason;
+  upstreamStatus?: number | null;
   error?: string;
 }
 
@@ -858,9 +1147,25 @@ export async function verifyAudioWithStt(
     body: audioData,
   });
 
-  const json = (await resp.json()) as SttApiResponse;
+  let json: SttApiResponse;
+  try {
+    json = (await resp.json()) as SttApiResponse;
+  } catch {
+    throw new SttRequestError(`Server xatosi: ${resp.status}`, {
+      status: resp.status,
+      reason: resp.status === 504 ? 'timeout' : 'invalid_response',
+      upstreamStatus: null,
+    });
+  }
+
   if (!resp.ok || !json.ok) {
-    throw new Error(json.error || `Server xatosi: ${resp.status}`);
+    throw new SttRequestError(json.error || `Server xatosi: ${resp.status}`, {
+      status: resp.status,
+      code: json.code,
+      provider: json.provider,
+      reason: json.reason,
+      upstreamStatus: json.upstreamStatus ?? null,
+    });
   }
   return json;
 }

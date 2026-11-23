@@ -3,6 +3,7 @@ import {
   type AlifbeLetterInfo,
   type WordPoolItem,
 } from '../data/curriculum';
+import { hasExplicitVisualMapping, resolveVisualSrc } from '../data/wordVisuals';
 import { fisherYatesShuffle, shuffleOptionsWithAntiStreak } from './optionShuffle';
 import {
   matchesSpelledOrSyllabicTranscript,
@@ -407,6 +408,7 @@ export interface SelectAdaptiveSessionParams {
   letterHintCounts?: Record<string, number>;
   sessionSize?: number;
   maxNewWords?: number;
+  recentSessionWordIds?: readonly string[];
 }
 
 /**
@@ -421,168 +423,414 @@ export function selectAdaptiveSessionWords(
   const sessionSize = Math.max(1, params.sessionSize ?? DEFAULT_SESSION_SIZE);
   const maxNewWords = Math.max(1, params.maxNewWords ?? MAX_NEW_WORDS_PER_SESSION);
   const letterHints = params.letterHintCounts ?? {};
-  const worldItems = params.pool.filter((item) => item.worldId === params.worldId);
-  if (worldItems.length === 0) return [];
+  const allWorldItems = params.pool.filter((item) => item.worldId === params.worldId);
+  if (allWorldItems.length === 0) return [];
 
-  const worldOrder = new Map<string, number>();
-  worldItems.forEach((item, idx) => worldOrder.set(item.id, idx));
+  const pickFromItems = (worldItems: WordPoolItem[]): AdaptiveSessionWord[] => {
+    if (worldItems.length === 0) return [];
 
-  const pendingVerifyBucket: WordPoolItem[] = [];
-  const assistedBucket: WordPoolItem[] = [];
-  const dueSyllableBucket: WordPoolItem[] = [];
-  const dueMasteredBucket: WordPoolItem[] = [];
-  const newBucket: WordPoolItem[] = [];
-  const notDueBucket: WordPoolItem[] = [];
+    const worldOrder = new Map<string, number>();
+    worldItems.forEach((item, idx) => worldOrder.set(item.id, idx));
 
-  for (const item of worldItems) {
-    const prog = params.wordProgressMap[item.id];
-    if (!prog || prog.status === 'new') {
-      newBucket.push(item);
-      continue;
-    }
-    if (prog.pendingVoiceVerify && prog.status !== 'mastered') {
-      pendingVerifyBucket.push(item);
-      continue;
-    }
-    if (prog.status === 'assisted') {
-      assistedBucket.push(item);
-      continue;
-    }
-    if (prog.status === 'syllable') {
-      if (prog.nextReviewDate <= params.todayStr) {
-        dueSyllableBucket.push(item);
-      } else {
-        notDueBucket.push(item);
+    const pendingVerifyBucket: WordPoolItem[] = [];
+    const assistedBucket: WordPoolItem[] = [];
+    const dueSyllableBucket: WordPoolItem[] = [];
+    const dueMasteredBucket: WordPoolItem[] = [];
+    const newBucket: WordPoolItem[] = [];
+    const notDueBucket: WordPoolItem[] = [];
+
+    for (const item of worldItems) {
+      const prog = params.wordProgressMap[item.id];
+      if (!prog || prog.status === 'new') {
+        newBucket.push(item);
+        continue;
       }
-      continue;
-    }
-    if (prog.status === 'mastered') {
-      if (prog.nextReviewDate <= params.todayStr) {
-        dueMasteredBucket.push(item);
-      } else {
-        notDueBucket.push(item);
+      if (prog.pendingVoiceVerify && prog.status !== 'mastered') {
+        pendingVerifyBucket.push(item);
+        continue;
+      }
+      if (prog.status === 'assisted') {
+        assistedBucket.push(item);
+        continue;
+      }
+      if (prog.status === 'syllable') {
+        if (prog.nextReviewDate <= params.todayStr) {
+          dueSyllableBucket.push(item);
+        } else {
+          notDueBucket.push(item);
+        }
+        continue;
+      }
+      if (prog.status === 'mastered') {
+        if (prog.nextReviewDate <= params.todayStr) {
+          dueMasteredBucket.push(item);
+        } else {
+          notDueBucket.push(item);
+        }
       }
     }
-  }
 
-  pendingVerifyBucket.sort((a, b) => {
-    const pa = params.wordProgressMap[a.id]!;
-    const pb = params.wordProgressMap[b.id]!;
-    const statusWeightA = pa.status === 'assisted' ? 0 : 1;
-    const statusWeightB = pb.status === 'assisted' ? 0 : 1;
-    if (statusWeightA !== statusWeightB) return statusWeightA - statusWeightB;
-    return (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
-  });
+    pendingVerifyBucket.sort((a, b) => {
+      const pa = params.wordProgressMap[a.id]!;
+      const pb = params.wordProgressMap[b.id]!;
+      const statusWeightA = pa.status === 'assisted' ? 0 : 1;
+      const statusWeightB = pb.status === 'assisted' ? 0 : 1;
+      if (statusWeightA !== statusWeightB) return statusWeightA - statusWeightB;
+      return (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
+    });
 
-  assistedBucket.sort((a, b) => {
-    const scoreDiff =
-      scoreItemByStrugglingLetters(b, letterHints) - scoreItemByStrugglingLetters(a, letterHints);
-    if (scoreDiff !== 0) return scoreDiff;
-    const pa = params.wordProgressMap[a.id]!;
-    const pb = params.wordProgressMap[b.id]!;
-    return pa.nextReviewDate.localeCompare(pb.nextReviewDate) ||
-      (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
-  });
+    assistedBucket.sort((a, b) => {
+      const scoreDiff =
+        scoreItemByStrugglingLetters(b, letterHints) - scoreItemByStrugglingLetters(a, letterHints);
+      if (scoreDiff !== 0) return scoreDiff;
+      const pa = params.wordProgressMap[a.id]!;
+      const pb = params.wordProgressMap[b.id]!;
+      return pa.nextReviewDate.localeCompare(pb.nextReviewDate) ||
+        (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
+    });
 
-  dueSyllableBucket.sort((a, b) => {
-    const pa = params.wordProgressMap[a.id]!;
-    const pb = params.wordProgressMap[b.id]!;
-    const dateDiff = pa.nextReviewDate.localeCompare(pb.nextReviewDate);
-    if (dateDiff !== 0) return dateDiff;
-    const scoreDiff =
-      scoreItemByStrugglingLetters(b, letterHints) - scoreItemByStrugglingLetters(a, letterHints);
-    if (scoreDiff !== 0) return scoreDiff;
-    return (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
-  });
+    dueSyllableBucket.sort((a, b) => {
+      const pa = params.wordProgressMap[a.id]!;
+      const pb = params.wordProgressMap[b.id]!;
+      const dateDiff = pa.nextReviewDate.localeCompare(pb.nextReviewDate);
+      if (dateDiff !== 0) return dateDiff;
+      const scoreDiff =
+        scoreItemByStrugglingLetters(b, letterHints) - scoreItemByStrugglingLetters(a, letterHints);
+      if (scoreDiff !== 0) return scoreDiff;
+      return (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
+    });
 
-  dueMasteredBucket.sort((a, b) => {
-    const pa = params.wordProgressMap[a.id]!;
-    const pb = params.wordProgressMap[b.id]!;
-    const dateDiff = pa.nextReviewDate.localeCompare(pb.nextReviewDate);
-    if (dateDiff !== 0) return dateDiff;
-    return pa.reviewIntervalDays - pb.reviewIntervalDays ||
-      (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
-  });
+    dueMasteredBucket.sort((a, b) => {
+      const pa = params.wordProgressMap[a.id]!;
+      const pb = params.wordProgressMap[b.id]!;
+      const dateDiff = pa.nextReviewDate.localeCompare(pb.nextReviewDate);
+      if (dateDiff !== 0) return dateDiff;
+      return pa.reviewIntervalDays - pb.reviewIntervalDays ||
+        (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
+    });
 
-  newBucket.sort((a, b) => {
-    const scoreDiff =
-      scoreItemByStrugglingLetters(b, letterHints) - scoreItemByStrugglingLetters(a, letterHints);
-    if (scoreDiff !== 0) return scoreDiff;
-    return (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
-  });
+    newBucket.sort((a, b) => {
+      const scoreDiff =
+        scoreItemByStrugglingLetters(b, letterHints) - scoreItemByStrugglingLetters(a, letterHints);
+      if (scoreDiff !== 0) return scoreDiff;
+      return (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
+    });
 
-  notDueBucket.sort((a, b) => {
-    const pa = params.wordProgressMap[a.id]!;
-    const pb = params.wordProgressMap[b.id]!;
-    return pa.nextReviewDate.localeCompare(pb.nextReviewDate) ||
-      (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
-  });
+    notDueBucket.sort((a, b) => {
+      const pa = params.wordProgressMap[a.id]!;
+      const pb = params.wordProgressMap[b.id]!;
+      return pa.nextReviewDate.localeCompare(pb.nextReviewDate) ||
+        (worldOrder.get(a.id) ?? 0) - (worldOrder.get(b.id) ?? 0);
+    });
 
-  const assistedOrSyllableQueue = [...pendingVerifyBucket, ...assistedBucket, ...dueSyllableBucket];
-  const selected: AdaptiveSessionWord[] = [];
-  const usedIds = new Set<string>();
-  let newCount = 0;
+    const assistedOrSyllableQueue = [...pendingVerifyBucket, ...assistedBucket, ...dueSyllableBucket];
+    const selected: AdaptiveSessionWord[] = [];
+    const usedIds = new Set<string>();
+    let newCount = 0;
 
-  const pushEntry = (
-    item: WordPoolItem,
-    sourceBucket: AdaptiveSessionWord['sourceBucket'],
-  ): boolean => {
-    if (usedIds.has(item.id) || selected.length >= sessionSize) return false;
-    usedIds.add(item.id);
-    const prog = params.wordProgressMap[item.id];
-    const expressExamOnly =
-      prog?.status === 'mastered' || Boolean(prog?.pendingVoiceVerify);
-    selected.push({ item, expressExamOnly, sourceBucket });
-    return true;
-  };
+    const pushEntry = (
+      item: WordPoolItem,
+      sourceBucket: AdaptiveSessionWord['sourceBucket'],
+    ): boolean => {
+      if (usedIds.has(item.id) || selected.length >= sessionSize) return false;
+      usedIds.add(item.id);
+      const prog = params.wordProgressMap[item.id];
+      const expressExamOnly =
+        prog?.status === 'mastered' || Boolean(prog?.pendingVoiceVerify);
+      selected.push({ item, expressExamOnly, sourceBucket });
+      return true;
+    };
 
-  // Primary 2:2:1 quota
-  let aPicked = 0;
-  for (const item of assistedOrSyllableQueue) {
-    if (aPicked >= 2) break;
-    if (pushEntry(item, 'assisted_or_syllable')) aPicked++;
-  }
-
-  let mPicked = 0;
-  for (const item of dueMasteredBucket) {
-    if (mPicked >= 2) break;
-    if (pushEntry(item, 'mastered_review')) mPicked++;
-  }
-
-  for (const item of newBucket) {
-    if (newCount >= 1) break;
-    if (pushEntry(item, 'new')) newCount++;
-  }
-
-  // Backfill remaining slots: first remaining review queues, then up to maxNewWords (3)
-  if (selected.length < sessionSize) {
+    // Primary 2:2:1 quota
+    let aPicked = 0;
     for (const item of assistedOrSyllableQueue) {
-      if (selected.length >= sessionSize) break;
-      pushEntry(item, 'assisted_or_syllable');
+      if (aPicked >= 2) break;
+      if (pushEntry(item, 'assisted_or_syllable')) aPicked++;
     }
-  }
-  if (selected.length < sessionSize) {
+
+    let mPicked = 0;
     for (const item of dueMasteredBucket) {
-      if (selected.length >= sessionSize) break;
-      pushEntry(item, 'mastered_review');
+      if (mPicked >= 2) break;
+      if (pushEntry(item, 'mastered_review')) mPicked++;
     }
-  }
-  if (selected.length < sessionSize && newCount < maxNewWords) {
+
     for (const item of newBucket) {
-      if (selected.length >= sessionSize || newCount >= maxNewWords) break;
+      if (newCount >= 1) break;
       if (pushEntry(item, 'new')) newCount++;
     }
-  }
 
-  // If no due or allowed new words remain (e.g., all words mastered and none due), allow practice replay
-  if (selected.length === 0) {
-    for (const item of notDueBucket) {
-      if (selected.length >= sessionSize) break;
-      pushEntry(item, 'fallback_review');
+    // Backfill remaining slots: first remaining review queues, then up to maxNewWords (3)
+    if (selected.length < sessionSize) {
+      for (const item of assistedOrSyllableQueue) {
+        if (selected.length >= sessionSize) break;
+        pushEntry(item, 'assisted_or_syllable');
+      }
+    }
+    if (selected.length < sessionSize) {
+      for (const item of dueMasteredBucket) {
+        if (selected.length >= sessionSize) break;
+        pushEntry(item, 'mastered_review');
+      }
+    }
+    if (selected.length < sessionSize && newCount < maxNewWords) {
+      for (const item of newBucket) {
+        if (selected.length >= sessionSize || newCount >= maxNewWords) break;
+        if (pushEntry(item, 'new')) newCount++;
+      }
+    }
+
+    // If no due or allowed new words remain (e.g., all words mastered and none due), allow practice replay
+    if (selected.length === 0) {
+      for (const item of notDueBucket) {
+        if (selected.length >= sessionSize) break;
+        pushEntry(item, 'fallback_review');
+      }
+    }
+
+    return selected;
+  };
+
+  if (params.recentSessionWordIds && params.recentSessionWordIds.length > 0) {
+    const recentSet = new Set(params.recentSessionWordIds);
+    const nonRecentItems = allWorldItems.filter((item) => !recentSet.has(item.id));
+    if (nonRecentItems.length > 0) {
+      const freshSelection = pickFromItems(nonRecentItems);
+      if (freshSelection.length > 0) {
+        return freshSelection;
+      }
     }
   }
 
-  return selected;
+  return pickFromItems(allWorldItems);
+}
+
+export interface ShuffledStageQueues {
+  stage1: AdaptiveSessionWord[];
+  stage2: AdaptiveSessionWord[];
+  stage3: AdaptiveSessionWord[];
+}
+
+/**
+ * Shuffle session words using Fisher–Yates so consecutive exercises do not repeat
+ * the exact same word order (nor immediately repeat the previous exercise's last word when >= 3 items exist).
+ */
+export function shuffleSessionWordsForExercise(
+  items: readonly AdaptiveSessionWord[],
+  previousOrderIds: readonly string[] = [],
+  rng: () => number = Math.random,
+): AdaptiveSessionWord[] {
+  if (items.length <= 1) {
+    return [...items];
+  }
+
+  const prevLastId =
+    previousOrderIds.length > 0 ? previousOrderIds[previousOrderIds.length - 1] ?? null : null;
+
+  const isSameOrder = (arr: readonly AdaptiveSessionWord[]): boolean =>
+    previousOrderIds.length === arr.length &&
+    arr.every((entry, idx) => entry.item.id === previousOrderIds[idx]);
+
+  let candidate: AdaptiveSessionWord[] = [];
+  for (let attempt = 0; attempt < 12; attempt++) {
+    candidate = fisherYatesShuffle(items, rng);
+    const boundaryRepeat =
+      items.length >= 3 && prevLastId !== null && candidate[0]?.item.id === prevLastId;
+    if (!isSameOrder(candidate) && !boundaryRepeat) {
+      return candidate;
+    }
+  }
+
+  const arr = [...candidate];
+  if (items.length >= 3 && prevLastId !== null && arr[0]?.item.id === prevLastId) {
+    const swapIdx = arr.findIndex((entry, idx) => idx > 0 && entry.item.id !== prevLastId);
+    if (swapIdx > 0) {
+      const tmp = arr[0]!;
+      arr[0] = arr[swapIdx]!;
+      arr[swapIdx] = tmp;
+    }
+  }
+
+  if (isSameOrder(arr)) {
+    if (arr.length === 2) {
+      const tmp = arr[0]!;
+      arr[0] = arr[1]!;
+      arr[1] = tmp;
+    } else if (arr.length >= 3) {
+      const tmp = arr[1]!;
+      arr[1] = arr[2]!;
+      arr[2] = tmp;
+    }
+  }
+
+  return arr;
+}
+
+/**
+ * Build independent shuffled word queues for Stage 1 (Build), Stage 2 (Spotlight),
+ * and Stage 3 (Exam) so the child cannot rely on memorized sequential order.
+ */
+export function buildShuffledExerciseQueues(
+  sessionItems: readonly AdaptiveSessionWord[],
+  rng: () => number = Math.random,
+): ShuffledStageQueues {
+  const fullPipelineItems = sessionItems.filter((entry) => !entry.expressExamOnly);
+  const stage1 = shuffleSessionWordsForExercise(
+    fullPipelineItems,
+    fullPipelineItems.map((entry) => entry.item.id),
+    rng,
+  );
+  const stage2 = shuffleSessionWordsForExercise(
+    fullPipelineItems,
+    stage1.map((entry) => entry.item.id),
+    rng,
+  );
+  const stage3PrevIds =
+    stage2.length > 0
+      ? stage2.map((entry) => entry.item.id)
+      : sessionItems.map((entry) => entry.item.id);
+  const stage3 = shuffleSessionWordsForExercise(sessionItems, stage3PrevIds, rng);
+
+  return { stage1, stage2, stage3 };
+}
+
+export type InterleavedStepPhase = 'stage1_build' | 'stage2_spotlight' | 'exam';
+
+export interface InterleavedSessionStep {
+  stage: 1 | 2 | 3;
+  phase: InterleavedStepPhase;
+  entry: AdaptiveSessionWord;
+  stage1OrderIndex: number | null;
+}
+
+const INTERLEAVED_STAGE_TO_PHASE: Record<1 | 2 | 3, InterleavedStepPhase> = {
+  1: 'stage1_build',
+  2: 'stage2_spotlight',
+  3: 'exam',
+};
+
+function findBestExpressInsertIndex(
+  queue: readonly InterleavedSessionStep[],
+  expressWordId: string,
+): number {
+  let bestPos = queue.length;
+  let bestScore = -1;
+
+  for (let pos = 0; pos <= queue.length; pos++) {
+    const left = pos > 0 ? queue[pos - 1] : undefined;
+    const right = pos < queue.length ? queue[pos] : undefined;
+
+    if (left?.entry.item.id === expressWordId || right?.entry.item.id === expressWordId) {
+      continue;
+    }
+
+    const breaksSameWord =
+      left !== undefined && right !== undefined && left.entry.item.id === right.entry.item.id;
+    const touchesStage3 = left?.stage === 3 || right?.stage === 3;
+    const breaksNon3SameStage =
+      left !== undefined &&
+      right !== undefined &&
+      left.stage === right.stage &&
+      left.stage !== 3;
+    const isInterior = pos > 0 && pos < queue.length;
+
+    let score: number;
+    if (breaksSameWord && !touchesStage3) {
+      score = 1000;
+    } else if (breaksSameWord) {
+      score = 900;
+    } else if (breaksNon3SameStage) {
+      score = 800;
+    } else if (!touchesStage3 && isInterior) {
+      score = 700;
+    } else if (!touchesStage3 && pos === 0) {
+      score = 600;
+    } else if (left?.stage !== 3 || right?.stage !== 3) {
+      score = pos === queue.length ? 400 : 300;
+    } else {
+      score = 100;
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestPos = pos;
+    }
+  }
+
+  return bestPos;
+}
+
+/**
+ * Build an interleaved "Zinapoya" session queue across Stage 1 (Build), Stage 2 (Spotlight),
+ * and Stage 3 (Exam).
+ * For 3 full-pipeline words [A, B, C], emits:
+ *   1(A) -> 1(B) -> 2(A) -> 1(C) -> 2(B) -> 3(A) -> 2(C) -> 3(B) -> 3(C)
+ * Guarantees no two consecutive steps share the same word (when >= 2 distinct words exist),
+ * alternates exercise types, and preserves strict 1 -> 2 -> 3 order per word.
+ * Express-exam-only words (`expressExamOnly: true`) are woven into non-adjacent slots.
+ */
+export function buildInterleavedSessionQueue(
+  sessionItems: readonly AdaptiveSessionWord[],
+): InterleavedSessionStep[] {
+  if (sessionItems.length === 0) {
+    return [];
+  }
+
+  const fullItems = sessionItems.filter((entry) => !entry.expressExamOnly);
+  const expressItems = sessionItems.filter((entry) => entry.expressExamOnly);
+
+  if (fullItems.length === 0) {
+    return expressItems.map((entry) => ({
+      stage: 3,
+      phase: 'exam',
+      entry,
+      stage1OrderIndex: null,
+    }));
+  }
+
+  const queue: InterleavedSessionStep[] = [];
+  const fullCount = fullItems.length;
+
+  for (let diagonal = 0; diagonal <= fullCount + 1; diagonal++) {
+    for (const stage of [1, 2, 3] as const) {
+      const wordIdx = diagonal - (stage - 1);
+      if (wordIdx >= 0 && wordIdx < fullCount) {
+        const entry = fullItems[wordIdx];
+        if (entry) {
+          queue.push({
+            stage,
+            phase: INTERLEAVED_STAGE_TO_PHASE[stage],
+            entry,
+            stage1OrderIndex: stage === 1 ? wordIdx : null,
+          });
+        }
+      }
+    }
+  }
+
+  for (const expressEntry of expressItems) {
+    const insertPos = findBestExpressInsertIndex(queue, expressEntry.item.id);
+    queue.splice(insertPos, 0, {
+      stage: 3,
+      phase: 'exam',
+      entry: expressEntry,
+      stage1OrderIndex: null,
+    });
+  }
+
+  return queue;
+}
+
+export type ConstructorCheckOutcome = 'no_selection' | 'correct' | 'wrong';
+
+/**
+ * Evaluate the selected Constructor option when the child taps "Tekshirish".
+ */
+export function evaluateConstructorSelection(
+  selectedPart: string | null,
+  expectedPart: string,
+): ConstructorCheckOutcome {
+  if (!selectedPart) return 'no_selection';
+  return selectedPart === expectedPart ? 'correct' : 'wrong';
 }
 
 const FALLBACK_EMOJI_POOL = ['🍎', '🚗', '🐶', '🌸', '⚽', '🔑', '🎈', '🌞', '📘', '🧸'];
@@ -597,19 +845,31 @@ export function getOfflineFallbackEmojiChoices(
   previousCorrectIndex: number | null = null,
   rng: () => number = Math.random,
 ): string[] {
-  const unique = new Set<string>([item.emoji, ...item.distractorEmojis]);
+  const unique = new Set<string>();
+  const usedPaths = new Set<string>();
+
+  if (item.emoji) {
+    unique.add(item.emoji);
+    usedPaths.add(resolveVisualSrc({ emoji: item.emoji, image: item.image, wordId: item.id }));
+  }
 
   const sameWorldCandidates = pool.filter((p) => p.worldId === item.worldId && p.id !== item.id);
   const otherCandidates = pool.filter((p) => p.worldId !== item.worldId);
-  for (const cand of [...sameWorldCandidates, ...otherCandidates]) {
+  const allCandidateEmojis = [
+    ...item.distractorEmojis,
+    ...sameWorldCandidates.map((c) => c.emoji),
+    ...otherCandidates.map((c) => c.emoji),
+    ...FALLBACK_EMOJI_POOL,
+  ];
+
+  for (const cand of allCandidateEmojis) {
     if (unique.size >= 4) break;
-    if (!unique.has(cand.emoji)) {
-      unique.add(cand.emoji);
-    }
-  }
-  for (const extra of FALLBACK_EMOJI_POOL) {
-    if (unique.size >= 4) break;
-    unique.add(extra);
+    if (!cand || unique.has(cand)) continue;
+    if (!hasExplicitVisualMapping({ emoji: cand })) continue;
+    const candPath = resolveVisualSrc({ emoji: cand });
+    if (!candPath || usedPaths.has(candPath)) continue;
+    unique.add(cand);
+    usedPaths.add(candPath);
   }
 
   const arr = Array.from(unique).slice(0, 4);
