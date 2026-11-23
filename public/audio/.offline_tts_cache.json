@@ -1673,5 +1673,15 @@
     "provider": "voicelab",
     "voice": "lison-v2:malika",
     "text": "Arra."
+  },
+  "bismillah.mp3": {
+    "provider": "uzbekvoice",
+    "voice": "shoira",
+    "text": "Ilming ziyoda bo‘lishi uchun, «Bismillah» deb boshla!"
+  },
+  "alhamdulillah.mp3": {
+    "provider": "uzbekvoice",
+    "voice": "shoira",
+    "text": "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!"
   }
 }

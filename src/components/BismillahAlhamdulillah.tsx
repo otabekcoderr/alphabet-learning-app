@@ -12,7 +12,8 @@ export const ALHAMDULILLAH_TEXT_UZ =
   'Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!';
 
 const BISMILLAH_MIN_DISPLAY_MS = 3000;
-const BISMILLAH_MAX_WAIT_MS = 7500;
+const BISMILLAH_MAX_WAIT_MS = 10000;
+const BISMILLAH_POST_AUDIO_PAUSE_MS = 350;
 const ALHAMDULILLAH_MAX_RECORD_MS = 4000;
 
 /**
@@ -103,11 +104,13 @@ export function BismillahStartCard({
     void Promise.all([
       waitMs(BISMILLAH_MIN_DISPLAY_MS),
       Promise.race([audioPromise, waitMs(BISMILLAH_MAX_WAIT_MS)]),
-    ]).then(() => {
-      if (!cancelled && !autoAdvanceCancelledRef.current) {
-        finishOnce();
-      }
-    });
+    ])
+      .then(() => waitMs(BISMILLAH_POST_AUDIO_PAUSE_MS))
+      .then(() => {
+        if (!cancelled && !autoAdvanceCancelledRef.current) {
+          finishOnce();
+        }
+      });
 
     return () => {
       cancelled = true;
@@ -336,11 +339,13 @@ export function AlhamdulillahHabitBlock({
   }, [readyToPlay, acknowledged]);
 
   const handleReplayPromptAudio = () => {
+    autoPlayedRef.current = true;
     stopOwnPlayback();
     void playAudioClip(ALHAMDULILLAH_AUDIO_PATH, ALHAMDULILLAH_TEXT_UZ);
   };
 
   const handleStartRecording = async () => {
+    autoPlayedRef.current = true;
     stopActiveAudio();
     stopOwnPlayback();
     setMicNote(null);

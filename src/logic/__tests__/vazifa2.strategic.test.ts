@@ -287,4 +287,35 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     expect(findStaticAudioUrlForText(ALHAMDULILLAH_TEXT_UZ)).toBe('/audio/alhamdulillah.mp3');
     expect(isVoicePlaybackRecordingSupported()).toBe(false);
   });
+
+  it('ensures static bismillah.mp3, alhamdulillah.mp3, letter_f.mp3 & sound_f.mp3 exist on disk and are tracked in audio_review.csv', async () => {
+    interface NodeFsSubset {
+      existsSync(path: URL): boolean;
+      statSync(path: URL): { size: number };
+      readFileSync(path: URL, encoding: 'utf8'): string;
+    }
+    const modId = 'node:fs';
+    const fs = (await import(/* @vite-ignore */ modId)) as NodeFsSubset;
+    const projectRootUrl = new URL('../../../', import.meta.url);
+    const audioDirUrl = new URL('public/audio/', projectRootUrl);
+    const reviewCsv = fs
+      .readFileSync(new URL('audio_review.csv', projectRootUrl), 'utf8')
+      .replace(/^\uFEFF/, '');
+
+    expect(reviewCsv.toLowerCase()).not.toContain('temporary');
+
+    const expectedClips: Array<{ file: string; minBytes: number }> = [
+      { file: 'bismillah.mp3', minBytes: 10_000 },
+      { file: 'alhamdulillah.mp3', minBytes: 10_000 },
+      { file: 'letter_f.mp3', minBytes: 5_000 },
+      { file: 'sound_f.mp3', minBytes: 5_000 },
+    ];
+
+    for (const { file, minBytes } of expectedClips) {
+      const fileUrl = new URL(file, audioDirUrl);
+      expect(fs.existsSync(fileUrl), `Missing audio clip: ${file}`).toBe(true);
+      expect(fs.statSync(fileUrl).size, `Clip too small: ${file}`).toBeGreaterThan(minBytes);
+      expect(reviewCsv).toContain(`public/audio/${file}`);
+    }
+  });
 });

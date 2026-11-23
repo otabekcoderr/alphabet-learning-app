@@ -198,6 +198,8 @@ public/audio/praise_3.mp3,Ajoyib! Juda chiroyli o‘qiding!,praise,voicelab:liso
 public/audio/praise_4.mp3,Yasha! Xuddi shunday davom et!,praise,voicelab:lison-v2:malika,needs teacher review
 public/audio/praise_round_complete.mp3,"Ura! Mashqni a’lo darajada yakunlading! Juda ko‘p yulduzcha to‘plading, barakalla!",praise,voicelab:lison-v2:malika,needs teacher review
 public/audio/praise_alphabet_complete.mp3,Ofarin! Barcha harflarni zo‘r takrorlading! Sen haqiqiy chempionsan!,praise,voicelab:lison-v2:malika,needs teacher review
+public/audio/bismillah.mp3,"Ilming ziyoda bo‘lishi uchun, «Bismillah» deb boshla!",habit,uzbekvoice:shoira,needs teacher review
+public/audio/alhamdulillah.mp3,"Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!",habit,uzbekvoice:shoira,needs teacher review
 public/audio/word_anor.mp3,Anor.,word,voicelab:lison-v2:malika,needs teacher review
 public/audio/word_ilon.mp3,Ilon.,word,voicelab:lison-v2:malika,needs teacher review
 public/audio/word_oltin.mp3,Oltin.,word,voicelab:lison-v2:malika,needs teacher review
