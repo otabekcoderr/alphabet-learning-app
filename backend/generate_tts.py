@@ -247,6 +247,14 @@ PRAISE_PHRASES = [
     ("praise_alphabet_complete", "Ofarin! Barcha harflarni zo‘r takrorlading! Sen haqiqiy chempionsan!"),
 ]
 
+HABIT_PHRASES = [
+    ("bismillah", "Ilming ziyoda bo‘lishi uchun, «Bismillah» deb boshla!"),
+    (
+        "alhamdulillah",
+        "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!",
+    ),
+]
+
 EXISTING_DYNAMIC_SOUND_IDS = {
     "ona", "ana", "non", "nima", "lola", "olma", "oila", "limon",
     "arra", "asal", "suv", "bola", "bobo", "ota", "dada", "kitob",
@@ -1125,6 +1133,8 @@ def run_voicelab_offline_full(
         offline_tasks.append((f"{key}.mp3", phrase, "praise", None, False, True))
     for key, kind, phrase in UI_PHRASES:
         offline_tasks.append((f"{key}.mp3", phrase, kind, None, False, True))
+    for key, phrase in HABIT_PHRASES:
+        offline_tasks.append((f"{key}.mp3", phrase, "habit", None, False, True))
     for fname, text, kind in word_tasks:
         offline_tasks.append((fname, text, kind, None, False, False))
     for fname, text, kind in syl_tasks:

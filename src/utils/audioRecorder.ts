@@ -235,6 +235,12 @@ export function findStaticAudioUrlForText(text: string): string | null {
     }
   }
 
+  for (const [audioKey, phrase] of Object.entries(HABIT_AUDIO_FALLBACK_TEXT)) {
+    if (normalizeAudioLookupKey(phrase) === key) {
+      return `/audio/${audioKey}.mp3`;
+    }
+  }
+
   for (let i = 0; i < WRONG_FEEDBACK_PHRASES.length; i++) {
     if (normalizeAudioLookupKey(WRONG_FEEDBACK_PHRASES[i] ?? '') === key) {
       return `/audio/wrong_${i + 1}.mp3`;
@@ -592,6 +598,12 @@ export const FEEDBACK_FALLBACK_TEXT: Record<FeedbackAudioKey, string> = {
   fb_alpha_server_offline:
     'Ovoz serveri bilan aloqa uzildi — pastdagi tugma bilan davom etishingiz mumkin.',
   fb_alpha_mic_blocked: 'Mikrofonga ruxsat berilmadi — pastdagi tugma bilan davom eting.',
+};
+
+export const HABIT_AUDIO_FALLBACK_TEXT: Record<'bismillah' | 'alhamdulillah', string> = {
+  bismillah: 'Ilming ziyoda bo‘lishi uchun, «Bismillah» deb boshla!',
+  alhamdulillah:
+    'Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!',
 };
 
 const WRONG_FEEDBACK_PHRASES = [

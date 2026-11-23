@@ -8,6 +8,7 @@ import {
   READING_WORLDS,
 } from '../data/curriculum';
 import { getAlphabetMasterySummary } from '../logic/alphabetReview';
+import { getOnboardingOptionLabels } from '../logic/onboarding';
 import {
   AVATAR_OPTIONS,
   buildWeekStreakDays,
@@ -33,9 +34,15 @@ import {
   type AlifboState,
   type ChildProfileData,
 } from '../storage/progressStorage';
-import { playFeedbackChime, verifyAudioWithStt, type SttApiResponse } from '../utils/audioRecorder';
+import {
+  playFeedbackChime,
+  SttRequestError,
+  verifyAudioWithStt,
+  type SttApiResponse,
+} from '../utils/audioRecorder';
 import { AccountIdBadge } from './AccountIdBadge';
 import { AvatarVisual } from './AvatarVisual';
+import { FeedbackModal } from './FeedbackModal';
 import { GameVisual } from './GameVisual';
 import {
   ArrowLeft,
@@ -46,6 +53,7 @@ import {
   Download,
   Flame,
   LogOut,
+  MessageCircle,
   RotateCcw,
   Settings,
   ShieldCheck,
@@ -74,6 +82,7 @@ interface ParentCornerProps {
   onUpdateLockout: (lockout: PinLockoutState) => void;
   onParentVerifyWord: (wordId: string, confirmedMastered: boolean) => void;
   onImportState: (imported: AlifboState) => void;
+  onToggleBismillahAlhamdulillah: (enabled: boolean) => void;
   onResetProgress: () => void;
   onSignOut: () => void;
 }
@@ -110,6 +119,7 @@ export function ParentCorner({
   onUpdateLockout,
   onParentVerifyWord,
   onImportState,
+  onToggleBismillahAlhamdulillah,
   onResetProgress,
   onSignOut,
 }: ParentCornerProps) {
@@ -124,6 +134,7 @@ export function ParentCorner({
   const [pinMsg, setPinMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [backupMsg, setBackupMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
 
   const weekDays = buildWeekStreakDays(state.practiceDates);
   const activeAvatar = getAvatarOption(state.profile.avatarId);
@@ -224,7 +235,14 @@ export function ParentCorner({
       const sttRes = await verifyAudioWithStt(blob, 'ONA', ['ona']);
       setDiagResult(sttRes);
     } catch (err) {
-      setDiagError(err instanceof Error ? err.message : 'Lokal ovoz serveriga ulanib bo‘lmadi');
+      if (err instanceof SttRequestError && err.reason) {
+        const statusPart = err.upstreamStatus ? `, HTTP ${err.upstreamStatus}` : '';
+        setDiagError(
+          `${err.message} (${err.provider ?? 'stt'}, ${err.reason}${statusPart})`,
+        );
+      } else {
+        setDiagError(err instanceof Error ? err.message : 'Lokal ovoz serveriga ulanib bo‘lmadi');
+      }
     } finally {
       setDiagBusy(false);
     }
@@ -311,19 +329,33 @@ export function ParentCorner({
           ))}
         </nav>
 
-        {onExitToChildHome && (
+        <div className="parent-topbar-actions">
           <button
             type="button"
-            className="btn-3d-emerald btn-compact btn-with-icon nav-btn"
+            className="btn-3d-cream btn-compact btn-with-icon nav-btn"
             onClick={() => {
               playFeedbackChime('pop');
-              onExitToChildHome();
+              setFeedbackOpen(true);
             }}
           >
-            <ArrowLeft size={17} strokeWidth={2.6} />
-            <span>Bolalar ekrani</span>
+            <MessageCircle size={16} />
+            <span>Fikr bildirish</span>
           </button>
-        )}
+
+          {onExitToChildHome && (
+            <button
+              type="button"
+              className="btn-3d-emerald btn-compact btn-with-icon nav-btn"
+              onClick={() => {
+                playFeedbackChime('pop');
+                onExitToChildHome();
+              }}
+            >
+              <ArrowLeft size={17} strokeWidth={2.6} />
+              <span>Bolalar ekrani</span>
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="parent-content-wrap">
@@ -570,15 +602,37 @@ export function ParentCorner({
               <section className="parent-card parent-summary-card">
                 <h3>Boshlang‘ich so‘rovnoma</h3>
                 {state.surveyData ? (
-                  <>
-                    <p className="parent-card-line">
-                      Yosh guruhi: <strong>{state.surveyData.ageGroup} yosh</strong>
-                    </p>
-                    <p className="parent-card-line">
-                      Asosiy e’tibor:{' '}
-                      <strong>{CHALLENGE_LABELS[state.surveyData.readingChallenge] ?? '—'}</strong>
-                    </p>
-                  </>
+                  state.surveyData.childStage &&
+                  state.surveyData.previousAttempt &&
+                  state.surveyData.biggestDifficulty ? (
+                    (() => {
+                      const labels = getOnboardingOptionLabels({
+                        childStage: state.surveyData.childStage,
+                        previousAttempt: state.surveyData.previousAttempt,
+                        biggestDifficulty: state.surveyData.biggestDifficulty,
+                      });
+                      return (
+                        <>
+                          <p className="parent-card-line">
+                            Bosqich: <strong>{labels.childStageLabel}</strong>
+                          </p>
+                          <p className="parent-card-line">
+                            Asosiy qiyinchilik: <strong>{labels.biggestDifficultyLabel}</strong>
+                          </p>
+                        </>
+                      );
+                    })()
+                  ) : (
+                    <>
+                      <p className="parent-card-line">
+                        Yosh guruhi: <strong>{state.surveyData.ageGroup} yosh</strong>
+                      </p>
+                      <p className="parent-card-line">
+                        Asosiy e’tibor:{' '}
+                        <strong>{CHALLENGE_LABELS[state.surveyData.readingChallenge] ?? '—'}</strong>
+                      </p>
+                    </>
+                  )
                 ) : (
                   <p className="muted-text">So‘rovnoma hali to‘ldirilmagan.</p>
                 )}
@@ -959,6 +1013,38 @@ export function ParentCorner({
             </section>
 
             <section className="parent-card">
+              <div className="parent-toggle-row">
+                <div className="parent-toggle-copy">
+                  <strong id="bismillah-toggle-label">
+                    Bismillah va Alhamdulillah eslatmasi
+                  </strong>
+                  <p className="muted-text" style={{ margin: '4px 0 0' }}>
+                    Mashq boshida «Bismillah», yakunida «Alhamdulillah» eslatmasi hamda ustoz
+                    ovozli yo‘l-yo‘rig‘ini ko‘rsatish.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={state.bismillahAlhamdulillahEnabled}
+                  aria-labelledby="bismillah-toggle-label"
+                  className={`parent-toggle-switch ${
+                    state.bismillahAlhamdulillahEnabled ? 'parent-toggle-switch-on' : ''
+                  }`}
+                  onClick={() => {
+                    playFeedbackChime('pop');
+                    onToggleBismillahAlhamdulillah(!state.bismillahAlhamdulillahEnabled);
+                  }}
+                >
+                  <span className="parent-toggle-thumb" aria-hidden="true" />
+                  <span className="parent-toggle-state-text">
+                    {state.bismillahAlhamdulillahEnabled ? 'Yoqilgan' : 'O‘chirilgan'}
+                  </span>
+                </button>
+              </div>
+            </section>
+
+            <section className="parent-card">
               <div className="parent-session-box" style={{ marginTop: 0 }}>
                 <div>
                   <label htmlFor="daily-limit-select">
@@ -1222,6 +1308,13 @@ export function ParentCorner({
           </button>
         ))}
       </nav>
+      <FeedbackModal
+        isOpen={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+        childName={state.profile.name}
+        publicId={state.account?.publicId}
+        sessionsCompleted={state.completedSessionsCount}
+      />
     </div>
   );
 }

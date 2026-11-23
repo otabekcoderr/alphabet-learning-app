@@ -73,8 +73,10 @@ import {
 } from '../utils/audioRecorder';
 import { triggerCelebrationBurst } from '../utils/soundEffects';
 import { AnimatedCharacter } from './AnimatedCharacter';
+import { AlhamdulillahHabitBlock } from './BismillahAlhamdulillah';
+import { FeedbackModal, shouldShowResultFeedbackButton } from './FeedbackModal';
 import { GameVisual } from './GameVisual';
-import { ArrowRight, Check, CloseIcon, Home, Mic, Sparkles, Square, Star, Volume2 } from './Icons';
+import { ArrowRight, Check, CloseIcon, Home, MessageCircle, Mic, Sparkles, Square, Star, Volume2 } from './Icons';
 import { LetterBlock, tokenizeUzbekLettersOrdered } from './LetterBlock';
 import { StorybookBackdrop } from './StorybookBackdrop';
 
@@ -94,8 +96,13 @@ interface LessonPlayerProps {
   worldTitle: string;
   avatarId: string;
   aiOnline: boolean;
+  bismillahAlhamdulillahEnabled?: boolean;
+  completedSessionsCount?: number;
+  childName?: string;
+  publicId?: string;
   onLetterHintTap: (letter: string) => void;
   onWordCompleted: (report: WordAttemptReport) => void;
+  onRoundFinished?: () => void;
   onPlayAnotherRound: () => void;
   onBack: () => void;
 }
@@ -185,8 +192,13 @@ export function LessonPlayer({
   worldTitle,
   avatarId,
   aiOnline,
+  bismillahAlhamdulillahEnabled = true,
+  completedSessionsCount = 0,
+  childName,
+  publicId,
   onLetterHintTap,
   onWordCompleted,
+  onRoundFinished,
   onPlayAnotherRound,
   onBack,
 }: LessonPlayerProps) {
@@ -199,9 +211,17 @@ export function LessonPlayer({
   const [showingWordDone, setShowingWordDone] = useState(false);
   const [roundFinished, setRoundFinished] = useState(false);
   const [roundStars, setRoundStars] = useState(0);
+  const [roundPraiseDone, setRoundPraiseDone] = useState(false);
+  const [alhamdulillahDone, setAlhamdulillahDone] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [completedResults, setCompletedResults] = useState<
     Record<string, ReadingAttemptEvaluation['status']>
   >({});
+
+  const roundReportedRef = useRef(false);
+  const isMountedRef = useRef(true);
+  const onRoundFinishedRef = useRef(onRoundFinished);
+  onRoundFinishedRef.current = onRoundFinished;
 
   const currentStep = sessionQueue[stepIdx] ?? sessionQueue[0] ?? null;
   const wordPhase: WordPhase = showingWordDone
@@ -429,8 +449,12 @@ export function LessonPlayer({
     if (prevSessionItemsRef.current === sessionItems) return;
     prevSessionItemsRef.current = sessionItems;
     recordedIdsRef.current.clear();
+    roundReportedRef.current = false;
     setCompletedResults({});
     setRoundStars(0);
+    setRoundPraiseDone(false);
+    setAlhamdulillahDone(false);
+    setFeedbackOpen(false);
     setRoundFinished(false);
     setShowingWordDone(false);
     setStepIdx(0);
@@ -502,7 +526,9 @@ export function LessonPlayer({
 
   // Full cleanup on unmount
   useEffect(() => {
+    isMountedRef.current = true;
     return () => {
+      isMountedRef.current = false;
       bubbleGenRef.current += 1;
       if (stage1TimerRef.current !== null) {
         window.clearTimeout(stage1TimerRef.current);
@@ -601,13 +627,23 @@ export function LessonPlayer({
 
   const completeSessionRound = () => {
     setShowingWordDone(false);
+    setRoundPraiseDone(false);
+    setAlhamdulillahDone(false);
+    if (!roundReportedRef.current) {
+      roundReportedRef.current = true;
+      onRoundFinishedRef.current?.();
+    }
     triggerCelebrationBurst('round');
     if (praiseTimerRef.current !== null) {
       window.clearTimeout(praiseTimerRef.current);
     }
     praiseTimerRef.current = window.setTimeout(() => {
       praiseTimerRef.current = null;
-      void playPraiseAudio('round_complete');
+      void playPraiseAudio('round_complete').finally(() => {
+        if (isMountedRef.current) {
+          setRoundPraiseDone(true);
+        }
+      });
     }, 800);
     setRoundFinished(true);
   };
@@ -1403,6 +1439,19 @@ export function LessonPlayer({
           <button type="button" className="brand" onClick={onBack}>
             <img src="/images/logo.webp" alt="Alifbo" className="brand-logo-img" draggable={false} />
           </button>
+          {shouldShowResultFeedbackButton(completedSessionsCount) && (
+            <button
+              type="button"
+              className="btn-3d-cream btn-compact btn-with-icon victory-feedback-btn"
+              onClick={() => {
+                playFeedbackChime('pop');
+                setFeedbackOpen(true);
+              }}
+            >
+              <MessageCircle size={15} />
+              <span>Fikr bildirish</span>
+            </button>
+          )}
         </header>
 
         <main className="victory-card-stage">
@@ -1477,75 +1526,97 @@ export function LessonPlayer({
               </p>
             )}
 
-            <div className="victory-actions">
-              <motion.button
-                type="button"
-                whileHover={{ scale: 1.02 }}
-                whileTap={{ scale: 0.97 }}
-                className="btn-3d-emerald victory-continue-btn btn-with-icon"
-                onClick={() => {
-                  if (stage1TimerRef.current !== null) {
-                    window.clearTimeout(stage1TimerRef.current);
-                    stage1TimerRef.current = null;
-                  }
-                  if (bubblePauseTimerRef.current !== null) {
-                    window.clearTimeout(bubblePauseTimerRef.current);
-                    bubblePauseTimerRef.current = null;
-                  }
-                  if (praiseTimerRef.current !== null) {
-                    window.clearTimeout(praiseTimerRef.current);
-                    praiseTimerRef.current = null;
-                  }
-                  if (examRevealTimerRef.current !== null) {
-                    window.clearTimeout(examRevealTimerRef.current);
-                    examRevealTimerRef.current = null;
-                  }
-                  if (wrongBubbleTimerRef.current !== null) {
-                    window.clearTimeout(wrongBubbleTimerRef.current);
-                    wrongBubbleTimerRef.current = null;
-                  }
-                  if (micRef.current) {
-                    micRef.current.cancel();
-                    micRef.current = null;
-                  }
-                  if (bubbleMicRef.current) {
-                    bubbleMicRef.current.cancel();
-                    bubbleMicRef.current = null;
-                  }
-                  stopActiveAudio();
-                  playFeedbackChime('pop');
-                  recordedIdsRef.current.clear();
-                  prevConstructorCorrectIdxRef.current = null;
-                  prevBubbleCorrectIdxRef.current = null;
-                  prevSpotlightCorrectIdxRef.current = null;
-                  prevOfflineCorrectIdxRef.current = null;
-                  setCompletedResults({});
-                  setShowingWordDone(false);
-                  setStepIdx(0);
-                  setRetryIndex((n) => n + 1);
-                  setRoundStars(0);
-                  setRoundFinished(false);
-                  onPlayAnotherRound();
-                }}
-              >
-                <span>Davom etish!</span>
-                <ArrowRight size={20} />
-              </motion.button>
+            {bismillahAlhamdulillahEnabled && (
+              <AlhamdulillahHabitBlock
+                readyToPlay={roundPraiseDone}
+                acknowledged={alhamdulillahDone}
+                onAcknowledge={() => setAlhamdulillahDone(true)}
+              />
+            )}
 
-              <button
-                type="button"
-                className="btn-3d-cream btn-compact btn-with-icon"
-                onClick={() => {
-                  playFeedbackChime('pop');
-                  onBack();
-                }}
-              >
-                <Home size={16} />
-                <span>Bosh sahifaga</span>
-              </button>
-            </div>
+            {(!bismillahAlhamdulillahEnabled || alhamdulillahDone) && (
+              <div className="victory-actions">
+                <motion.button
+                  type="button"
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="btn-3d-emerald victory-continue-btn btn-with-icon"
+                  onClick={() => {
+                    if (stage1TimerRef.current !== null) {
+                      window.clearTimeout(stage1TimerRef.current);
+                      stage1TimerRef.current = null;
+                    }
+                    if (bubblePauseTimerRef.current !== null) {
+                      window.clearTimeout(bubblePauseTimerRef.current);
+                      bubblePauseTimerRef.current = null;
+                    }
+                    if (praiseTimerRef.current !== null) {
+                      window.clearTimeout(praiseTimerRef.current);
+                      praiseTimerRef.current = null;
+                    }
+                    if (examRevealTimerRef.current !== null) {
+                      window.clearTimeout(examRevealTimerRef.current);
+                      examRevealTimerRef.current = null;
+                    }
+                    if (wrongBubbleTimerRef.current !== null) {
+                      window.clearTimeout(wrongBubbleTimerRef.current);
+                      wrongBubbleTimerRef.current = null;
+                    }
+                    if (micRef.current) {
+                      micRef.current.cancel();
+                      micRef.current = null;
+                    }
+                    if (bubbleMicRef.current) {
+                      bubbleMicRef.current.cancel();
+                      bubbleMicRef.current = null;
+                    }
+                    stopActiveAudio();
+                    playFeedbackChime('pop');
+                    recordedIdsRef.current.clear();
+                    roundReportedRef.current = false;
+                    prevConstructorCorrectIdxRef.current = null;
+                    prevBubbleCorrectIdxRef.current = null;
+                    prevSpotlightCorrectIdxRef.current = null;
+                    prevOfflineCorrectIdxRef.current = null;
+                    setCompletedResults({});
+                    setShowingWordDone(false);
+                    setStepIdx(0);
+                    setRetryIndex((n) => n + 1);
+                    setRoundStars(0);
+                    setRoundPraiseDone(false);
+                    setAlhamdulillahDone(false);
+                    setFeedbackOpen(false);
+                    setRoundFinished(false);
+                    onPlayAnotherRound();
+                  }}
+                >
+                  <span>Davom etish!</span>
+                  <ArrowRight size={20} />
+                </motion.button>
+
+                <button
+                  type="button"
+                  className="btn-3d-cream btn-compact btn-with-icon"
+                  onClick={() => {
+                    playFeedbackChime('pop');
+                    onBack();
+                  }}
+                >
+                  <Home size={16} />
+                  <span>Bosh sahifaga</span>
+                </button>
+              </div>
+            )}
           </motion.div>
         </main>
+
+        <FeedbackModal
+          isOpen={feedbackOpen}
+          onClose={() => setFeedbackOpen(false)}
+          childName={childName}
+          publicId={publicId}
+          sessionsCompleted={completedSessionsCount}
+        />
       </div>
     );
   }

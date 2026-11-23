@@ -25,12 +25,33 @@ export interface ChildProfileData {
 
 export type FutureSubjectOption = 'math' | 'drawing' | 'handwriting' | 'english';
 
+export type OnboardingChildStage =
+  | 'no_letters_yet'
+  | 'knows_letters_not_words'
+  | 'reads_syllables_wants_speed';
+
+export type OnboardingPreviousAttempt =
+  | 'self_book_alifbe'
+  | 'tutor_or_center'
+  | 'youtube_or_apps'
+  | 'not_started_seriously';
+
+export type OnboardingBiggestDifficulty =
+  | 'no_parent_time'
+  | 'child_gets_bored'
+  | 'no_uzbek_quality_material'
+  | 'cannot_blend_letters';
+
 export interface SurveyData {
   completedAt: string;
   ageGroup: '5-6' | '6-7' | '7-8';
   readingChallenge: 'blending' | 'slow_spelling' | 'forgets_letters' | 'comprehension';
   dailyLimitMinutes: 10 | 15 | 20;
   desiredFutureSubjects: FutureSubjectOption[];
+  childStage?: OnboardingChildStage;
+  previousAttempt?: OnboardingPreviousAttempt;
+  biggestDifficulty?: OnboardingBiggestDifficulty;
+  contact?: string;
 }
 
 export interface AlifboState {
@@ -61,6 +82,9 @@ export interface AlifboState {
   wordProgress: Record<string, WordProgress>;
   recentReadingTimesMs: number[];
   letterMastery: Record<string, LetterMasteryEntry>;
+  // Vazifa 2 fields
+  completedSessionsCount: number;
+  bismillahAlhamdulillahEnabled: boolean;
 }
 
 export function createDefaultProfile(): ChildProfileData {
@@ -115,6 +139,8 @@ export function createInitialState(): AlifboState {
     wordProgress: {},
     recentReadingTimesMs: [],
     letterMastery: {},
+    completedSessionsCount: 0,
+    bismillahAlhamdulillahEnabled: true,
   };
 }
 
@@ -215,6 +241,32 @@ function normalizeShownStageRewards(value: number[] | undefined): number[] {
   return Array.from(new Set(valid)).sort((a, b) => a - b);
 }
 
+function isValidOnboardingChildStage(value: unknown): value is OnboardingChildStage {
+  return (
+    value === 'no_letters_yet' ||
+    value === 'knows_letters_not_words' ||
+    value === 'reads_syllables_wants_speed'
+  );
+}
+
+function isValidOnboardingPreviousAttempt(value: unknown): value is OnboardingPreviousAttempt {
+  return (
+    value === 'self_book_alifbe' ||
+    value === 'tutor_or_center' ||
+    value === 'youtube_or_apps' ||
+    value === 'not_started_seriously'
+  );
+}
+
+function isValidOnboardingBiggestDifficulty(value: unknown): value is OnboardingBiggestDifficulty {
+  return (
+    value === 'no_parent_time' ||
+    value === 'child_gets_bored' ||
+    value === 'no_uzbek_quality_material' ||
+    value === 'cannot_blend_letters'
+  );
+}
+
 function isValidSurveyData(value: unknown): value is SurveyData {
   if (value === null) return true;
   if (!value || typeof value !== 'object') return false;
@@ -227,7 +279,13 @@ function isValidSurveyData(value: unknown): value is SurveyData {
       obj.readingChallenge === 'forgets_letters' ||
       obj.readingChallenge === 'comprehension') &&
     (obj.dailyLimitMinutes === 10 || obj.dailyLimitMinutes === 15 || obj.dailyLimitMinutes === 20) &&
-    Array.isArray(obj.desiredFutureSubjects)
+    Array.isArray(obj.desiredFutureSubjects) &&
+    (obj.childStage === undefined || isValidOnboardingChildStage(obj.childStage)) &&
+    (obj.previousAttempt === undefined ||
+      isValidOnboardingPreviousAttempt(obj.previousAttempt)) &&
+    (obj.biggestDifficulty === undefined ||
+      isValidOnboardingBiggestDifficulty(obj.biggestDifficulty)) &&
+    (obj.contact === undefined || typeof obj.contact === 'string')
   );
 }
 
@@ -408,6 +466,16 @@ function normalizeLoadedState(rawObj: Record<string, unknown>, parsed: AlifboSta
     wordProgress: normalizedWordProgress,
     recentReadingTimesMs: normalizeRecentReadingTimesMs(rawObj.recentReadingTimesMs),
     letterMastery: normalizeLetterMasteryMap(rawObj.letterMastery),
+    completedSessionsCount:
+      typeof rawObj.completedSessionsCount === 'number' &&
+      Number.isFinite(rawObj.completedSessionsCount) &&
+      rawObj.completedSessionsCount >= 0
+        ? Math.trunc(rawObj.completedSessionsCount)
+        : 0,
+    bismillahAlhamdulillahEnabled:
+      typeof rawObj.bismillahAlhamdulillahEnabled === 'boolean'
+        ? rawObj.bismillahAlhamdulillahEnabled
+        : true,
   };
 }
 
@@ -446,7 +514,13 @@ function isValidState(value: unknown): value is AlifboState {
       (obj.wordProgress === null || typeof obj.wordProgress !== 'object' || Array.isArray(obj.wordProgress))) ||
     (obj.recentReadingTimesMs !== undefined && !Array.isArray(obj.recentReadingTimesMs)) ||
     (obj.letterMastery !== undefined &&
-      (obj.letterMastery === null || typeof obj.letterMastery !== 'object' || Array.isArray(obj.letterMastery)))
+      (obj.letterMastery === null || typeof obj.letterMastery !== 'object' || Array.isArray(obj.letterMastery))) ||
+    (obj.completedSessionsCount !== undefined &&
+      (typeof obj.completedSessionsCount !== 'number' ||
+        !Number.isFinite(obj.completedSessionsCount) ||
+        obj.completedSessionsCount < 0)) ||
+    (obj.bismillahAlhamdulillahEnabled !== undefined &&
+      typeof obj.bismillahAlhamdulillahEnabled !== 'boolean')
   ) {
     return false;
   }

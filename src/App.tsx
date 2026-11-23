@@ -38,6 +38,7 @@ import {
 } from './storage/progressStorage';
 import { AlphabetRecallDrawer } from './components/AlphabetRecallDrawer';
 import { AuthScreen } from './components/AuthScreen';
+import { BismillahStartCard } from './components/BismillahAlhamdulillah';
 import { ChildHome } from './components/ChildHome';
 import { Lock, Star } from './components/Icons';
 import { LessonPlayer, type WordAttemptReport } from './components/LessonPlayer';
@@ -85,7 +86,9 @@ export function App() {
   const [remoteSessionActive, setRemoteSessionActive] = useState<boolean>(false);
   const skipNextRemoteSyncRef = useRef<boolean>(false);
   const [tab, setTab] = useState<ViewTab>('home');
+  const [bismillahPending, setBismillahPending] = useState<boolean>(false);
   const [sessionItems, setSessionItems] = useState<AdaptiveSessionWord[]>([]);
+  const [lessonSessionKey, setLessonSessionKey] = useState(0);
   const [roundWorldId, setRoundWorldId] = useState<1 | 2 | 3 | 4 | 5>(() => {
     const id = loaded.state.activeWorldId;
     return id >= 1 && id <= 5 ? (id as 1 | 2 | 3 | 4 | 5) : 1;
@@ -189,7 +192,7 @@ export function App() {
     return () => window.clearTimeout(timer);
   }, [remoteSessionActive, state]);
 
-  // Poll ASR health only on localhost or when explicit VITE_ASR_URL is configured
+  // Check ASR health on load (single check on hosted/production origins; periodic polling locally or with VITE_ASR_URL)
   useEffect(() => {
     return startAsrHealthPolling({
       hostname: window.location.hostname,
@@ -200,7 +203,7 @@ export function App() {
 
   // Track healthy daily screen-time while child is playing a reading round
   useEffect(() => {
-    if (tab !== 'lesson') return;
+    if (tab !== 'lesson' || bismillahPending) return;
     const timer = window.setInterval(() => {
       if (document.visibilityState !== 'visible') return;
       const today = getLocalDateString();
@@ -215,7 +218,7 @@ export function App() {
       }));
     }, 5_000);
     return () => window.clearInterval(timer);
-  }, [tab]);
+  }, [tab, bismillahPending]);
 
   const todayDateStr = getLocalDateString();
   const screenTime = useMemo(
@@ -230,21 +233,31 @@ export function App() {
   );
 
   const startWorldRound = useCallback(
-    (worldId: 1 | 2 | 3 | 4 | 5) => {
+    (worldId: 1 | 2 | 3 | 4 | 5, recentSessionWordIds?: readonly string[]) => {
       const items = selectAdaptiveSessionWords({
         worldId,
         pool: DYNAMIC_WORD_POOL,
         wordProgressMap: state.wordProgress,
         todayStr: getLocalDateString(),
         letterHintCounts: state.letterHintCounts,
+        recentSessionWordIds,
       });
       setRoundWorldId(worldId);
       setSessionItems(items);
+      setLessonSessionKey((prev) => prev + 1);
+      setBismillahPending(state.bismillahAlhamdulillahEnabled);
       setState((prev) => ({ ...prev, activeWorldId: worldId }));
       setTab('lesson');
     },
-    [state.wordProgress, state.letterHintCounts],
+    [state.wordProgress, state.letterHintCounts, state.bismillahAlhamdulillahEnabled],
   );
+
+  const handleRoundFinished = useCallback(() => {
+    setState((prev) => ({
+      ...prev,
+      completedSessionsCount: prev.completedSessionsCount + 1,
+    }));
+  }, []);
 
   const handleLetterHintTap = useCallback((letter: string) => {
     setState((prev) => ({
@@ -373,6 +386,7 @@ export function App() {
 
   const goToChildHome = useCallback(() => {
     playFeedbackChime('pop');
+    setBismillahPending(false);
     if (tab === 'parent') {
       exitParentAreaToChildHome();
       return;
@@ -408,6 +422,7 @@ export function App() {
     setEditingSurvey(false);
     setRemoteSessionActive(false);
     setAuthUrlError(null);
+    setBismillahPending(false);
     setTab('home');
     setGateView({ screen: 'welcome' });
     setState((prev) => ({ ...prev, account: null }));
@@ -528,6 +543,7 @@ export function App() {
       <OnboardingSurveyPage
         childName={state.profile.name}
         avatarId={state.profile.avatarId}
+        publicId={state.account?.publicId}
         initialSurvey={editingSurvey ? state.surveyData : null}
         onComplete={({ surveyData, recommendedWorldId }) => {
           setEditingSurvey(false);
@@ -558,16 +574,39 @@ export function App() {
 
   // Immersive full-screen Lesson view (Mockups 07, 08, 09, 10, 12)
   if (tab === 'lesson') {
+    if (bismillahPending && state.bismillahAlhamdulillahEnabled) {
+      return (
+        <BismillahStartCard
+          key={`bismillah-${lessonSessionKey}`}
+          avatarId={state.profile.avatarId}
+          worldTitle={activeRoundWorld.titleUz}
+          onContinue={() => setBismillahPending(false)}
+          onBack={goToChildHome}
+        />
+      );
+    }
+
     return (
       <LessonPlayer
+        key={lessonSessionKey}
         sessionItems={sessionItems}
         wordProgressMap={state.wordProgress}
         worldTitle={activeRoundWorld.titleUz}
         avatarId={state.profile.avatarId}
         aiOnline={aiOnline}
+        bismillahAlhamdulillahEnabled={state.bismillahAlhamdulillahEnabled}
+        completedSessionsCount={state.completedSessionsCount}
+        childName={state.profile.name}
+        publicId={state.account?.publicId}
         onLetterHintTap={handleLetterHintTap}
         onWordCompleted={handleWordCompleted}
-        onPlayAnotherRound={() => startWorldRound(roundWorldId)}
+        onRoundFinished={handleRoundFinished}
+        onPlayAnotherRound={() =>
+          startWorldRound(
+            roundWorldId,
+            sessionItems.map((entry) => entry.item.id),
+          )
+        }
         onBack={goToChildHome}
       />
     );
@@ -619,6 +658,9 @@ export function App() {
         onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
         onParentVerifyWord={handleParentVerifyWord}
         onImportState={handleImportState}
+        onToggleBismillahAlhamdulillah={(enabled) =>
+          setState((prev) => ({ ...prev, bismillahAlhamdulillahEnabled: enabled }))
+        }
         onResetProgress={() => {
           setState((prev) => ({
             ...createInitialState(),
@@ -630,6 +672,7 @@ export function App() {
             dailyLimitMinutes: prev.dailyLimitMinutes,
             surveyData: prev.surveyData,
             parentOnboardingDone: prev.parentOnboardingDone,
+            bismillahAlhamdulillahEnabled: prev.bismillahAlhamdulillahEnabled,
           }));
         }}
         onSignOut={handleSignOut}
