@@ -13,6 +13,7 @@ import {
   playInstructionAudio,
   playInstructionAutoOnEntry,
   resetSessionEntryAudioState,
+  speakUzbekText,
   stopActiveAudio,
 } from '../../utils/audioRecorder';
 import { playSfx } from '../../utils/soundEffects';
@@ -561,6 +562,72 @@ describe('Alifbo 2.2 Live Test Fixes: Mascot, Visuals, Audio, Bubble Gate & Secu
     expect(gestureUrls).toHaveLength(2);
     cleanupBg();
     cleanupAgain();
+  });
+
+  it('falls back smoothly to static MP3 or SpeechSynthesis when /api/tts returns 402 or 503', async () => {
+    const fetch402 = vi.fn(async () => ({
+      ok: false,
+      status: 402,
+      headers: { get: () => 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetch402);
+
+    const playedUrls: string[] = [];
+    class StaticAudioMock {
+      src: string;
+      paused = false;
+      currentTime = 0;
+      onended: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(src: string) {
+        this.src = src;
+        playedUrls.push(src);
+      }
+      play(): Promise<void> {
+        queueMicrotask(() => this.onended?.());
+        return Promise.resolve();
+      }
+      pause(): void {
+        this.paused = true;
+      }
+    }
+    vi.stubGlobal('Audio', StaticAudioMock);
+
+    await expect(speakUzbekText('ONA')).resolves.toBeUndefined();
+    expect(playedUrls).toEqual(['/audio/sound_ona.mp3']);
+
+    // When no static MP3 exists and /api/tts returns 503, falls back to SpeechSynthesis
+    const fetch503 = vi.fn(async () => ({
+      ok: false,
+      status: 503,
+      headers: { get: () => 'application/json' },
+    }));
+    vi.stubGlobal('fetch', fetch503);
+
+    const spokenTexts: string[] = [];
+    class MockUtterance {
+      text: string;
+      lang = '';
+      rate = 1;
+      onend: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      constructor(text: string) {
+        this.text = text;
+      }
+    }
+    vi.stubGlobal('SpeechSynthesisUtterance', MockUtterance);
+    vi.stubGlobal('window', {
+      speechSynthesis: {
+        speak: (utt: MockUtterance) => {
+          spokenTexts.push(utt.text);
+          queueMicrotask(() => utt.onend?.());
+        },
+        cancel: vi.fn(),
+      },
+    });
+
+    await expect(speakUzbekText('Yangi tasodifiy matn')).resolves.toBeUndefined();
+    expect(spokenTexts).toEqual(['Yangi tasodifiy matn']);
   });
 
   it('keeps VoiceLab API key out of src/ and protects api.txt & .env via .gitignore', async () => {

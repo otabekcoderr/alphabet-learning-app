@@ -12,7 +12,7 @@ fs.mkdirSync(wordsDir, { recursive: true });
 fs.mkdirSync(emojiDir, { recursive: true });
 
 const svgWrap = (bg, body) =>
-  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" fill="none">\n` +
+  `<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" fill="none">\n` +
   `  <rect width="128" height="128" rx="28" fill="${bg}"/>\n` +
   `${body}\n</svg>\n`;
 
@@ -292,8 +292,11 @@ const CUSTOM_SVGS = {
   ),
 };
 
+const customWordSvgDataUris = {};
 for (const [name, svg] of Object.entries(CUSTOM_SVGS)) {
   fs.writeFileSync(path.join(wordsDir, `${name}.svg`), svg, 'utf8');
+  customWordSvgDataUris[`/images/words/${name}.svg`] =
+    `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg.trim())}`;
 }
 console.log(`Generated ${Object.keys(CUSTOM_SVGS).length} custom word SVGs in public/images/words/`);
 
@@ -424,21 +427,58 @@ const tsLines = [
   '',
   'export const CUSTOM_VISUAL_BY_EMOJI: Record<string, string> = ' + JSON.stringify(CUSTOM_VISUAL_BY_EMOJI, null, 2) + ';',
   '',
+  'export const CUSTOM_WORD_SVG_DATA_URIS: Record<string, string> = ' + JSON.stringify(customWordSvgDataUris, null, 2) + ';',
+  '',
   'export const LOCAL_TWEMOJI_FILE_MAP: Record<string, string> = ' + JSON.stringify(localTwemojiMap, null, 2) + ';',
   '',
-  `export function resolveVisualSrc(params: {
+  `export function findMappedEmojiPath(emoji: string): string | null {
+  if (!emoji) return null;
+  const directCustom = CUSTOM_VISUAL_BY_EMOJI[emoji];
+  if (directCustom) return directCustom;
+  const directTwemoji = LOCAL_TWEMOJI_FILE_MAP[emoji];
+  if (directTwemoji) return directTwemoji;
+
+  const stripped = emoji.replace(/\\uFE0F/g, '');
+  for (const [key, path] of Object.entries(CUSTOM_VISUAL_BY_EMOJI)) {
+    if (key.replace(/\\uFE0F/g, '') === stripped) return path;
+  }
+  for (const [key, path] of Object.entries(LOCAL_TWEMOJI_FILE_MAP)) {
+    if (key.replace(/\\uFE0F/g, '') === stripped) return path;
+  }
+  return null;
+}
+
+export function hasExplicitVisualMapping(params: {
+  emoji: string;
+  wordId?: string;
+  letter?: string;
+}): boolean {
+  if (params.wordId && CUSTOM_WORD_VISUAL_BY_ID[params.wordId]) return true;
+  if (findMappedEmojiPath(params.emoji)) return true;
+  if (params.letter === 'A') return true;
+  return false;
+}
+
+export function resolveVisualSrc(params: {
   emoji: string;
   wordId?: string;
   letter?: string;
 }): string {
   const byId = params.wordId ? CUSTOM_WORD_VISUAL_BY_ID[params.wordId] : undefined;
   if (byId) return byId;
-  const byEmojiCustom = CUSTOM_VISUAL_BY_EMOJI[params.emoji];
-  if (byEmojiCustom) return byEmojiCustom;
-  const byTwemoji = LOCAL_TWEMOJI_FILE_MAP[params.emoji];
-  if (byTwemoji) return byTwemoji;
+  const mappedEmoji = findMappedEmojiPath(params.emoji);
+  if (mappedEmoji) return mappedEmoji;
   if (params.letter === 'A') return '/images/words/anor.svg';
   return '/images/emoji/1f34e.svg';
+}
+
+export function resolveVisualRenderSrc(params: {
+  emoji: string;
+  wordId?: string;
+  letter?: string;
+}): string {
+  const assetPath = resolveVisualSrc(params);
+  return CUSTOM_WORD_SVG_DATA_URIS[assetPath] ?? assetPath;
 }
 
 export function getVisualAltUz(emoji: string, fallback?: string): string {
@@ -448,8 +488,7 @@ export function getVisualAltUz(emoji: string, fallback?: string): string {
     return customPath.replace('/images/words/', '').replace('.svg', '') + ' rasmi';
   }
   return 'O‘yin rasmi';
-}
-`,
+}`,
 ];
 
 fs.writeFileSync(visualsOutPath, tsLines.join('\n'), 'utf8');

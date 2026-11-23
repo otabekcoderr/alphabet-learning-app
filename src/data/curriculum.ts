@@ -760,6 +760,8 @@ export interface WordPoolItem {
   syllables: string[];
   letters: string[];
   emoji: string;
+  /** Optional custom word illustration path (e.g. '/images/words/arra.webp'); falls back to emoji/SVG when absent. */
+  image?: string;
   distractorEmojis: [string, string];
   distractorParts: string[];
   accept: string[];
@@ -1064,6 +1066,7 @@ function makeWordItem(
   extraAccept: string[] = [],
   kind: WordPoolKind = 'word',
   explicitSyllables?: string[],
+  image?: string,
 ): WordPoolItem {
   const syllables = deriveWordSyllables(text, parts, kind, explicitSyllables);
   const hyphenated = syllables.join('-');
@@ -1078,6 +1081,7 @@ function makeWordItem(
     syllables,
     letters: tokenizeUzbekLetters(text),
     emoji,
+    ...(image ? { image } : {}),
     distractorEmojis,
     distractorParts,
     accept,

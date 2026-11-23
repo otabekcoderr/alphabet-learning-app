@@ -112,7 +112,7 @@ export function LetterBlock({
 /**
  * Split Uzbek Latin text keeping digraphs (Sh, Ch, Ng, O‘, G‘) intact and in order.
  */
-function tokenizeUzbekLettersOrdered(text: string): string[] {
+export function tokenizeUzbekLettersOrdered(text: string): string[] {
   const chars = [...(text || '')];
   const apostrophes = new Set(['‘', '’', 'ʻ', 'ʼ', '`', '´', "'"]);
   const units: string[] = [];

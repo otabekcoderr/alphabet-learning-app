@@ -3,10 +3,35 @@ import {
   analyzeWavSilence,
   evaluateSttMatch,
   getConfiguredSttProvider,
+  SttUpstreamError,
   transcribeAudioBuffer,
+  type SttFailureReason,
 } from './_lib/stt.js';
 
 const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+
+function mapSttFailureToHttp(reason: SttFailureReason): { status: number; error: string } {
+  switch (reason) {
+    case 'timeout':
+      return { status: 504, error: 'Ovozli tekshiruv vaqti tugadi.' };
+    case 'insufficient_credits':
+      return { status: 503, error: 'Ovozli tekshiruv xizmati vaqtincha mavjud emas.' };
+    case 'unauthorized':
+      return { status: 503, error: 'Ovozli tekshiruv xizmati kaliti noto‘g‘ri.' };
+    case 'endpoint_not_found':
+      return { status: 503, error: 'Ovozli tekshiruv manzili topilmadi.' };
+    case 'unconfigured':
+      return { status: 503, error: 'Ovozli tekshiruv serveri sozlanmagan.' };
+    case 'rate_limited':
+      return { status: 429, error: 'Ovozli tekshiruv so‘rovlari juda ko‘p.' };
+    case 'network_error':
+    case 'upstream_error':
+    case 'bad_request':
+    case 'provider_job_failed':
+    case 'invalid_response':
+      return { status: 502, error: 'Ovozli tekshiruvda xatolik yuz berdi.' };
+  }
+}
 
 interface ParsedAudioInput {
   audioBuf: Buffer;
@@ -124,7 +149,14 @@ export async function POST(request: Request): Promise<Response> {
 
   if (getConfiguredSttProvider() === 'none') {
     return jsonResponse(
-      { ok: false, error: 'Ovozli tekshiruv serveri sozlanmagan.' },
+      {
+        ok: false,
+        code: 'stt_unconfigured',
+        provider: 'none',
+        reason: 'unconfigured',
+        upstreamStatus: null,
+        error: 'Ovozli tekshiruv serveri sozlanmagan.',
+      },
       503,
     );
   }
@@ -142,7 +174,10 @@ export async function POST(request: Request): Promise<Response> {
       typeof result.proxyPayload.transcript === 'string' &&
       typeof result.proxyPayload.accepted === 'boolean'
     ) {
-      return jsonResponse(result.proxyPayload);
+      return jsonResponse({
+        ...result.proxyPayload,
+        provider: result.proxyPayload.provider ?? result.provider,
+      });
     }
 
     const { normalized, accepted } = evaluateSttMatch(
@@ -153,6 +188,7 @@ export async function POST(request: Request): Promise<Response> {
 
     return jsonResponse({
       ok: true,
+      provider: result.provider,
       transcript: result.transcript,
       normalized,
       accepted,
@@ -163,9 +199,31 @@ export async function POST(request: Request): Promise<Response> {
       orig_ms: wavInfo.origMs,
       trimmed_ms: wavInfo.trimmedMs,
     });
-  } catch {
+  } catch (err) {
+    if (err instanceof SttUpstreamError) {
+      const mapped = mapSttFailureToHttp(err.reason);
+      return jsonResponse(
+        {
+          ok: false,
+          code: err.code,
+          provider: err.provider,
+          reason: err.reason,
+          upstreamStatus: err.upstreamStatus,
+          ...(err.attempts && err.attempts.length > 1 ? { attempts: err.attempts } : {}),
+          error: mapped.error,
+        },
+        mapped.status,
+      );
+    }
     return jsonResponse(
-      { ok: false, error: 'Ovozli tekshiruvda xatolik yuz berdi.' },
+      {
+        ok: false,
+        code: 'stt_internal_error',
+        provider: getConfiguredSttProvider(),
+        reason: 'upstream_error',
+        upstreamStatus: null,
+        error: 'Ovozli tekshiruvda xatolik yuz berdi.',
+      },
       502,
     );
   }

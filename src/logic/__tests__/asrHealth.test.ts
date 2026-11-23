@@ -1,16 +1,17 @@
 import { describe, expect, it, vi } from 'vitest';
 import { resolveAsrHealthConfig, startAsrHealthPolling } from '../asrHealth';
 
-describe('ASR health polling guard (Vercel/Netlify 404 console spam fix)', () => {
-  it('disables polling on hosted origins without VITE_ASR_URL and enables when configured or local', () => {
+describe('ASR health check & polling guard (Vercel/Netlify/local)', () => {
+  it('enables single check without polling on hosted/production origins without VITE_ASR_URL, and enables polling when configured or local', () => {
     expect(
       resolveAsrHealthConfig({
         hostname: 'alifbo-eight.vercel.app',
       }),
     ).toEqual({
+      shouldCheck: true,
       shouldPoll: false,
       baseUrl: '',
-      healthUrl: '',
+      healthUrl: '/api/health',
     });
 
     expect(
@@ -19,6 +20,29 @@ describe('ASR health polling guard (Vercel/Netlify 404 console spam fix)', () =>
         configuredAsrUrl: '   ',
       }),
     ).toEqual({
+      shouldCheck: true,
+      shouldPoll: false,
+      baseUrl: '',
+      healthUrl: '/api/health',
+    });
+
+    expect(
+      resolveAsrHealthConfig({
+        hostname: 'alifbo.uz',
+      }),
+    ).toEqual({
+      shouldCheck: true,
+      shouldPoll: false,
+      baseUrl: '',
+      healthUrl: '/api/health',
+    });
+
+    expect(
+      resolveAsrHealthConfig({
+        hostname: '',
+      }),
+    ).toEqual({
+      shouldCheck: false,
       shouldPoll: false,
       baseUrl: '',
       healthUrl: '',
@@ -30,6 +54,7 @@ describe('ASR health polling guard (Vercel/Netlify 404 console spam fix)', () =>
         configuredAsrUrl: 'https://asr.alifbo.uz/',
       }),
     ).toEqual({
+      shouldCheck: true,
       shouldPoll: true,
       baseUrl: 'https://asr.alifbo.uz',
       healthUrl: 'https://asr.alifbo.uz/api/health',
@@ -40,6 +65,7 @@ describe('ASR health polling guard (Vercel/Netlify 404 console spam fix)', () =>
         hostname: 'localhost',
       }),
     ).toEqual({
+      shouldCheck: true,
       shouldPoll: true,
       baseUrl: '',
       healthUrl: '/api/health',
@@ -50,14 +76,19 @@ describe('ASR health polling guard (Vercel/Netlify 404 console spam fix)', () =>
         hostname: '127.0.0.1',
       }),
     ).toEqual({
+      shouldCheck: true,
       shouldPoll: true,
       baseUrl: '',
       healthUrl: '/api/health',
     });
   });
 
-  it('performs zero fetches and zero intervals on Vercel/Netlify when VITE_ASR_URL is absent', () => {
-    const fetchMock = vi.fn<typeof fetch>();
+  it('performs a single /api/health check without polling on Vercel and sets online=true on 200 OK', async () => {
+    const fetchMock = vi.fn(async () => ({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true }),
+    })) as unknown as typeof fetch;
     const setIntervalMock = vi.fn<() => number>(() => 1);
     const clearIntervalMock = vi.fn<(id: number) => void>();
     const onStatus = vi.fn<(online: boolean) => void>();
@@ -70,50 +101,87 @@ describe('ASR health polling guard (Vercel/Netlify 404 console spam fix)', () =>
       clearIntervalFn: clearIntervalMock,
     });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledWith('/api/health');
     expect(setIntervalMock).not.toHaveBeenCalled();
-    expect(onStatus).toHaveBeenCalledWith(false);
+    expect(onStatus).toHaveBeenCalledWith(true);
     cleanup();
   });
 
-  it('immediately clears polling interval on first HTTP 404 without spamming subsequent checks', async () => {
-    const ticks: Array<() => void> = [];
-    const fetchMock = vi.fn(async () => ({
-      ok: false,
-      status: 404,
-      json: async () => ({}),
-    })) as unknown as typeof fetch;
+  it('falls back cleanly to offline mode after a single check on 404 (Netlify static) or 503 (unconfigured production)', async () => {
+    for (const [hostname, status] of [
+      ['my-app.netlify.app', 404],
+      ['alifbo-eight.vercel.app', 503],
+    ] as const) {
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status,
+        json: async () => ({ ok: false }),
+      })) as unknown as typeof fetch;
+      const setIntervalMock = vi.fn<() => number>(() => 1);
+      const clearIntervalMock = vi.fn<(id: number) => void>();
+      const onStatus = vi.fn<(online: boolean) => void>();
 
-    const setIntervalMock = vi.fn((cb: () => void) => {
-      ticks.push(cb);
-      return 77;
-    });
-    const clearIntervalMock = vi.fn<(id: number) => void>();
-    const onStatus = vi.fn<(online: boolean) => void>();
+      const cleanup = startAsrHealthPolling({
+        hostname,
+        onStatus,
+        fetchFn: fetchMock,
+        setIntervalFn: setIntervalMock,
+        clearIntervalFn: clearIntervalMock,
+      });
 
-    const cleanup = startAsrHealthPolling({
-      hostname: 'localhost',
-      onStatus,
-      fetchFn: fetchMock,
-      setIntervalFn: setIntervalMock,
-      clearIntervalFn: clearIntervalMock,
-    });
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
 
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-    expect(clearIntervalMock).toHaveBeenCalledWith(77);
-    expect(onStatus).toHaveBeenCalledWith(false);
-
-    // Even if a stray tick fires, stoppedOn404 prevents any further /api/health calls
-    ticks[0]?.();
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-
-    cleanup();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('/api/health');
+      expect(setIntervalMock).not.toHaveBeenCalled();
+      expect(onStatus).toHaveBeenCalledWith(false);
+      cleanup();
+    }
   });
 
-  it('reports online=true when /api/health responds with HTTP 200 and ok: true', async () => {
+  it('immediately clears polling interval on first HTTP 404 or 503 without spamming subsequent checks', async () => {
+    for (const status of [404, 503] as const) {
+      const ticks: Array<() => void> = [];
+      const fetchMock = vi.fn(async () => ({
+        ok: false,
+        status,
+        json: async () => ({}),
+      })) as unknown as typeof fetch;
+
+      const setIntervalMock = vi.fn((cb: () => void) => {
+        ticks.push(cb);
+        return 77;
+      });
+      const clearIntervalMock = vi.fn<(id: number) => void>();
+      const onStatus = vi.fn<(online: boolean) => void>();
+
+      const cleanup = startAsrHealthPolling({
+        hostname: 'localhost',
+        onStatus,
+        fetchFn: fetchMock,
+        setIntervalFn: setIntervalMock,
+        clearIntervalFn: clearIntervalMock,
+      });
+
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(clearIntervalMock).toHaveBeenCalledWith(77);
+      expect(onStatus).toHaveBeenCalledWith(false);
+
+      // Even if a stray tick fires, stoppedOnUnavailable prevents any further /api/health calls
+      ticks[0]?.();
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      cleanup();
+    }
+  });
+
+  it('reports online=true when /api/health responds with HTTP 200 and ok: true and keeps polling locally', async () => {
     const fetchMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -140,5 +208,25 @@ describe('ASR health polling guard (Vercel/Netlify 404 console spam fix)', () =>
 
     cleanup();
     expect(clearIntervalMock).toHaveBeenCalledWith(99);
+  });
+
+  it('performs zero fetches and zero intervals when hostname is empty', () => {
+    const fetchMock = vi.fn<typeof fetch>();
+    const setIntervalMock = vi.fn<() => number>(() => 1);
+    const clearIntervalMock = vi.fn<(id: number) => void>();
+    const onStatus = vi.fn<(online: boolean) => void>();
+
+    const cleanup = startAsrHealthPolling({
+      hostname: '',
+      onStatus,
+      fetchFn: fetchMock,
+      setIntervalFn: setIntervalMock,
+      clearIntervalFn: clearIntervalMock,
+    });
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(setIntervalMock).not.toHaveBeenCalled();
+    expect(onStatus).toHaveBeenCalledWith(false);
+    cleanup();
   });
 });

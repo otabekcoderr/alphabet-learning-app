@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { ALIFBE_LETTERS_29, DYNAMIC_WORD_POOL } from '../../data/curriculum';
-import { hasExplicitVisualMapping, resolveVisualSrc } from '../../data/wordVisuals';
+import {
+  CUSTOM_WORD_SVG_DATA_URIS,
+  hasExplicitVisualMapping,
+  resolveVisualRenderSrc,
+  resolveVisualSrc,
+} from '../../data/wordVisuals';
 import { AVATAR_OPTIONS } from '../gamification';
 import { getOfflineFallbackEmojiChoices } from '../wordPoolEngine';
 
@@ -92,6 +97,33 @@ describe('Complete Visual Asset Coverage (139 words, distractors, 8 avatars, Aâ€
     expect(anorSrc).toBe('/images/words/anor.svg');
     const anorSvg = assertValidSvgAsset(fs, anorSrc, 'alphabet:A:ANOR');
     expect(anorSvg).toContain('#E11D48');
+    expect(anorSvg).toContain('width="128"');
+    expect(anorSvg).toContain('height="128"');
+    expect(CUSTOM_WORD_SVG_DATA_URIS['/images/words/anor.svg']).toMatch(/^data:image\/svg\+xml/);
+    expect(CUSTOM_WORD_SVG_DATA_URIS['/images/words/non.svg']).toMatch(/^data:image\/svg\+xml/);
+
+    const nonSvg = assertValidSvgAsset(fs, '/images/words/non.svg', 'word:non');
+    expect(nonSvg).toContain('width="128"');
+    expect(nonSvg).toContain('height="128"');
+
+    const onaItem = DYNAMIC_WORD_POOL.find((w) => w.id === 'ona')!;
+    const ona4 = getOfflineFallbackEmojiChoices(onaItem, DYNAMIC_WORD_POOL);
+    expect(ona4).toHaveLength(4);
+    expect(ona4).toContain(onaItem.emoji);
+    const onaRenderSrcs = ona4.map((emoji) => {
+      expect(emoji.trim().length).toBeGreaterThan(0);
+      const isCorrect = emoji === onaItem.emoji;
+      expect(hasExplicitVisualMapping({ emoji, wordId: isCorrect ? onaItem.id : undefined })).toBe(
+        true,
+      );
+      const renderSrc = resolveVisualRenderSrc({
+        emoji,
+        wordId: isCorrect ? onaItem.id : undefined,
+      });
+      expect(renderSrc.length).toBeGreaterThan(10);
+      return renderSrc;
+    });
+    expect(new Set(onaRenderSrcs).size).toBe(4);
   });
 
   it('ships optimized WebP logo and Zukko mascot under 60 KB without leftover PNGs', async () => {

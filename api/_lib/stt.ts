@@ -1,6 +1,33 @@
 import { randomUUID } from 'node:crypto';
 
 export type SttProviderName = 'proxy' | 'voicelab' | 'uzbekvoice' | 'none';
+export type ConfiguredSttProviderName = Exclude<SttProviderName, 'none'>;
+
+export type SttFailureReason =
+  | 'unauthorized'
+  | 'insufficient_credits'
+  | 'endpoint_not_found'
+  | 'rate_limited'
+  | 'timeout'
+  | 'network_error'
+  | 'bad_request'
+  | 'provider_job_failed'
+  | 'upstream_error'
+  | 'invalid_response'
+  | 'unconfigured';
+
+export interface SttAttemptFailure {
+  provider: ConfiguredSttProviderName;
+  reason: SttFailureReason;
+  upstreamStatus: number | null;
+}
+
+export interface SttUpstreamErrorDetails {
+  provider: SttProviderName;
+  reason: SttFailureReason;
+  upstreamStatus: number | null;
+  attempts?: SttAttemptFailure[];
+}
 
 const DEFAULT_VOICELAB_STT_URL = 'https://api.voicelab.uz/v1/stt';
 const DEFAULT_UZBEKVOICE_STT_URL = 'https://uzbekvoice.ai/api/v1/stt';
@@ -15,15 +42,150 @@ const UZBEK_APOSTROPHE_MAP: Record<string, string> = {
   '\u00b4': "'",
 };
 
+export class SttUpstreamError extends Error {
+  readonly provider: SttProviderName;
+  readonly reason: SttFailureReason;
+  readonly upstreamStatus: number | null;
+  readonly code: string;
+  readonly attempts?: SttAttemptFailure[];
+
+  constructor(details: SttUpstreamErrorDetails, message?: string) {
+    super(message ?? `STT ${details.provider} failure: ${details.reason}`);
+    this.name = 'SttUpstreamError';
+    this.provider = details.provider;
+    this.reason = details.reason;
+    this.upstreamStatus = details.upstreamStatus;
+    this.code =
+      details.provider === 'voicelab' && details.reason === 'insufficient_credits'
+        ? 'voicelab_insufficient_credits'
+        : `stt_${details.provider}_${details.reason}`;
+    if (details.attempts && details.attempts.length > 0) {
+      this.attempts = details.attempts;
+    }
+  }
+}
+
+export class VoiceLabSttCreditsError extends SttUpstreamError {
+  constructor(message = 'VoiceLab STT HTTP 402') {
+    super(
+      {
+        provider: 'voicelab',
+        reason: 'insufficient_credits',
+        upstreamStatus: 402,
+      },
+      message,
+    );
+    this.name = 'VoiceLabSttCreditsError';
+  }
+}
+
+export function classifyHttpFailureReason(status: number): SttFailureReason {
+  if (status === 401 || status === 403) return 'unauthorized';
+  if (status === 402) return 'insufficient_credits';
+  if (status === 404) return 'endpoint_not_found';
+  if (status === 429) return 'rate_limited';
+  if (status === 408 || status === 504) return 'timeout';
+  if (status >= 400 && status < 500) return 'bad_request';
+  return 'upstream_error';
+}
+
+function isTimeoutError(err: unknown): boolean {
+  if (!(err instanceof Error)) {
+    return false;
+  }
+  if (err.name === 'TimeoutError' || err.name === 'AbortError') {
+    return true;
+  }
+  const cause = (err as { cause?: unknown }).cause;
+  if (cause && typeof cause === 'object' && 'code' in cause) {
+    const code = String((cause as { code?: unknown }).code ?? '');
+    if (
+      code === 'UND_ERR_CONNECT_TIMEOUT' ||
+      code === 'UND_ERR_HEADERS_TIMEOUT' ||
+      code === 'UND_ERR_BODY_TIMEOUT' ||
+      code === 'ETIMEDOUT'
+    ) {
+      return true;
+    }
+  }
+  return /\b(timeout|timed out|aborted)\b/i.test(err.message);
+}
+
+function wrapFetchError(provider: ConfiguredSttProviderName, err: unknown): SttUpstreamError {
+  if (err instanceof SttUpstreamError) {
+    return err;
+  }
+  const reason: SttFailureReason = isTimeoutError(err) ? 'timeout' : 'network_error';
+  return new SttUpstreamError(
+    {
+      provider,
+      reason,
+      upstreamStatus: null,
+    },
+    `STT ${provider} ${reason}`,
+  );
+}
+
+async function parseJsonResponse<T extends Record<string, unknown>>(
+  resp: Response,
+  provider: ConfiguredSttProviderName,
+): Promise<T> {
+  try {
+    const parsed = (await resp.json()) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      throw new Error('Non-object JSON payload');
+    }
+    return parsed as T;
+  } catch {
+    throw new SttUpstreamError(
+      {
+        provider,
+        reason: 'invalid_response',
+        upstreamStatus: resp.status,
+      },
+      `STT ${provider} invalid JSON response (HTTP ${resp.status})`,
+    );
+  }
+}
+
+function extractTranscriptFromPayload(payload: Record<string, unknown>): string {
+  const result = payload.result;
+  if (result && typeof result === 'object' && !Array.isArray(result)) {
+    const resultText = (result as { text?: unknown }).text;
+    if (typeof resultText === 'string') {
+      return resultText;
+    }
+  }
+  if (typeof payload.transcript === 'string') {
+    return payload.transcript;
+  }
+  if (typeof payload.text === 'string') {
+    return payload.text;
+  }
+  return '';
+}
+
+export function getConfiguredSttProvidersSummary(): {
+  proxy: boolean;
+  uzbekvoice: boolean;
+  voicelab: boolean;
+} {
+  return {
+    proxy: Boolean(process.env.STT_BACKEND_URL?.trim()),
+    uzbekvoice: Boolean(process.env.UZBEKVOICE_API_KEY?.trim()),
+    voicelab: Boolean(process.env.VOICELAB_API_KEY?.trim()),
+  };
+}
+
 export function getConfiguredSttProvider(): SttProviderName {
   if (process.env.STT_BACKEND_URL?.trim()) {
     return 'proxy';
   }
-  if (process.env.VOICELAB_API_KEY?.trim()) {
-    return 'voicelab';
-  }
   if (process.env.UZBEKVOICE_API_KEY?.trim()) {
     return 'uzbekvoice';
+  }
+  if (process.env.VOICELAB_API_KEY?.trim()) {
+    return 'voicelab';
   }
   return 'none';
 }
@@ -247,133 +409,322 @@ function buildVoiceLabForm(audioBuf: Buffer, fmt: { mime: string; ext: string })
   return form;
 }
 
+function buildUzbekVoiceForm(
+  audioBuf: Buffer,
+  fmt: { mime: string; ext: string },
+  model: string,
+): FormData {
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(audioBuf)], { type: fmt.mime }), `speech.${fmt.ext}`);
+  form.append('language', 'uz');
+  form.append('model', model);
+  form.append('blocking', 'true');
+  form.append('return_offsets', 'false');
+  form.append('run_diarization', 'false');
+  return form;
+}
+
 export async function transcribeWithVoiceLab(
   audioBuf: Buffer,
   contentType?: string,
+  timeoutMs?: number,
 ): Promise<string> {
   const apiKey = process.env.VOICELAB_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error('VOICELAB_API_KEY sozlanmagan');
+    throw new SttUpstreamError(
+      { provider: 'voicelab', reason: 'unconfigured', upstreamStatus: null },
+      'VOICELAB_API_KEY sozlanmagan',
+    );
   }
 
   const sttUrl = (process.env.VOICELAB_STT_URL || DEFAULT_VOICELAB_STT_URL).trim();
   const fmt = detectAudioFormat(audioBuf, contentType);
   const idempotencyKey = randomUUID();
+  const effectiveTimeoutMs =
+    timeoutMs ?? (process.env.UZBEKVOICE_API_KEY?.trim() ? 6_000 : 10_000);
+  const deadline = Date.now() + effectiveTimeoutMs;
 
   for (let attempt = 0; attempt < 2; attempt++) {
-    const resp = await fetch(sttUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Idempotency-Key': idempotencyKey,
-      },
-      body: buildVoiceLabForm(audioBuf, fmt),
-      signal: AbortSignal.timeout(15_000),
-    });
+    const remainingMs = Math.max(500, deadline - Date.now());
+    let resp: Response;
+    try {
+      resp = await fetch(sttUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: buildVoiceLabForm(audioBuf, fmt),
+        signal: AbortSignal.timeout(remainingMs),
+      });
+    } catch (err) {
+      throw wrapFetchError('voicelab', err);
+    }
 
     if (resp.status === 429 && attempt === 0) {
-      await new Promise((r) => setTimeout(r, 1000));
-      continue;
+      const waitMs = Math.min(1000, Math.max(100, deadline - Date.now()));
+      if (Date.now() + waitMs < deadline) {
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw new SttUpstreamError(
+        { provider: 'voicelab', reason: 'rate_limited', upstreamStatus: 429 },
+        'VoiceLab STT HTTP 429',
+      );
+    }
+
+    if (resp.status === 402) {
+      throw new VoiceLabSttCreditsError('VoiceLab STT HTTP 402');
     }
 
     if (resp.status === 200) {
-      const data = (await resp.json()) as { transcript?: unknown; text?: unknown };
-      return typeof data.transcript === 'string'
-        ? data.transcript
-        : typeof data.text === 'string'
-          ? data.text
-          : '';
+      const data = await parseJsonResponse<Record<string, unknown>>(resp, 'voicelab');
+      return extractTranscriptFromPayload(data);
     }
 
     if (resp.status === 202) {
-      const job = (await resp.json()) as { id?: string; status_url?: string };
-      const statusUrl = new URL(
-        job.status_url || `/v1/stt/transcriptions/${job.id || ''}`,
-        sttUrl,
-      ).toString();
+      const job = await parseJsonResponse<{ id?: unknown; status_url?: unknown }>(resp, 'voicelab');
+      const rawStatusUrl =
+        typeof job.status_url === 'string' && job.status_url.trim()
+          ? job.status_url.trim()
+          : `/v1/stt/transcriptions/${typeof job.id === 'string' ? job.id : ''}`;
+      const statusUrl = new URL(rawStatusUrl, sttUrl).toString();
 
-      for (let poll = 0; poll < 35; poll++) {
-        await new Promise((r) => setTimeout(r, 300));
-        const pollResp = await fetch(statusUrl, {
-          headers: { Authorization: `Bearer ${apiKey}` },
-          signal: AbortSignal.timeout(10_000),
-        });
-        if (!pollResp.ok) {
-          throw new Error(`VoiceLab STT status HTTP ${pollResp.status}`);
+      while (Date.now() < deadline) {
+        const sleepMs = Math.min(300, Math.max(50, deadline - Date.now()));
+        await new Promise((r) => setTimeout(r, sleepMs));
+        if (Date.now() >= deadline) break;
+
+        let pollResp: Response;
+        try {
+          pollResp = await fetch(statusUrl, {
+            headers: { Authorization: `Bearer ${apiKey}` },
+            signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())),
+          });
+        } catch (err) {
+          throw wrapFetchError('voicelab', err);
         }
-        const pollJson = (await pollResp.json()) as {
-          status?: string;
-          transcript?: unknown;
-          text?: unknown;
-          error?: string;
-        };
-        const status = (pollJson.status || '').toLowerCase();
+
+        if (!pollResp.ok) {
+          throw new SttUpstreamError(
+            {
+              provider: 'voicelab',
+              reason: classifyHttpFailureReason(pollResp.status),
+              upstreamStatus: pollResp.status,
+            },
+            `VoiceLab STT status HTTP ${pollResp.status}`,
+          );
+        }
+
+        const pollJson = await parseJsonResponse<Record<string, unknown>>(pollResp, 'voicelab');
+        const status = typeof pollJson.status === 'string' ? pollJson.status.toLowerCase() : '';
         if (status === 'completed' || status === 'done' || status === 'succeeded') {
-          return typeof pollJson.transcript === 'string'
-            ? pollJson.transcript
-            : typeof pollJson.text === 'string'
-              ? pollJson.text
-              : '';
+          return extractTranscriptFromPayload(pollJson);
         }
         if (status === 'failed' || status === 'error') {
-          throw new Error(pollJson.error || 'VoiceLab STT failed');
+          throw new SttUpstreamError(
+            {
+              provider: 'voicelab',
+              reason: 'provider_job_failed',
+              upstreamStatus: pollResp.status,
+            },
+            'VoiceLab STT job failed',
+          );
         }
       }
 
-      throw new Error('VoiceLab STT timed out');
+      throw new SttUpstreamError(
+        { provider: 'voicelab', reason: 'timeout', upstreamStatus: null },
+        'VoiceLab STT timed out',
+      );
     }
 
-    const errText = (await resp.text()).slice(0, 200);
-    throw new Error(`VoiceLab STT HTTP ${resp.status}: ${errText}`);
+    throw new SttUpstreamError(
+      {
+        provider: 'voicelab',
+        reason: classifyHttpFailureReason(resp.status),
+        upstreamStatus: resp.status,
+      },
+      `VoiceLab STT HTTP ${resp.status}`,
+    );
   }
 
-  throw new Error('VoiceLab STT rate limit retries exhausted');
+  throw new SttUpstreamError(
+    { provider: 'voicelab', reason: 'rate_limited', upstreamStatus: 429 },
+    'VoiceLab STT rate limit retries exhausted',
+  );
 }
 
 export async function transcribeWithUzbekVoice(
   audioBuf: Buffer,
   contentType?: string,
+  timeoutMs?: number,
 ): Promise<string> {
   const apiKey = process.env.UZBEKVOICE_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error('UZBEKVOICE_API_KEY sozlanmagan');
+    throw new SttUpstreamError(
+      { provider: 'uzbekvoice', reason: 'unconfigured', upstreamStatus: null },
+      'UZBEKVOICE_API_KEY sozlanmagan',
+    );
   }
 
   const sttUrl = (process.env.UZBEKVOICE_STT_URL || DEFAULT_UZBEKVOICE_STT_URL).trim();
+  const model = (process.env.UZBEKVOICE_STT_MODEL || 'general').trim() || 'general';
   const fmt = detectAudioFormat(audioBuf, contentType);
-  const form = new FormData();
-  form.append('file', new Blob([new Uint8Array(audioBuf)], { type: fmt.mime }), `speech.${fmt.ext}`);
-  form.append('language', 'uz');
-  form.append('model', 'general');
-  form.append('blocking', 'true');
-  form.append('return_offsets', 'false');
-  form.append('run_diarization', 'false');
+  const effectiveTimeoutMs =
+    timeoutMs ?? (process.env.VOICELAB_API_KEY?.trim() ? 10_000 : 15_000);
+  const deadline = Date.now() + effectiveTimeoutMs;
 
-  const resp = await fetch(sttUrl, {
-    method: 'POST',
-    headers: {
-      Authorization: apiKey,
-    },
-    body: form,
-    signal: AbortSignal.timeout(15_000),
-  });
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const remainingMs = Math.max(500, deadline - Date.now());
+    let resp: Response;
+    try {
+      resp = await fetch(sttUrl, {
+        method: 'POST',
+        headers: {
+          Authorization: apiKey,
+        },
+        body: buildUzbekVoiceForm(audioBuf, fmt, model),
+        signal: AbortSignal.timeout(remainingMs),
+      });
+    } catch (err) {
+      throw wrapFetchError('uzbekvoice', err);
+    }
 
-  if (!resp.ok) {
-    const errText = (await resp.text()).slice(0, 200);
-    throw new Error(`UzbekVoice STT HTTP ${resp.status}: ${errText}`);
+    if (resp.status === 429 && attempt === 0) {
+      const waitMs = Math.min(1000, Math.max(100, deadline - Date.now()));
+      if (Date.now() + waitMs < deadline) {
+        await new Promise((r) => setTimeout(r, waitMs));
+        continue;
+      }
+      throw new SttUpstreamError(
+        { provider: 'uzbekvoice', reason: 'rate_limited', upstreamStatus: 429 },
+        'UzbekVoice STT HTTP 429',
+      );
+    }
+
+    if (!resp.ok) {
+      throw new SttUpstreamError(
+        {
+          provider: 'uzbekvoice',
+          reason: classifyHttpFailureReason(resp.status),
+          upstreamStatus: resp.status,
+        },
+        `UzbekVoice STT HTTP ${resp.status}`,
+      );
+    }
+
+    const json = await parseJsonResponse<Record<string, unknown>>(resp, 'uzbekvoice');
+    const rawStatus =
+      typeof json.status === 'string'
+        ? json.status
+        : typeof json.state === 'string'
+          ? json.state
+          : '';
+    const status = rawStatus.toLowerCase();
+
+    if (status === 'failure' || status === 'failed' || status === 'error' || status === 'revoked') {
+      throw new SttUpstreamError(
+        {
+          provider: 'uzbekvoice',
+          reason: 'provider_job_failed',
+          upstreamStatus: resp.status,
+        },
+        'UzbekVoice STT job failed',
+      );
+    }
+
+    const extracted = extractTranscriptFromPayload(json);
+    if (extracted || status === 'success' || status === 'completed' || status === 'done' || status === 'succeeded') {
+      return extracted;
+    }
+
+    const taskId = typeof json.id === 'string' ? json.id.trim() : '';
+    const isPending =
+      resp.status === 202 ||
+      status === 'pending' ||
+      status === 'in_progress' ||
+      status === 'started' ||
+      status === 'queued' ||
+      status === 'processing';
+
+    if (isPending && taskId) {
+      const pollUrl = new URL(`/api/v1/tasks?id=${encodeURIComponent(taskId)}`, sttUrl).toString();
+
+      while (Date.now() < deadline) {
+        const sleepMs = Math.min(400, Math.max(50, deadline - Date.now()));
+        await new Promise((r) => setTimeout(r, sleepMs));
+        if (Date.now() >= deadline) break;
+
+        let pollResp: Response;
+        try {
+          pollResp = await fetch(pollUrl, {
+            headers: { Authorization: apiKey },
+            signal: AbortSignal.timeout(Math.max(500, deadline - Date.now())),
+          });
+        } catch (err) {
+          throw wrapFetchError('uzbekvoice', err);
+        }
+
+        if (!pollResp.ok) {
+          throw new SttUpstreamError(
+            {
+              provider: 'uzbekvoice',
+              reason: classifyHttpFailureReason(pollResp.status),
+              upstreamStatus: pollResp.status,
+            },
+            `UzbekVoice STT task HTTP ${pollResp.status}`,
+          );
+        }
+
+        const pollJson = await parseJsonResponse<Record<string, unknown>>(pollResp, 'uzbekvoice');
+        const pollRawStatus =
+          typeof pollJson.status === 'string'
+            ? pollJson.status
+            : typeof pollJson.state === 'string'
+              ? pollJson.state
+              : '';
+        const pollStatus = pollRawStatus.toLowerCase();
+
+        if (
+          pollStatus === 'success' ||
+          pollStatus === 'completed' ||
+          pollStatus === 'done' ||
+          pollStatus === 'succeeded'
+        ) {
+          return extractTranscriptFromPayload(pollJson);
+        }
+
+        if (
+          pollStatus === 'failure' ||
+          pollStatus === 'failed' ||
+          pollStatus === 'error' ||
+          pollStatus === 'revoked'
+        ) {
+          throw new SttUpstreamError(
+            {
+              provider: 'uzbekvoice',
+              reason: 'provider_job_failed',
+              upstreamStatus: pollResp.status,
+            },
+            'UzbekVoice STT task failed',
+          );
+        }
+      }
+
+      throw new SttUpstreamError(
+        { provider: 'uzbekvoice', reason: 'timeout', upstreamStatus: null },
+        'UzbekVoice STT timed out',
+      );
+    }
+
+    return extracted;
   }
 
-  const json = (await resp.json()) as {
-    result?: { text?: unknown };
-    text?: unknown;
-  };
-  if (typeof json.result?.text === 'string') {
-    return json.result.text;
-  }
-  if (typeof json.text === 'string') {
-    return json.text;
-  }
-  return '';
+  throw new SttUpstreamError(
+    { provider: 'uzbekvoice', reason: 'rate_limited', upstreamStatus: 429 },
+    'UzbekVoice STT rate limit retries exhausted',
+  );
 }
 
 export async function transcribeAudioBuffer(
@@ -391,6 +742,8 @@ export async function transcribeAudioBuffer(
   const proxyBase = process.env.STT_BACKEND_URL?.trim();
   const hasVoiceLab = Boolean(process.env.VOICELAB_API_KEY?.trim());
   const hasUzbekVoice = Boolean(process.env.UZBEKVOICE_API_KEY?.trim());
+  const attempts: SttAttemptFailure[] = [];
+  let lastErr: SttUpstreamError | null = null;
 
   if (proxyBase) {
     try {
@@ -404,20 +757,32 @@ export async function transcribeAudioBuffer(
       const qs = params.toString();
       const targetUrl = `${proxyBase.replace(/\/+$/, '')}/api/stt${qs ? `?${qs}` : ''}`;
       const fmt = detectAudioFormat(audioBuf, options.contentType);
-      const resp = await fetch(targetUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': options.contentType || fmt.mime,
-        },
-        body: new Uint8Array(audioBuf),
-        signal: AbortSignal.timeout(15_000),
-      });
-
-      if (!resp.ok) {
-        throw new Error(`Proxy STT HTTP ${resp.status}`);
+      let resp: Response;
+      try {
+        resp = await fetch(targetUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': options.contentType || fmt.mime,
+          },
+          body: new Uint8Array(audioBuf),
+          signal: AbortSignal.timeout(15_000),
+        });
+      } catch (err) {
+        throw wrapFetchError('proxy', err);
       }
 
-      const proxyPayload = (await resp.json()) as Record<string, unknown>;
+      if (!resp.ok) {
+        throw new SttUpstreamError(
+          {
+            provider: 'proxy',
+            reason: classifyHttpFailureReason(resp.status),
+            upstreamStatus: resp.status,
+          },
+          `Proxy STT HTTP ${resp.status}`,
+        );
+      }
+
+      const proxyPayload = await parseJsonResponse<Record<string, unknown>>(resp, 'proxy');
       const transcript =
         typeof proxyPayload.transcript === 'string' ? proxyPayload.transcript : '';
       return {
@@ -426,29 +791,81 @@ export async function transcribeAudioBuffer(
         proxyPayload,
       };
     } catch (err) {
+      const wrapped = wrapFetchError('proxy', err);
+      lastErr = wrapped;
+      attempts.push({
+        provider: 'proxy',
+        reason: wrapped.reason,
+        upstreamStatus: wrapped.upstreamStatus,
+      });
       if (!hasVoiceLab && !hasUzbekVoice) {
-        throw err;
+        throw wrapped;
+      }
+    }
+  }
+
+  if (hasUzbekVoice) {
+    try {
+      const transcript = await transcribeWithUzbekVoice(audioBuf, options.contentType);
+      return { transcript, provider: 'uzbekvoice' };
+    } catch (err) {
+      const wrapped = wrapFetchError('uzbekvoice', err);
+      lastErr = wrapped;
+      attempts.push({
+        provider: 'uzbekvoice',
+        reason: wrapped.reason,
+        upstreamStatus: wrapped.upstreamStatus,
+      });
+      if (!hasVoiceLab) {
+        throw new SttUpstreamError(
+          {
+            provider: wrapped.provider,
+            reason: wrapped.reason,
+            upstreamStatus: wrapped.upstreamStatus,
+            attempts,
+          },
+          wrapped.message,
+        );
       }
     }
   }
 
   if (hasVoiceLab) {
     try {
-      const transcript = await transcribeWithVoiceLab(audioBuf, options.contentType);
+      const transcript = await transcribeWithVoiceLab(
+        audioBuf,
+        options.contentType,
+        hasUzbekVoice ? 6_000 : 10_000,
+      );
       return { transcript, provider: 'voicelab' };
     } catch (err) {
-      if (hasUzbekVoice) {
-        const transcript = await transcribeWithUzbekVoice(audioBuf, options.contentType);
-        return { transcript, provider: 'uzbekvoice' };
-      }
-      throw err;
+      const wrapped = wrapFetchError('voicelab', err);
+      lastErr = wrapped;
+      attempts.push({
+        provider: 'voicelab',
+        reason: wrapped.reason,
+        upstreamStatus: wrapped.upstreamStatus,
+      });
     }
   }
 
-  if (hasUzbekVoice) {
-    const transcript = await transcribeWithUzbekVoice(audioBuf, options.contentType);
-    return { transcript, provider: 'uzbekvoice' };
+  if (lastErr) {
+    if (lastErr instanceof VoiceLabSttCreditsError && attempts.length <= 1) {
+      throw lastErr;
+    }
+    throw new SttUpstreamError(
+      {
+        provider: lastErr.provider,
+        reason: lastErr.reason,
+        upstreamStatus: lastErr.upstreamStatus,
+        attempts,
+      },
+      lastErr.message,
+    );
   }
 
-  throw new Error('STT provayderi sozlanmagan');
+  throw new SttUpstreamError(
+    { provider: 'none', reason: 'unconfigured', upstreamStatus: null },
+    'STT provayderi sozlanmagan',
+  );
 }

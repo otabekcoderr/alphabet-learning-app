@@ -1,4 +1,5 @@
 export interface AsrHealthConfig {
+  shouldCheck: boolean;
   shouldPoll: boolean;
   baseUrl: string;
   healthUrl: string;
@@ -31,10 +32,11 @@ export function normalizeAsrBaseUrl(rawUrl: string | undefined | null): string {
 }
 
 /**
- * Resolve whether background `/api/health` polling should run.
- * On hosted environments (e.g. `*.vercel.app`, `*.netlify.app`) without an explicit
- * `VITE_ASR_URL`, polling is skipped so the app runs cleanly in offline/picture mode
- * with zero 404 console spam.
+ * Resolve how `/api/health` checks should run for the current origin.
+ * On local loopback hostnames or when `VITE_ASR_URL` is configured, periodic polling runs.
+ * On hosted/production domains (e.g. `*.vercel.app`, `*.netlify.app`, custom domains) without
+ * `VITE_ASR_URL`, a single check runs on page load (`shouldCheck: true, shouldPoll: false`)
+ * so Vercel serverless `/api/health` works while static builds cleanly enter offline mode.
  */
 export function resolveAsrHealthConfig(options: {
   hostname: string;
@@ -43,6 +45,7 @@ export function resolveAsrHealthConfig(options: {
   const baseUrl = normalizeAsrBaseUrl(options.configuredAsrUrl);
   if (baseUrl) {
     return {
+      shouldCheck: true,
       shouldPoll: true,
       baseUrl,
       healthUrl: `${baseUrl}/api/health`,
@@ -50,12 +53,22 @@ export function resolveAsrHealthConfig(options: {
   }
   if (isLocalHostName(options.hostname)) {
     return {
+      shouldCheck: true,
       shouldPoll: true,
       baseUrl: '',
       healthUrl: '/api/health',
     };
   }
+  if ((options.hostname || '').trim()) {
+    return {
+      shouldCheck: true,
+      shouldPoll: false,
+      baseUrl: '',
+      healthUrl: '/api/health',
+    };
+  }
   return {
+    shouldCheck: false,
     shouldPoll: false,
     baseUrl: '',
     healthUrl: '',
@@ -63,8 +76,9 @@ export function resolveAsrHealthConfig(options: {
 }
 
 /**
- * Start `/api/health` polling when enabled, automatically clearing the interval
- * if the endpoint returns HTTP 404 so repeated console 404 errors never occur.
+ * Check `/api/health` on load (and poll periodically when `shouldPoll` is enabled),
+ * automatically stopping if the endpoint returns HTTP 404 or 503 so offline static
+ * builds or unconfigured deployments fall back cleanly without console spam.
  */
 export function startAsrHealthPolling(options: AsrHealthPollingOptions): () => void {
   const config = resolveAsrHealthConfig({
@@ -72,7 +86,7 @@ export function startAsrHealthPolling(options: AsrHealthPollingOptions): () => v
     configuredAsrUrl: options.configuredAsrUrl,
   });
 
-  if (!config.shouldPoll) {
+  if (!config.shouldCheck || !config.healthUrl) {
     options.onStatus(false);
     return () => {};
   }
@@ -87,7 +101,7 @@ export function startAsrHealthPolling(options: AsrHealthPollingOptions): () => v
   const intervalMs = options.intervalMs ?? 10_000;
 
   let active = true;
-  let stoppedOn404 = false;
+  let stoppedOnUnavailable = false;
   let timer: number | null = null;
 
   const stopTimer = () => {
@@ -98,13 +112,13 @@ export function startAsrHealthPolling(options: AsrHealthPollingOptions): () => v
   };
 
   const checkHealth = async () => {
-    if (!active || stoppedOn404) return;
+    if (!active || stoppedOnUnavailable) return;
     try {
       const res = await fetchFn(config.healthUrl);
       if (!active) return;
 
-      if (res.status === 404) {
-        stoppedOn404 = true;
+      if (res.status === 404 || res.status === 503) {
+        stoppedOnUnavailable = true;
         stopTimer();
         options.onStatus(false);
         return;
@@ -115,9 +129,9 @@ export function startAsrHealthPolling(options: AsrHealthPollingOptions): () => v
         return;
       }
 
-      const data = (await res.json()) as { ok?: boolean };
+      const data = (await res.json()) as { ok?: boolean } | null;
       if (active) {
-        options.onStatus(Boolean(data.ok));
+        options.onStatus(Boolean(data?.ok));
       }
     } catch {
       if (active) {
@@ -126,9 +140,11 @@ export function startAsrHealthPolling(options: AsrHealthPollingOptions): () => v
     }
   };
 
-  timer = setIntervalFn(() => {
-    void checkHealth();
-  }, intervalMs);
+  if (config.shouldPoll) {
+    timer = setIntervalFn(() => {
+      void checkHealth();
+    }, intervalMs);
+  }
 
   void checkHealth();
 

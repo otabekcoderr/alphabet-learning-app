@@ -9,7 +9,21 @@ import {
   detectAudioFormat,
   evaluateSttMatch,
   normalizeUzbekServer,
+  SttUpstreamError,
+  transcribeAudioBuffer,
+  VoiceLabSttCreditsError,
 } from '../../../api/_lib/stt';
+import { POST as sttPost } from '../../../api/stt';
+import { GET as healthGet } from '../../../api/health';
+import {
+  computeNextSttFailureCount,
+  STT_FALLBACK_FAILURE_THRESHOLD,
+} from '../../components/LessonPlayer';
+import {
+  startMicRecording,
+  SttRequestError,
+  verifyAudioWithStt,
+} from '../../utils/audioRecorder';
 import { resetMemoryTelegramAuthStore } from '../../../api/_lib/telegramAuthStore';
 import {
   createTelegramLoginToken,
@@ -63,6 +77,9 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
     DATABASE_URL: process.env.DATABASE_URL,
     VERCEL: process.env.VERCEL,
     SESSION_SECRET: process.env.SESSION_SECRET,
+    VOICELAB_API_KEY: process.env.VOICELAB_API_KEY,
+    UZBEKVOICE_API_KEY: process.env.UZBEKVOICE_API_KEY,
+    STT_BACKEND_URL: process.env.STT_BACKEND_URL,
   };
 
   afterEach(() => {
@@ -418,5 +435,446 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
       new Request('http://localhost:5173/api/telegram-webhook'),
     );
     expect(setupUnconfiguredRes.status).toBe(503);
+  });
+
+  it('reports accurate STT/TTS readiness in /api/health and handles STT failover cleanly', async () => {
+    delete process.env.STT_BACKEND_URL;
+    delete process.env.UZBEKVOICE_API_KEY;
+    delete process.env.VOICELAB_API_KEY;
+
+    const unconfiguredRes = await healthGet();
+    expect(unconfiguredRes.status).toBe(503);
+    expect(await unconfiguredRes.json()).toEqual({
+      ok: false,
+      status: 'unconfigured',
+      stt_provider: 'none',
+      tts_ready: false,
+      configured_providers: { proxy: false, uzbekvoice: false, voicelab: false },
+    });
+
+    process.env.VOICELAB_API_KEY = 'vlk_test_key';
+    const voiceLabOnlyRes = await healthGet();
+    expect(voiceLabOnlyRes.status).toBe(200);
+    expect(await voiceLabOnlyRes.json()).toEqual({
+      ok: true,
+      status: 'ready',
+      stt_provider: 'voicelab',
+      tts_ready: true,
+      configured_providers: { proxy: false, uzbekvoice: false, voicelab: true },
+    });
+
+    process.env.UZBEKVOICE_API_KEY = 'uzv_test_key';
+    const bothRes = await healthGet();
+    expect(bothRes.status).toBe(200);
+    expect(await bothRes.json()).toEqual({
+      ok: true,
+      status: 'ready',
+      stt_provider: 'uzbekvoice',
+      tts_ready: true,
+      configured_providers: { proxy: false, uzbekvoice: true, voicelab: true },
+    });
+
+    delete process.env.VOICELAB_API_KEY;
+    const uzbekVoiceOnlyRes = await healthGet();
+    expect(uzbekVoiceOnlyRes.status).toBe(200);
+    expect(await uzbekVoiceOnlyRes.json()).toEqual({
+      ok: true,
+      status: 'ready',
+      stt_provider: 'uzbekvoice',
+      tts_ready: false,
+      configured_providers: { proxy: false, uzbekvoice: true, voicelab: false },
+    });
+
+    // Failover: UzbekVoice HTTP 500 -> VoiceLab HTTP 200
+    process.env.UZBEKVOICE_API_KEY = 'uzv_test_key';
+    process.env.VOICELAB_API_KEY = 'vlk_test_key';
+    const sampleWav = buildPcm16MonoWav(new Int16Array(1600).fill(500));
+    const fetchFailover = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('uzbekvoice')) {
+        return new Response('upstream error', { status: 500 });
+      }
+      return new Response(JSON.stringify({ transcript: 'anor' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchFailover);
+
+    const failoverResult = await transcribeAudioBuffer(sampleWav, { contentType: 'audio/wav' });
+    expect(failoverResult).toEqual({ transcript: 'anor', provider: 'voicelab' });
+    expect(fetchFailover).toHaveBeenCalledTimes(2);
+
+    // VoiceLab HTTP 402 throws VoiceLabSttCreditsError immediately without retrying
+    delete process.env.UZBEKVOICE_API_KEY;
+    const fetchCredits402 = vi.fn(async () => {
+      return new Response(JSON.stringify({ error: { code: 'insufficient_credits' } }), {
+        status: 402,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchCredits402);
+    await expect(
+      transcribeAudioBuffer(sampleWav, { contentType: 'audio/wav' }),
+    ).rejects.toBeInstanceOf(VoiceLabSttCreditsError);
+    expect(fetchCredits402).toHaveBeenCalledTimes(1);
+  });
+
+  it('handles UzbekVoice synchronous 200 OK and async PENDING -> /api/v1/tasks?id=... polling in /api/stt', async () => {
+    delete process.env.STT_BACKEND_URL;
+    delete process.env.VOICELAB_API_KEY;
+    process.env.UZBEKVOICE_API_KEY = 'uzv_test_key';
+
+    const sampleWav = buildPcm16MonoWav(new Int16Array(1600).fill(500));
+
+    // 1. Synchronous SUCCESS response
+    let capturedAuth = '';
+    let capturedHasFile = false;
+    const syncFetch = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      const headers = init?.headers as Record<string, string> | undefined;
+      capturedAuth = headers?.Authorization ?? '';
+      capturedHasFile = init?.body instanceof FormData && init.body.has('file');
+      return new Response(
+        JSON.stringify({
+          id: 'stt/org/task-sync',
+          status: 'SUCCESS',
+          result: { text: 'Shar.' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', syncFetch);
+
+    const syncRes = await sttPost(
+      new Request('https://alifbo-eight.vercel.app/api/stt?expected=SHAR&accept=shar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: new Uint8Array(sampleWav),
+      }),
+    );
+    expect(syncRes.status).toBe(200);
+    expect(capturedAuth).toBe('uzv_test_key');
+    expect(capturedHasFile).toBe(true);
+    const syncJson = (await syncRes.json()) as Record<string, unknown>;
+    expect(syncJson).toMatchObject({
+      ok: true,
+      provider: 'uzbekvoice',
+      transcript: 'Shar.',
+      normalized: 'shar',
+      accepted: true,
+      is_silence: false,
+    });
+
+    // 2. Async PENDING -> GET /api/v1/tasks?id=... polling
+    const calledUrls: string[] = [];
+    const asyncFetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      calledUrls.push(url);
+      if (calledUrls.length === 1) {
+        return new Response(
+          JSON.stringify({
+            id: 'stt/org/task-async-42',
+            status: 'PENDING',
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } },
+        );
+      }
+      return new Response(
+        JSON.stringify({
+          id: 'stt/org/task-async-42',
+          status: 'SUCCESS',
+          result: { text: 'shar' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    });
+    vi.stubGlobal('fetch', asyncFetch);
+
+    const asyncRes = await sttPost(
+      new Request('https://alifbo-eight.vercel.app/api/stt?expected=SHAR&accept=shar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: new Uint8Array(sampleWav),
+      }),
+    );
+    expect(asyncRes.status).toBe(200);
+    expect(calledUrls).toEqual([
+      'https://uzbekvoice.ai/api/v1/stt',
+      'https://uzbekvoice.ai/api/v1/tasks?id=stt%2Forg%2Ftask-async-42',
+    ]);
+    const asyncJson = (await asyncRes.json()) as Record<string, unknown>;
+    expect(asyncJson).toMatchObject({
+      ok: true,
+      provider: 'uzbekvoice',
+      transcript: 'shar',
+      normalized: 'shar',
+      accepted: true,
+    });
+  });
+
+  it('exposes explicit upstreamStatus, provider, and reason on 401, 402, 404, and timeout without leaking raw upstream text or audio', async () => {
+    delete process.env.STT_BACKEND_URL;
+    const sampleWav = buildPcm16MonoWav(new Int16Array(1600).fill(500));
+
+    // 401 Unauthorized on UzbekVoice
+    delete process.env.VOICELAB_API_KEY;
+    process.env.UZBEKVOICE_API_KEY = 'bad_key';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<html>401 secret_leak_shar</html>', { status: 401 })),
+    );
+    await expect(
+      transcribeAudioBuffer(sampleWav, { contentType: 'audio/wav' }),
+    ).rejects.toBeInstanceOf(SttUpstreamError);
+
+    const res401 = await sttPost(
+      new Request('https://alifbo-eight.vercel.app/api/stt?expected=SHAR&accept=shar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: new Uint8Array(sampleWav),
+      }),
+    );
+    expect(res401.status).toBe(503);
+    const json401 = (await res401.json()) as Record<string, unknown>;
+    expect(json401).toMatchObject({
+      ok: false,
+      code: 'stt_uzbekvoice_unauthorized',
+      provider: 'uzbekvoice',
+      reason: 'unauthorized',
+      upstreamStatus: 401,
+    });
+    expect(JSON.stringify(json401)).not.toContain('secret_leak_shar');
+    expect(JSON.stringify(json401)).not.toContain('RIFF');
+
+    // 404 Endpoint Not Found on UzbekVoice
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('Not Found', { status: 404 })),
+    );
+    const res404 = await sttPost(
+      new Request('https://alifbo-eight.vercel.app/api/stt?expected=SHAR&accept=shar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: new Uint8Array(sampleWav),
+      }),
+    );
+    expect(res404.status).toBe(503);
+    expect(await res404.json()).toMatchObject({
+      ok: false,
+      code: 'stt_uzbekvoice_endpoint_not_found',
+      provider: 'uzbekvoice',
+      reason: 'endpoint_not_found',
+      upstreamStatus: 404,
+    });
+
+    // 402 Insufficient Credits on VoiceLab
+    delete process.env.UZBEKVOICE_API_KEY;
+    process.env.VOICELAB_API_KEY = 'vlk_test_key';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: 'no credits' }), {
+            status: 402,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    );
+    const res402 = await sttPost(
+      new Request('https://alifbo-eight.vercel.app/api/stt?expected=SHAR&accept=shar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: new Uint8Array(sampleWav),
+      }),
+    );
+    expect(res402.status).toBe(503);
+    expect(await res402.json()).toMatchObject({
+      ok: false,
+      code: 'voicelab_insufficient_credits',
+      provider: 'voicelab',
+      reason: 'insufficient_credits',
+      upstreamStatus: 402,
+    });
+
+    // TimeoutError on VoiceLab -> 504 with reason: 'timeout'
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => {
+        const err = new Error('The operation was aborted due to timeout');
+        err.name = 'TimeoutError';
+        throw err;
+      }),
+    );
+    const resTimeout = await sttPost(
+      new Request('https://alifbo-eight.vercel.app/api/stt?expected=SHAR&accept=shar', {
+        method: 'POST',
+        headers: { 'Content-Type': 'audio/wav' },
+        body: new Uint8Array(sampleWav),
+      }),
+    );
+    expect(resTimeout.status).toBe(504);
+    expect(await resTimeout.json()).toMatchObject({
+      ok: false,
+      code: 'stt_voicelab_timeout',
+      provider: 'voicelab',
+      reason: 'timeout',
+      upstreamStatus: null,
+    });
+  });
+
+  it('verifyAudioWithStt surfaces typed SttRequestError and LessonPlayer triggers 4-picture fallback cleanly after 2 errors', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'stt_uzbekvoice_unauthorized',
+            provider: 'uzbekvoice',
+            reason: 'unauthorized',
+            upstreamStatus: 401,
+            error: 'Ovozli tekshiruv xizmati kaliti noto‘g‘ri.',
+          }),
+          { status: 503, headers: { 'Content-Type': 'application/json' } },
+        ),
+      ),
+    );
+
+    const blob = new Blob([new Uint8Array([1, 2, 3])], { type: 'audio/wav' });
+    let caught: unknown = null;
+    try {
+      await verifyAudioWithStt(blob, 'SHAR', ['shar'], '');
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(SttRequestError);
+    const typed = caught as SttRequestError;
+    expect(typed.status).toBe(503);
+    expect(typed.provider).toBe('uzbekvoice');
+    expect(typed.reason).toBe('unauthorized');
+    expect(typed.upstreamStatus).toBe(401);
+
+    // Non-JSON 502 HTML fallback
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('<html>502 Bad Gateway</html>', { status: 502 })),
+    );
+    let caughtHtml: unknown = null;
+    try {
+      await verifyAudioWithStt(blob, 'SHAR', ['shar'], '');
+    } catch (err) {
+      caughtHtml = err;
+    }
+    expect(caughtHtml).toBeInstanceOf(SttRequestError);
+    expect((caughtHtml as SttRequestError).status).toBe(502);
+    expect((caughtHtml as SttRequestError).reason).toBe('invalid_response');
+
+    // Consecutive failure threshold checks
+    expect(STT_FALLBACK_FAILURE_THRESHOLD).toBe(2);
+    const transientErr = new SttRequestError('network', {
+      status: 502,
+      reason: 'network_error',
+      upstreamStatus: null,
+    });
+    expect(computeNextSttFailureCount(0, transientErr)).toBe(1);
+    expect(computeNextSttFailureCount(1, transientErr)).toBe(2);
+    expect(computeNextSttFailureCount(0, new Error('generic'))).toBe(1);
+    expect(computeNextSttFailureCount(1, new Error('generic'))).toBe(2);
+
+    // Permanent configuration errors jump straight to fallback threshold
+    expect(computeNextSttFailureCount(0, typed)).toBe(2);
+  });
+
+  it('startMicRecording uses AudioWorkletNode when supported and falls back to ScriptProcessorNode if AudioWorklet fails', async () => {
+    const createScriptProcessorSpy = vi.fn(() => ({
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      onaudioprocess: null as ((event: { inputBuffer: { getChannelData: (ch: number) => Float32Array } }) => void) | null,
+    }));
+
+    const addModuleSuccess = vi.fn(async () => undefined);
+    const trackStop = vi.fn();
+
+    class FakeAudioContextWorklet {
+      sampleRate = 16_000;
+      state = 'running';
+      destination = {};
+      audioWorklet = { addModule: addModuleSuccess };
+      resume = vi.fn(async () => undefined);
+      close = vi.fn(async () => undefined);
+      createMediaStreamSource = vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() }));
+      createGain = vi.fn(() => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }));
+      createScriptProcessor = createScriptProcessorSpy;
+    }
+
+    let createdWorklet: FakeAudioWorkletNode | null = null;
+    class FakeAudioWorkletNode {
+      port: { onmessage: ((event: MessageEvent<unknown>) => void) | null } = { onmessage: null };
+      connect = vi.fn();
+      disconnect = vi.fn();
+      constructor() {
+        createdWorklet = this;
+      }
+    }
+
+    vi.stubGlobal('navigator', {
+      mediaDevices: {
+        getUserMedia: vi.fn(async () => ({
+          getTracks: () => [{ stop: trackStop }],
+        })),
+      },
+    });
+    vi.stubGlobal('window', { AudioContext: FakeAudioContextWorklet });
+    vi.stubGlobal('AudioWorkletNode', FakeAudioWorkletNode);
+
+    const sessionWorklet = await startMicRecording(() => undefined);
+    expect(addModuleSuccess).toHaveBeenCalledTimes(1);
+    expect(createScriptProcessorSpy).not.toHaveBeenCalled();
+    expect(createdWorklet).not.toBeNull();
+
+    const chunk = new Float32Array(2048).fill(0.15);
+    createdWorklet!.port.onmessage?.({ data: chunk } as MessageEvent<unknown>);
+    const recWorklet = await sessionWorklet.stop();
+    expect(recWorklet).not.toBeNull();
+    expect(recWorklet!.wavBlob.size).toBeGreaterThan(44);
+    expect(recWorklet!.durationMs).toBeGreaterThan(0);
+    expect(trackStop).toHaveBeenCalledTimes(1);
+
+    // Fallback test when addModule rejects
+    const addModuleFail = vi.fn(async () => {
+      throw new Error('worklet unavailable');
+    });
+    const fallbackProcessor = {
+      connect: vi.fn(),
+      disconnect: vi.fn(),
+      onaudioprocess: null as
+        | ((event: { inputBuffer: { getChannelData: (ch: number) => Float32Array } }) => void)
+        | null,
+    };
+    const createScriptProcessorFallback = vi.fn(() => fallbackProcessor);
+
+    class FakeAudioContextFallback {
+      sampleRate = 16_000;
+      state = 'running';
+      destination = {};
+      audioWorklet = { addModule: addModuleFail };
+      resume = vi.fn(async () => undefined);
+      close = vi.fn(async () => undefined);
+      createMediaStreamSource = vi.fn(() => ({ connect: vi.fn(), disconnect: vi.fn() }));
+      createGain = vi.fn(() => ({ gain: { value: 1 }, connect: vi.fn(), disconnect: vi.fn() }));
+      createScriptProcessor = createScriptProcessorFallback;
+    }
+
+    vi.stubGlobal('window', { AudioContext: FakeAudioContextFallback });
+
+    const sessionFallback = await startMicRecording(() => undefined);
+    expect(addModuleFail).toHaveBeenCalledTimes(1);
+    expect(createScriptProcessorFallback).toHaveBeenCalledWith(2048, 1, 1);
+    fallbackProcessor.onaudioprocess?.({
+      inputBuffer: { getChannelData: () => new Float32Array(2048).fill(0.15) },
+    });
+    const recFallback = await sessionFallback.stop();
+    expect(recFallback).not.toBeNull();
+    expect(recFallback!.wavBlob.size).toBeGreaterThan(44);
   });
 });

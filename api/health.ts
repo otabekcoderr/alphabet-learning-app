@@ -1,8 +1,12 @@
 import { jsonResponse } from './_lib/session.js';
-import { getConfiguredSttProvider } from './_lib/stt.js';
+import {
+  getConfiguredSttProvider,
+  getConfiguredSttProvidersSummary,
+} from './_lib/stt.js';
 
 export async function GET(): Promise<Response> {
   const provider = getConfiguredSttProvider();
+  const configuredProviders = getConfiguredSttProvidersSummary();
   const ttsReady = Boolean(process.env.VOICELAB_API_KEY?.trim());
 
   if (provider === 'proxy') {
@@ -17,16 +21,17 @@ export async function GET(): Promise<Response> {
           status: 'ready',
           stt_provider: 'proxy',
           tts_ready: ttsReady,
+          configured_providers: configuredProviders,
         });
       }
     } catch {
       // Proxy unreachable; check cloud fallback below
     }
 
-    const fallbackProvider = process.env.VOICELAB_API_KEY?.trim()
-      ? 'voicelab'
-      : process.env.UZBEKVOICE_API_KEY?.trim()
-        ? 'uzbekvoice'
+    const fallbackProvider = process.env.UZBEKVOICE_API_KEY?.trim()
+      ? 'uzbekvoice'
+      : process.env.VOICELAB_API_KEY?.trim()
+        ? 'voicelab'
         : null;
 
     if (fallbackProvider) {
@@ -35,6 +40,7 @@ export async function GET(): Promise<Response> {
         status: 'ready',
         stt_provider: fallbackProvider,
         tts_ready: ttsReady,
+        configured_providers: configuredProviders,
       });
     }
 
@@ -44,6 +50,7 @@ export async function GET(): Promise<Response> {
         status: 'offline',
         stt_provider: 'proxy',
         tts_ready: ttsReady,
+        configured_providers: configuredProviders,
       },
       503,
     );
@@ -55,6 +62,7 @@ export async function GET(): Promise<Response> {
       status: 'ready',
       stt_provider: provider,
       tts_ready: ttsReady,
+      configured_providers: configuredProviders,
     });
   }
 
@@ -64,6 +72,7 @@ export async function GET(): Promise<Response> {
       status: 'unconfigured',
       stt_provider: 'none',
       tts_ready: ttsReady,
+      configured_providers: configuredProviders,
     },
     503,
   );

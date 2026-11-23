@@ -122,6 +122,7 @@ export function AlphabetRecallDrawer({
 
   const [isRecording, setIsRecording] = useState(false);
   const [isChecking, setIsChecking] = useState(false);
+  const [sttFallbackActive, setSttFallbackActive] = useState(false);
   const [micLevel, setMicLevel] = useState(0);
   const [voiceMsg, setVoiceMsg] = useState<{
     text: string;
@@ -383,11 +384,9 @@ export function AlphabetRecallDrawer({
         void playFeedbackAudio('fb_alpha_repeat');
       }
     } catch {
-      setVoiceMsg({
-        text: 'Ovoz serveri bilan aloqa uzildi — pastdagi tugma bilan davom etishingiz mumkin.',
-        audioKey: 'fb_alpha_server_offline',
-      });
-      void playFeedbackAudio('fb_alpha_server_offline');
+      setSttFallbackActive(true);
+      setVoiceMsg(null);
+      void playLetterRecallAudio(current.letter, { skipChime: true });
     } finally {
       setIsChecking(false);
     }
@@ -819,7 +818,7 @@ export function AlphabetRecallDrawer({
                   </button>
                 )}
 
-                {aiOnline && current.category !== 'mark' ? (
+                {aiOnline && !sttFallbackActive && current.category !== 'mark' ? (
                   <div className="voice-controls">
                     <button
                       type="button"
