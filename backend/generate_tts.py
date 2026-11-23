@@ -915,7 +915,7 @@ def _load_optional_env_secret(project_root: Path, var_name: str) -> str:
 
 
 def _load_voicelab_api_keys(project_root: Path, primary_key: str) -> list[str]:
-    """Collect unique VoiceLab API keys in priority order from primary_key, VOICELAB_API_KEYS, and VOICELAB_API_KEY."""
+    """Collect unique VoiceLab API keys in priority order from primary_key, VOICELAB_API_KEYS, VOICELAB_API_KEY, and api.txt."""
     candidates: list[str] = []
     if primary_key.strip():
         candidates.append(primary_key.strip())
@@ -927,6 +927,11 @@ def _load_voicelab_api_keys(project_root: Path, primary_key: str) -> list[str]:
     fallback_single = _load_optional_env_secret(project_root, "VOICELAB_API_KEY")
     if fallback_single:
         candidates.append(fallback_single)
+    api_txt = project_root / "api.txt"
+    if api_txt.exists():
+        for tok in re.findall(r"vlk_[A-Za-z0-9_-]+", api_txt.read_text(encoding="utf-8")):
+            if tok.strip():
+                candidates.append(tok.strip())
 
     unique: list[str] = []
     seen: set[str] = set()

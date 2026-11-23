@@ -1412,6 +1412,8 @@ h4,
 .survey-questions-col {
   display: flex;
   flex-direction: column;
+  justify-content: space-between;
+  min-height: 360px;
   gap: 18px;
 }
 
@@ -1458,30 +1460,61 @@ h4,
   font-weight: 600;
   color: var(--text-brown);
   text-align: left;
-  transition: transform 0.08s ease, border-color 0.15s ease, background-color 0.15s ease;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.08s ease, border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.survey-option-btn:hover {
-  border-color: var(--orange);
-  background: #FFFBF2;
+.survey-option-btn:focus-visible {
+  outline: 3px solid rgba(5, 150, 105, 0.35);
+  outline-offset: 2px;
 }
 
-.survey-option-selected {
+@media (hover: hover) {
+  .survey-option-btn:not(.survey-option-selected):hover {
+    border-color: var(--orange);
+    background: #FFFBF2;
+  }
+}
+
+.survey-option-btn.survey-option-selected,
+.survey-option-btn.survey-option-selected:hover {
   background: #ECFDF5;
   border-color: var(--emerald);
   color: var(--emerald-dark);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.14);
+}
+
+.survey-option-label {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.35;
 }
 
 .survey-check-badge {
   width: 26px;
   height: 26px;
   border-radius: 999px;
-  background: var(--emerald);
-  color: #FFFFFF;
+  border: 2px solid #D6CFC2;
+  background: #FAF8F4;
+  color: transparent;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
+}
+
+.survey-check-badge-active {
+  border-color: var(--emerald);
+  background: var(--emerald);
+  color: #FFFFFF;
+}
+
+.survey-cta-footer {
+  min-height: 56px;
+  display: flex;
+  align-items: stretch;
 }
 
 .survey-next-btn {
@@ -4312,6 +4345,10 @@ h4,
     grid-template-columns: 1fr;
     padding: 24px 20px;
   }
+
+  .survey-questions-col {
+    min-height: auto;
+  }
 }
 
 @media (max-width: 767px) {
@@ -4322,6 +4359,20 @@ h4,
   .victory-screen-shell,
   .survey-page-shell {
     padding: 12px 14px 20px;
+  }
+
+  .survey-mascot-col {
+    gap: 6px;
+  }
+
+  .survey-mascot-col .animated-char-figure {
+    width: 124px !important;
+    height: 124px !important;
+  }
+
+  .survey-option-btn {
+    font-size: 15.5px;
+    padding: 11px 14px;
   }
 
   .welcome-nav-links {
@@ -4904,17 +4955,28 @@ h4,
   color: var(--text-brown);
   text-align: left;
   cursor: pointer;
+  user-select: none;
+  transition: border-color 0.15s ease, background-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.feedback-pmf-btn:hover {
-  border-color: var(--orange);
-  background: #FFFBF2;
+.feedback-pmf-btn:focus-visible {
+  outline: 3px solid rgba(5, 150, 105, 0.35);
+  outline-offset: 2px;
 }
 
-.feedback-pmf-selected {
+@media (hover: hover) {
+  .feedback-pmf-btn:not(.feedback-pmf-selected):hover {
+    border-color: var(--orange);
+    background: #FFFBF2;
+  }
+}
+
+.feedback-pmf-btn.feedback-pmf-selected,
+.feedback-pmf-btn.feedback-pmf-selected:hover {
   background: #ECFDF5;
   border-color: var(--emerald);
   color: var(--emerald-dark);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.14);
 }
 
 .feedback-textarea {

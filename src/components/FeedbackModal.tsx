@@ -7,7 +7,7 @@ import {
 import { playFeedbackChime } from '../utils/audioRecorder';
 import { Check, CloseIcon, MessageCircle, Send } from './Icons';
 
-export const FEEDBACK_MIN_SESSIONS_FOR_RESULT = 2;
+export const FEEDBACK_MIN_SESSIONS_FOR_RESULT = 1;
 export const FEEDBACK_STORAGE_KEY = 'alifbo_feedback_submissions_v1';
 
 export type FeedbackDisappointment =
@@ -34,10 +34,31 @@ export interface StoredFeedbackEntry {
 }
 
 /**
- * Show the corner feedback button on the round summary screen only after >= 2 completed sessions.
+ * Show the corner feedback button on the round summary screen starting from the 1st completed session.
  */
 export function shouldShowResultFeedbackButton(completedSessionsCount: number): boolean {
   return completedSessionsCount >= FEEDBACK_MIN_SESSIONS_FOR_RESULT;
+}
+
+/**
+ * Automatically open the 2nd survey once right after a new user completes their 1st exercise
+ * session, waiting for Alhamdulillah (when enabled) or round praise audio so nothing is cut off.
+ */
+export function shouldAutoOpenFirstSessionFeedback(params: {
+  completedSessionsCount: number;
+  firstSessionFeedbackPrompted: boolean;
+  roundFinished: boolean;
+  bismillahAlhamdulillahEnabled: boolean;
+  alhamdulillahDone: boolean;
+  roundPraiseDone: boolean;
+}): boolean {
+  if (!params.roundFinished) return false;
+  if (params.firstSessionFeedbackPrompted) return false;
+  if (params.completedSessionsCount !== 1) return false;
+  if (params.bismillahAlhamdulillahEnabled) {
+    return params.alhamdulillahDone;
+  }
+  return params.roundPraiseDone;
 }
 
 function saveFeedbackLocally(entry: StoredFeedbackEntry): void {
@@ -262,8 +283,15 @@ export function FeedbackModal({
                         setDisappointment(opt.id);
                       }}
                     >
-                      <span>{opt.label}</span>
-                      {selected && <Check size={16} strokeWidth={2.8} />}
+                      <span className="survey-option-label">{opt.label}</span>
+                      <span
+                        className={`survey-check-badge ${
+                          selected ? 'survey-check-badge-active' : ''
+                        }`}
+                        aria-hidden="true"
+                      >
+                        {selected && <Check size={14} strokeWidth={3} />}
+                      </span>
                     </button>
                   );
                 })}

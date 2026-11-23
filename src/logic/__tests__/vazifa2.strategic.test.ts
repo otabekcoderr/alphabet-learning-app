@@ -10,6 +10,7 @@ import { findStaticAudioUrlForText } from '../../utils/audioRecorder';
 import {
   FEEDBACK_DISAPPOINTMENT_OPTIONS,
   FEEDBACK_MIN_SESSIONS_FOR_RESULT,
+  shouldAutoOpenFirstSessionFeedback,
   shouldShowResultFeedbackButton,
 } from '../../components/FeedbackModal';
 import {
@@ -221,12 +222,90 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     expect(surveyData.contact).toBe('+998901234567');
   });
 
-  it('enforces >= 2 completed sessions gate for result-screen Feedback button and PMF options', () => {
-    expect(FEEDBACK_MIN_SESSIONS_FOR_RESULT).toBe(2);
+  it('shows result-screen Feedback button from 1st session and triggers 2nd survey auto-prompt once after 1st completed session', () => {
+    expect(FEEDBACK_MIN_SESSIONS_FOR_RESULT).toBe(1);
     expect(shouldShowResultFeedbackButton(0)).toBe(false);
-    expect(shouldShowResultFeedbackButton(1)).toBe(false);
+    expect(shouldShowResultFeedbackButton(1)).toBe(true);
     expect(shouldShowResultFeedbackButton(2)).toBe(true);
     expect(shouldShowResultFeedbackButton(5)).toBe(true);
+
+    // Mid-game (not roundFinished): never auto-open
+    expect(
+      shouldAutoOpenFirstSessionFeedback({
+        completedSessionsCount: 1,
+        firstSessionFeedbackPrompted: false,
+        roundFinished: false,
+        bismillahAlhamdulillahEnabled: true,
+        alhamdulillahDone: true,
+        roundPraiseDone: true,
+      }),
+    ).toBe(false);
+
+    // With Bismillah/Alhamdulillah enabled: wait until alhamdulillahDone === true
+    expect(
+      shouldAutoOpenFirstSessionFeedback({
+        completedSessionsCount: 1,
+        firstSessionFeedbackPrompted: false,
+        roundFinished: true,
+        bismillahAlhamdulillahEnabled: true,
+        alhamdulillahDone: false,
+        roundPraiseDone: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenFirstSessionFeedback({
+        completedSessionsCount: 1,
+        firstSessionFeedbackPrompted: false,
+        roundFinished: true,
+        bismillahAlhamdulillahEnabled: true,
+        alhamdulillahDone: true,
+        roundPraiseDone: true,
+      }),
+    ).toBe(true);
+
+    // With Bismillah/Alhamdulillah disabled: wait until roundPraiseDone === true
+    expect(
+      shouldAutoOpenFirstSessionFeedback({
+        completedSessionsCount: 1,
+        firstSessionFeedbackPrompted: false,
+        roundFinished: true,
+        bismillahAlhamdulillahEnabled: false,
+        alhamdulillahDone: false,
+        roundPraiseDone: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenFirstSessionFeedback({
+        completedSessionsCount: 1,
+        firstSessionFeedbackPrompted: false,
+        roundFinished: true,
+        bismillahAlhamdulillahEnabled: false,
+        alhamdulillahDone: false,
+        roundPraiseDone: true,
+      }),
+    ).toBe(true);
+
+    // Already prompted or 2nd+ session: never auto-open again
+    expect(
+      shouldAutoOpenFirstSessionFeedback({
+        completedSessionsCount: 1,
+        firstSessionFeedbackPrompted: true,
+        roundFinished: true,
+        bismillahAlhamdulillahEnabled: false,
+        alhamdulillahDone: false,
+        roundPraiseDone: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoOpenFirstSessionFeedback({
+        completedSessionsCount: 2,
+        firstSessionFeedbackPrompted: false,
+        roundFinished: true,
+        bismillahAlhamdulillahEnabled: false,
+        alhamdulillahDone: false,
+        roundPraiseDone: true,
+      }),
+    ).toBe(false);
 
     expect(FEEDBACK_DISAPPOINTMENT_OPTIONS.map((o) => o.label)).toEqual([
       'Juda xafa bo‘laman',
@@ -235,18 +314,20 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     ]);
   });
 
-  it('persists completedSessionsCount, bismillahAlhamdulillahEnabled & strategic SurveyData in progressStorage and safely handles missing MediaRecorder', () => {
+  it('persists completedSessionsCount, bismillahAlhamdulillahEnabled, firstSessionFeedbackPrompted & strategic SurveyData in progressStorage and safely handles missing MediaRecorder', () => {
     const mockStorage = createMockLocalStorage();
     vi.stubGlobal('window', { localStorage: mockStorage });
 
     const initial = createInitialState();
     expect(initial.completedSessionsCount).toBe(0);
     expect(initial.bismillahAlhamdulillahEnabled).toBe(true);
+    expect(initial.firstSessionFeedbackPrompted).toBe(false);
 
     const updated = {
       ...initial,
       completedSessionsCount: 3,
       bismillahAlhamdulillahEnabled: false,
+      firstSessionFeedbackPrompted: true,
       surveyData: buildSurveyDataFromStrategic({
         completedAt: '2026-11-23T12:00:00.000Z',
         childStage: 'no_letters_yet',
@@ -260,20 +341,23 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     expect(loaded.recoveredCorruptData).toBe(false);
     expect(loaded.state.completedSessionsCount).toBe(3);
     expect(loaded.state.bismillahAlhamdulillahEnabled).toBe(false);
+    expect(loaded.state.firstSessionFeedbackPrompted).toBe(true);
     expect(loaded.state.surveyData?.childStage).toBe('no_letters_yet');
     expect(loaded.state.surveyData?.previousAttempt).toBe('not_started_seriously');
     expect(loaded.state.surveyData?.biggestDifficulty).toBe('no_parent_time');
 
-    // Older v3 saved JSON omitting bismillahAlhamdulillahEnabled migrates cleanly to true
+    // Older v3 saved JSON omitting bismillahAlhamdulillahEnabled / firstSessionFeedbackPrompted migrates cleanly
     const legacyV3 = JSON.parse(mockStorage.getItem('alifbo_app_state_v3') ?? '{}') as Record<
       string,
       unknown
     >;
     delete legacyV3.bismillahAlhamdulillahEnabled;
+    delete legacyV3.firstSessionFeedbackPrompted;
     mockStorage.setItem('alifbo_app_state_v3', JSON.stringify(legacyV3));
     const migratedLoaded = loadAlifboState();
     expect(migratedLoaded.recoveredCorruptData).toBe(false);
     expect(migratedLoaded.state.bismillahAlhamdulillahEnabled).toBe(true);
+    expect(migratedLoaded.state.firstSessionFeedbackPrompted).toBe(false);
 
     expect(BISMILLAH_TEXT_UZ).toBe(
       'Ilming ziyoda bo‘lishi uchun, «Bismillah» deb boshla!',
@@ -288,7 +372,7 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     expect(isVoicePlaybackRecordingSupported()).toBe(false);
   });
 
-  it('ensures static bismillah.mp3, alhamdulillah.mp3, letter_f.mp3 & sound_f.mp3 exist on disk and are tracked in audio_review.csv', async () => {
+  it('ensures static bismillah.mp3, alhamdulillah.mp3, letter_f.mp3 & sound_f.mp3 exist on disk and use VoiceLab lison-v2:malika in audio_review.csv', async () => {
     interface NodeFsSubset {
       existsSync(path: URL): boolean;
       statSync(path: URL): { size: number };
@@ -311,11 +395,15 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
       { file: 'sound_f.mp3', minBytes: 5_000 },
     ];
 
+    const csvLines = reviewCsv.split(/\r?\n/);
     for (const { file, minBytes } of expectedClips) {
       const fileUrl = new URL(file, audioDirUrl);
       expect(fs.existsSync(fileUrl), `Missing audio clip: ${file}`).toBe(true);
       expect(fs.statSync(fileUrl).size, `Clip too small: ${file}`).toBeGreaterThan(minBytes);
-      expect(reviewCsv).toContain(`public/audio/${file}`);
+      const matchingLine = csvLines.find((line) => line.startsWith(`public/audio/${file},`));
+      expect(matchingLine, `Missing CSV row for ${file}`).toBeTruthy();
+      expect(matchingLine).toContain('voicelab:lison-v2:malika');
+      expect(matchingLine?.toLowerCase()).not.toContain('uzbekvoice');
     }
   });
 });

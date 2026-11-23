@@ -74,7 +74,11 @@ import {
 import { triggerCelebrationBurst } from '../utils/soundEffects';
 import { AnimatedCharacter } from './AnimatedCharacter';
 import { AlhamdulillahHabitBlock } from './BismillahAlhamdulillah';
-import { FeedbackModal, shouldShowResultFeedbackButton } from './FeedbackModal';
+import {
+  FeedbackModal,
+  shouldAutoOpenFirstSessionFeedback,
+  shouldShowResultFeedbackButton,
+} from './FeedbackModal';
 import { GameVisual } from './GameVisual';
 import { ArrowRight, Check, CloseIcon, Home, MessageCircle, Mic, Sparkles, Square, Star, Volume2 } from './Icons';
 import { LetterBlock, tokenizeUzbekLettersOrdered } from './LetterBlock';
@@ -98,11 +102,13 @@ interface LessonPlayerProps {
   aiOnline: boolean;
   bismillahAlhamdulillahEnabled?: boolean;
   completedSessionsCount?: number;
+  firstSessionFeedbackPrompted?: boolean;
   childName?: string;
   publicId?: string;
   onLetterHintTap: (letter: string) => void;
   onWordCompleted: (report: WordAttemptReport) => void;
   onRoundFinished?: () => void;
+  onFirstSessionFeedbackPrompted?: () => void;
   onPlayAnotherRound: () => void;
   onBack: () => void;
 }
@@ -194,11 +200,13 @@ export function LessonPlayer({
   aiOnline,
   bismillahAlhamdulillahEnabled = true,
   completedSessionsCount = 0,
+  firstSessionFeedbackPrompted = false,
   childName,
   publicId,
   onLetterHintTap,
   onWordCompleted,
   onRoundFinished,
+  onFirstSessionFeedbackPrompted,
   onPlayAnotherRound,
   onBack,
 }: LessonPlayerProps) {
@@ -219,9 +227,12 @@ export function LessonPlayer({
   >({});
 
   const roundReportedRef = useRef(false);
+  const autoFeedbackTriggeredRef = useRef(false);
   const isMountedRef = useRef(true);
   const onRoundFinishedRef = useRef(onRoundFinished);
   onRoundFinishedRef.current = onRoundFinished;
+  const onFirstSessionFeedbackPromptedRef = useRef(onFirstSessionFeedbackPrompted);
+  onFirstSessionFeedbackPromptedRef.current = onFirstSessionFeedbackPrompted;
 
   const currentStep = sessionQueue[stepIdx] ?? sessionQueue[0] ?? null;
   const wordPhase: WordPhase = showingWordDone
@@ -450,6 +461,7 @@ export function LessonPlayer({
     prevSessionItemsRef.current = sessionItems;
     recordedIdsRef.current.clear();
     roundReportedRef.current = false;
+    autoFeedbackTriggeredRef.current = false;
     setCompletedResults({});
     setRoundStars(0);
     setRoundPraiseDone(false);
@@ -561,6 +573,36 @@ export function LessonPlayer({
       }
     };
   }, []);
+
+  // Automatically open the 2nd survey once right after a new user completes their 1st session
+  useEffect(() => {
+    if (autoFeedbackTriggeredRef.current) return;
+    const shouldOpen = shouldAutoOpenFirstSessionFeedback({
+      completedSessionsCount,
+      firstSessionFeedbackPrompted,
+      roundFinished,
+      bismillahAlhamdulillahEnabled,
+      alhamdulillahDone,
+      roundPraiseDone,
+    });
+    if (!shouldOpen) return;
+    const timerId = window.setTimeout(() => {
+      if (!isMountedRef.current || autoFeedbackTriggeredRef.current) return;
+      autoFeedbackTriggeredRef.current = true;
+      onFirstSessionFeedbackPromptedRef.current?.();
+      setFeedbackOpen(true);
+    }, 450);
+    return () => {
+      window.clearTimeout(timerId);
+    };
+  }, [
+    completedSessionsCount,
+    firstSessionFeedbackPrompted,
+    roundFinished,
+    bismillahAlhamdulillahEnabled,
+    alhamdulillahDone,
+    roundPraiseDone,
+  ]);
 
   // Auto-play static instruction clip on stage/mode transitions (Stage 3 never reads target word)
   useEffect(() => {
@@ -1574,6 +1616,7 @@ export function LessonPlayer({
                     playFeedbackChime('pop');
                     recordedIdsRef.current.clear();
                     roundReportedRef.current = false;
+                    autoFeedbackTriggeredRef.current = false;
                     prevConstructorCorrectIdxRef.current = null;
                     prevBubbleCorrectIdxRef.current = null;
                     prevSpotlightCorrectIdxRef.current = null;

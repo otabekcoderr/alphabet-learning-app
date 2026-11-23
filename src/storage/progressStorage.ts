@@ -85,6 +85,7 @@ export interface AlifboState {
   // Vazifa 2 fields
   completedSessionsCount: number;
   bismillahAlhamdulillahEnabled: boolean;
+  firstSessionFeedbackPrompted: boolean;
 }
 
 export function createDefaultProfile(): ChildProfileData {
@@ -141,6 +142,7 @@ export function createInitialState(): AlifboState {
     letterMastery: {},
     completedSessionsCount: 0,
     bismillahAlhamdulillahEnabled: true,
+    firstSessionFeedbackPrompted: false,
   };
 }
 
@@ -476,6 +478,10 @@ function normalizeLoadedState(rawObj: Record<string, unknown>, parsed: AlifboSta
       typeof rawObj.bismillahAlhamdulillahEnabled === 'boolean'
         ? rawObj.bismillahAlhamdulillahEnabled
         : true,
+    firstSessionFeedbackPrompted:
+      typeof rawObj.firstSessionFeedbackPrompted === 'boolean'
+        ? rawObj.firstSessionFeedbackPrompted
+        : false,
   };
 }
 
@@ -520,7 +526,9 @@ function isValidState(value: unknown): value is AlifboState {
         !Number.isFinite(obj.completedSessionsCount) ||
         obj.completedSessionsCount < 0)) ||
     (obj.bismillahAlhamdulillahEnabled !== undefined &&
-      typeof obj.bismillahAlhamdulillahEnabled !== 'boolean')
+      typeof obj.bismillahAlhamdulillahEnabled !== 'boolean') ||
+    (obj.firstSessionFeedbackPrompted !== undefined &&
+      typeof obj.firstSessionFeedbackPrompted !== 'boolean')
   ) {
     return false;
   }

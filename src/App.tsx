@@ -596,11 +596,15 @@ export function App() {
         aiOnline={aiOnline}
         bismillahAlhamdulillahEnabled={state.bismillahAlhamdulillahEnabled}
         completedSessionsCount={state.completedSessionsCount}
+        firstSessionFeedbackPrompted={state.firstSessionFeedbackPrompted}
         childName={state.profile.name}
         publicId={state.account?.publicId}
         onLetterHintTap={handleLetterHintTap}
         onWordCompleted={handleWordCompleted}
         onRoundFinished={handleRoundFinished}
+        onFirstSessionFeedbackPrompted={() =>
+          setState((prev) => ({ ...prev, firstSessionFeedbackPrompted: true }))
+        }
         onPlayAnotherRound={() =>
           startWorldRound(
             roundWorldId,
@@ -673,6 +677,7 @@ export function App() {
             surveyData: prev.surveyData,
             parentOnboardingDone: prev.parentOnboardingDone,
             bismillahAlhamdulillahEnabled: prev.bismillahAlhamdulillahEnabled,
+            firstSessionFeedbackPrompted: prev.firstSessionFeedbackPrompted,
           }));
         }}
         onSignOut={handleSignOut}

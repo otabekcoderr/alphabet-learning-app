@@ -35,7 +35,7 @@ interface OnboardingSurveyPageProps {
   onCancelEdit?: () => void;
 }
 
-const AUTO_ADVANCE_DELAY_MS = 220;
+const AUTO_ADVANCE_DELAY_MS = 380;
 
 /**
  * Full-screen 4-step strategic onboarding page.
@@ -61,6 +61,7 @@ export function OnboardingSurveyPage({
   );
   const [contact, setContact] = useState<string>(initialSurvey?.contact ?? '');
   const [justSelected, setJustSelected] = useState(false);
+  const [isAdvancing, setIsAdvancing] = useState(false);
 
   const autoAdvanceTimerRef = useRef<number | null>(null);
   const pulseTimerRef = useRef<number | null>(null);
@@ -73,6 +74,7 @@ export function OnboardingSurveyPage({
       window.clearTimeout(autoAdvanceTimerRef.current);
       autoAdvanceTimerRef.current = null;
     }
+    setIsAdvancing(false);
   };
 
   useEffect(() => {
@@ -111,13 +113,16 @@ export function OnboardingSurveyPage({
       setStep(nextStep);
       return;
     }
+    setIsAdvancing(true);
     autoAdvanceTimerRef.current = window.setTimeout(() => {
       autoAdvanceTimerRef.current = null;
+      setIsAdvancing(false);
       setStep(nextStep);
     }, AUTO_ADVANCE_DELAY_MS);
   };
 
   const handleSelectStage = (stageId: OnboardingChildStage) => {
+    if (isAdvancing) return;
     playFeedbackChime('pop');
     setChildStage(stageId);
     pulseReaction();
@@ -125,6 +130,7 @@ export function OnboardingSurveyPage({
   };
 
   const handleSelectAttempt = (attemptId: OnboardingPreviousAttempt) => {
+    if (isAdvancing) return;
     playFeedbackChime('pop');
     setPreviousAttempt(attemptId);
     pulseReaction();
@@ -132,6 +138,7 @@ export function OnboardingSurveyPage({
   };
 
   const handleSelectDifficulty = (difficultyId: OnboardingBiggestDifficulty) => {
+    if (isAdvancing) return;
     playFeedbackChime('pop');
     setBiggestDifficulty(difficultyId);
     pulseReaction();
@@ -246,10 +253,10 @@ export function OnboardingSurveyPage({
             <AnimatePresence mode="wait">
               <motion.div
                 key={step}
-                initial={{ opacity: 0, x: 18 }}
+                initial={{ opacity: 0, x: 14 }}
                 animate={{ opacity: 1, x: 0 }}
-                exit={{ opacity: 0, x: -18 }}
-                transition={{ duration: 0.2 }}
+                exit={{ opacity: 0, x: -14 }}
+                transition={{ duration: 0.16 }}
                 className="survey-step-content"
               >
                 {step === 1 && (
@@ -273,18 +280,21 @@ export function OnboardingSurveyPage({
                             type="button"
                             role="radio"
                             aria-checked={selected}
-                            whileTap={{ scale: 0.98 }}
+                            whileTap={{ scale: 0.985 }}
                             className={`survey-option-btn ${
                               selected ? 'survey-option-selected' : ''
                             }`}
                             onClick={() => handleSelectStage(opt.id)}
                           >
-                            <span>{opt.label}</span>
-                            {selected && (
-                              <span className="survey-check-badge">
-                                <Check size={16} strokeWidth={3} />
-                              </span>
-                            )}
+                            <span className="survey-option-label">{opt.label}</span>
+                            <span
+                              className={`survey-check-badge ${
+                                selected ? 'survey-check-badge-active' : ''
+                              }`}
+                              aria-hidden="true"
+                            >
+                              {selected && <Check size={15} strokeWidth={3} />}
+                            </span>
                           </motion.button>
                         );
                       })}
@@ -313,18 +323,21 @@ export function OnboardingSurveyPage({
                             type="button"
                             role="radio"
                             aria-checked={selected}
-                            whileTap={{ scale: 0.98 }}
+                            whileTap={{ scale: 0.985 }}
                             className={`survey-option-btn ${
                               selected ? 'survey-option-selected' : ''
                             }`}
                             onClick={() => handleSelectAttempt(opt.id)}
                           >
-                            <span>{opt.label}</span>
-                            {selected && (
-                              <span className="survey-check-badge">
-                                <Check size={16} strokeWidth={3} />
-                              </span>
-                            )}
+                            <span className="survey-option-label">{opt.label}</span>
+                            <span
+                              className={`survey-check-badge ${
+                                selected ? 'survey-check-badge-active' : ''
+                              }`}
+                              aria-hidden="true"
+                            >
+                              {selected && <Check size={15} strokeWidth={3} />}
+                            </span>
                           </motion.button>
                         );
                       })}
@@ -353,18 +366,21 @@ export function OnboardingSurveyPage({
                             type="button"
                             role="radio"
                             aria-checked={selected}
-                            whileTap={{ scale: 0.98 }}
+                            whileTap={{ scale: 0.985 }}
                             className={`survey-option-btn ${
                               selected ? 'survey-option-selected' : ''
                             }`}
                             onClick={() => handleSelectDifficulty(opt.id)}
                           >
-                            <span>{opt.label}</span>
-                            {selected && (
-                              <span className="survey-check-badge">
-                                <Check size={16} strokeWidth={3} />
-                              </span>
-                            )}
+                            <span className="survey-option-label">{opt.label}</span>
+                            <span
+                              className={`survey-check-badge ${
+                                selected ? 'survey-check-badge-active' : ''
+                              }`}
+                              aria-hidden="true"
+                            >
+                              {selected && <Check size={15} strokeWidth={3} />}
+                            </span>
                           </motion.button>
                         );
                       })}
@@ -402,7 +418,8 @@ export function OnboardingSurveyPage({
 
             <div className="survey-cta-footer">
               {step < 4 ? (
-                canAdvanceCurrentStep && (
+                canAdvanceCurrentStep &&
+                !isAdvancing && (
                   <button
                     type="button"
                     className="btn-3d-emerald survey-next-btn btn-with-icon"
