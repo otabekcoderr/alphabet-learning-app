@@ -37,6 +37,17 @@ function readRequestBody(req: IncomingMessage): Promise<string> {
   });
 }
 
+function prepareVoiceLabTtsText(text: string): string {
+  return text
+    .replace(/\bbismill[ao]h\b/gi, (match) =>
+      match === match.toLowerCase() ? 'бисмиллаҳ' : 'Бисмиллаҳ',
+    )
+    .replace(/\balhamdulill[ao]h\b/gi, (match) =>
+      match === match.toLowerCase() ? 'алҳамдулиллаҳ' : 'Алҳамдулиллаҳ',
+    )
+    .replace(/\bF+\.\s*Fil\./g, 'Ффф. Фил.');
+}
+
 async function synthesizeVoiceLabWav(
   env: Record<string, string>,
   text: string,
@@ -44,11 +55,8 @@ async function synthesizeVoiceLabWav(
 ): Promise<Buffer> {
   const apiKey = (env.VOICELAB_API_KEY || '').trim();
   const ttsUrl = (env.VOICELAB_TTS_URL || DEFAULT_VOICELAB_TTS_URL).trim();
-  const modelId = (env.VOICELAB_MODEL_ID || DEFAULT_VOICELAB_MODEL_ID).trim();
-  const voiceId =
-    voiceStyle === 'neutral'
-      ? NEUTRAL_VOICELAB_VOICE_ID
-      : (env.VOICELAB_VOICE_ID || DEFAULT_VOICELAB_VOICE_ID).trim();
+  const modelId = DEFAULT_VOICELAB_MODEL_ID;
+  const voiceId = DEFAULT_VOICELAB_VOICE_ID;
   const speed = voiceStyle === 'neutral' ? 0.95 : 1;
 
   if (!apiKey) {
@@ -57,7 +65,7 @@ async function synthesizeVoiceLabWav(
 
   const idempotencyKey = crypto.randomUUID();
   const payload = JSON.stringify({
-    text,
+    text: prepareVoiceLabTtsText(text),
     language: 'uz',
     voice_id: voiceId,
     model_id: modelId,
@@ -182,11 +190,8 @@ function voicelabTtsDevPlugin(env: Record<string, string>): Plugin {
               return;
             }
 
-            const modelId = (env.VOICELAB_MODEL_ID || DEFAULT_VOICELAB_MODEL_ID).trim();
-            const vlVoiceId =
-              voiceStyle === 'neutral'
-                ? NEUTRAL_VOICELAB_VOICE_ID
-                : (env.VOICELAB_VOICE_ID || DEFAULT_VOICELAB_VOICE_ID).trim();
+            const modelId = DEFAULT_VOICELAB_MODEL_ID;
+            const vlVoiceId = DEFAULT_VOICELAB_VOICE_ID;
             const vlDigest = crypto
               .createHash('sha256')
               .update(`${modelId}:${vlVoiceId}:${text}`)
@@ -248,10 +253,24 @@ function voicelabTtsDevPlugin(env: Record<string, string>): Plugin {
   };
 }
 
+function alifboSwStampPlugin(): Plugin {
+  return {
+    name: 'alifbo-sw-build-stamp',
+    writeBundle(options) {
+      const outDir = options.dir || path.resolve(process.cwd(), 'dist');
+      const swPath = path.join(outDir, 'sw.js');
+      if (!fs.existsSync(swPath)) return;
+      const buildId = `${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
+      const content = fs.readFileSync(swPath, 'utf8').replaceAll('__ALIFBO_BUILD_ID__', buildId);
+      fs.writeFileSync(swPath, content, 'utf8');
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
-    plugins: [react(), voicelabTtsDevPlugin(env)],
+    plugins: [react(), voicelabTtsDevPlugin(env), alifboSwStampPlugin()],
     build: {
       rollupOptions: {
         output: {

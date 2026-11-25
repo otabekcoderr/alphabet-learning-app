@@ -892,10 +892,10 @@ export function getVisualSplitParts(item: WordPoolItem): string[] {
   return item.syllables;
 }
 
-export type Stage1GameMode = 'train' | 'constructor' | 'bubbles' | 'sentence_builder';
+export type Stage1GameMode = 'word_hunter' | 'constructor' | 'bubbles' | 'sentence_builder';
 
 const EARLY_WORLD_STAGE1_ROTATION: readonly Stage1GameMode[] = [
-  'train',
+  'word_hunter',
   'constructor',
   'bubbles',
 ];
@@ -903,7 +903,7 @@ const EARLY_WORLD_STAGE1_ROTATION: readonly Stage1GameMode[] = [
 /**
  * Select the Stage 1 interactive game mode:
  * - World 5 sentences use `'sentence_builder'`
- * - Worlds 1–2 rotate `'train'` (blending slider), `'constructor'`, and `'bubbles'`
+ * - Worlds 1–2 rotate `'word_hunter'` (read & pick matching word + voice check), `'constructor'`, and `'bubbles'`
  * - Worlds 3–4 rotate `'bubbles'` and `'constructor'` (favoring `'bubbles'` on 3+ syllable words)
  */
 export function getStage1GameMode(roundIndex: number, item: WordPoolItem): Stage1GameMode {
@@ -911,12 +911,105 @@ export function getStage1GameMode(roundIndex: number, item: WordPoolItem): Stage
     return 'sentence_builder';
   }
   if (item.worldId <= 2) {
-    return EARLY_WORLD_STAGE1_ROTATION[Math.abs(roundIndex) % EARLY_WORLD_STAGE1_ROTATION.length] ?? 'train';
+    return EARLY_WORLD_STAGE1_ROTATION[Math.abs(roundIndex) % EARLY_WORLD_STAGE1_ROTATION.length] ?? 'word_hunter';
   }
   if (item.parts.length >= 3) {
     return roundIndex % 2 === 0 ? 'bubbles' : 'constructor';
   }
   return roundIndex % 2 === 0 ? 'constructor' : 'bubbles';
+}
+
+export interface WordHunterChoice {
+  id: string;
+  text: string;
+  parts: string[];
+  isTarget: boolean;
+}
+
+/**
+ * Build 3 syllable-segmented reading choices for Stage 1 "So‘z Ovchisi" (`word_hunter`):
+ * the target word plus 2 visually/phonetically close Stage-Gate allowed distractors
+ * so the child must actually read the syllables to match the picture.
+ */
+export function buildWordHunterChoices(
+  target: WordPoolItem,
+  pool: readonly WordPoolItem[],
+  opts?: { prevCorrectIndex?: number | null; rng?: () => number },
+): { choices: WordHunterChoice[]; correctIndex: number } {
+  const targetNorm = normalizeUzbek(target.text);
+  const candidates = pool
+    .filter(
+      (item) =>
+        item.kind === 'word' &&
+        item.worldId <= target.worldId &&
+        item.id !== target.id &&
+        normalizeUzbek(item.text) !== targetNorm,
+    )
+    .map((item) => {
+      let score = 0;
+      if (item.parts[0]?.toUpperCase() === target.parts[0]?.toUpperCase()) score += 3;
+      if (item.letters[0] === target.letters[0]) score += 2;
+      if (item.parts.length === target.parts.length) score += 2;
+      if (item.worldId === target.worldId) score += 1;
+      return { item, score };
+    })
+    .sort((a, b) => b.score - a.score);
+
+  const pickedDistractors: WordPoolItem[] = [];
+  const usedNorms = new Set<string>([targetNorm]);
+  for (const cand of candidates) {
+    const norm = normalizeUzbek(cand.item.text);
+    if (usedNorms.has(norm)) continue;
+    usedNorms.add(norm);
+    pickedDistractors.push(cand.item);
+    if (pickedDistractors.length >= 2) break;
+  }
+
+  const rawChoices: WordHunterChoice[] = [
+    {
+      id: target.id,
+      text: target.text,
+      parts: target.parts,
+      isTarget: true,
+    },
+    ...pickedDistractors.map((dist) => ({
+      id: dist.id,
+      text: dist.text,
+      parts: dist.parts,
+      isTarget: false,
+    })),
+  ];
+
+  // Guarantee 3 choices even if a unit test passes a minimal synthetic pool
+  if (rawChoices.length < 3 && target.distractorParts.length > 0) {
+    for (let i = 0; i < target.distractorParts.length && rawChoices.length < 3; i++) {
+      const fakePart = target.distractorParts[i]!;
+      const tailParts = target.parts.slice(1);
+      const fakeParts = [fakePart, ...tailParts];
+      const fakeText = fakeParts.join('');
+      const norm = normalizeUzbek(fakeText);
+      if (!usedNorms.has(norm)) {
+        usedNorms.add(norm);
+        rawChoices.push({
+          id: `synth-${target.id}-${i}`,
+          text: fakeText,
+          parts: fakeParts,
+          isTarget: false,
+        });
+      }
+    }
+  }
+
+  const choices = shuffleOptionsWithAntiStreak(
+    rawChoices,
+    (choice) => choice.isTarget,
+    opts?.prevCorrectIndex,
+    opts?.rng,
+  );
+  return {
+    choices,
+    correctIndex: choices.findIndex((choice) => choice.isTarget),
+  };
 }
 
 export interface SentenceWordTile {

@@ -43,6 +43,7 @@ import { validateSttReading } from '../logic/sttValidator';
 import {
   buildInterleavedSessionQueue,
   buildSentenceWordBank,
+  buildWordHunterChoices,
   evaluateConstructorSelection,
   getOfflineFallbackEmojiChoices,
   getSentenceComprehensionAudioKey,
@@ -62,6 +63,7 @@ import {
   playSyllableAudio,
   playWordItemAudio,
   playWrongFeedbackAudio,
+  preloadLessonSessionAudio,
   startMicRecording,
   stopActiveAudio,
   SttRequestError,
@@ -124,7 +126,7 @@ export function getLessonInstructionKey(params: {
 }): InstructionAudioKey | null {
   if (params.wordPhase === 'word_done') return null;
   if (params.wordPhase === 'stage1_build') {
-    if (params.buildGameMode === 'train') return 'instr_stage1_train';
+    if (params.buildGameMode === 'word_hunter') return 'instr_stage1_word_hunter';
     if (params.buildGameMode === 'sentence_builder') return 'instr_stage1_sentence';
     if (params.buildGameMode === 'constructor') return 'instr_stage1_constructor';
     return 'instr_stage1_bubbles';
@@ -271,7 +273,17 @@ export function LessonPlayer({
     audioKey: FeedbackAudioKey;
   } | null>(null);
   const [bubbleAssistBusy, setBubbleAssistBusy] = useState(false);
-  const [blendProgress, setBlendProgress] = useState<number>(0);
+  const [selectedHunterChoiceId, setSelectedHunterChoiceId] = useState<string | null>(null);
+  const [wrongHunterChoiceId, setWrongHunterChoiceId] = useState<string | null>(null);
+  const [hunterMatched, setHunterMatched] = useState(false);
+  const [hunterMicRecording, setHunterMicRecording] = useState(false);
+  const [hunterMicChecking, setHunterMicChecking] = useState(false);
+  const [hunterMicLevel, setHunterMicLevel] = useState(0);
+  const [hunterAttempts, setHunterAttempts] = useState(0);
+  const [hunterFeedback, setHunterFeedback] = useState<{
+    text: string;
+    audioKey?: FeedbackAudioKey;
+  } | null>(null);
   const [placedSentenceKeys, setPlacedSentenceKeys] = useState<string[]>([]);
   const [wrongSentenceKey, setWrongSentenceKey] = useState<string | null>(null);
   const [sentenceHint, setSentenceHint] = useState<{
@@ -309,6 +321,7 @@ export function LessonPlayer({
 
   const micRef = useRef<MicSession | null>(null);
   const bubbleMicRef = useRef<MicSession | null>(null);
+  const hunterMicRef = useRef<MicSession | null>(null);
   const stage1TimerRef = useRef<number | null>(null);
   const bubblePauseTimerRef = useRef<number | null>(null);
   const praiseTimerRef = useRef<number | null>(null);
@@ -316,7 +329,6 @@ export function LessonPlayer({
   const wrongBubbleTimerRef = useRef<number | null>(null);
   const bubbleGenRef = useRef<number>(0);
   const suppressNextAutoInstrRef = useRef<boolean>(false);
-  const trainCompletedRef = useRef<boolean>(false);
   const recordedIdsRef = useRef<Set<string>>(new Set());
   const prevSessionItemsRef = useRef(sessionItems);
   const scaffoldingRef = useRef<ScaffoldingTimerState>(createScaffoldingState(0));
@@ -326,6 +338,7 @@ export function LessonPlayer({
   const isCheckingRef = useRef<boolean>(false);
   const examRevealedRef = useRef<boolean>(false);
   const consecutiveSttFailuresRef = useRef<number>(0);
+  const prevHunterCorrectIdxRef = useRef<number | null>(null);
   const prevConstructorCorrectIdxRef = useRef<number | null>(null);
   const prevBubbleCorrectIdxRef = useRef<number | null>(null);
   const prevSpotlightCorrectIdxRef = useRef<number | null>(null);
@@ -423,10 +436,23 @@ export function LessonPlayer({
     );
   }, [currentItem, wordPhase, stepIdx, retryIndex]);
 
+  const wordHunterData = useMemo(() => {
+    if (!currentItem || currentItem.kind !== 'word') {
+      return { choices: [], correctIndex: -1 };
+    }
+    return buildWordHunterChoices(currentItem, DYNAMIC_WORD_POOL, {
+      prevCorrectIndex: prevHunterCorrectIdxRef.current,
+    });
+  }, [currentItem, wordPhase, stepIdx, retryIndex]);
+
   useEffect(() => {
     if (!currentItem) return;
     if (wordPhase === 'stage1_build') {
-      if (buildGameMode === 'constructor') {
+      if (buildGameMode === 'word_hunter') {
+        if (wordHunterData.correctIndex !== -1) {
+          prevHunterCorrectIdxRef.current = wordHunterData.correctIndex;
+        }
+      } else if (buildGameMode === 'constructor') {
         const targetLastPart = currentItem.parts[currentItem.parts.length - 1] ?? currentItem.text;
         const idx = constructorChoices.indexOf(targetLastPart);
         if (idx !== -1) prevConstructorCorrectIdxRef.current = idx;
@@ -446,6 +472,7 @@ export function LessonPlayer({
     wordPhase,
     buildGameMode,
     isOfflineFallbackActive,
+    wordHunterData.correctIndex,
     constructorChoices,
     bubbleChoices,
     spotlightEmojiChoices,
@@ -494,7 +521,6 @@ export function LessonPlayer({
       window.clearTimeout(wrongBubbleTimerRef.current);
       wrongBubbleTimerRef.current = null;
     }
-    trainCompletedRef.current = false;
     setPickedMissingPart(null);
     setSelectedConstructorPart(null);
     setWrongPart(null);
@@ -508,7 +534,14 @@ export function LessonPlayer({
     setBubbleMicLevel(0);
     setBubbleFeedback(null);
     setBubbleAssistBusy(false);
-    setBlendProgress(0);
+    setSelectedHunterChoiceId(null);
+    setWrongHunterChoiceId(null);
+    setHunterMatched(false);
+    setHunterMicRecording(false);
+    setHunterMicChecking(false);
+    setHunterMicLevel(0);
+    setHunterAttempts(0);
+    setHunterFeedback(null);
     setPlacedSentenceKeys([]);
     setWrongSentenceKey(null);
     setSentenceHint(null);
@@ -536,7 +569,19 @@ export function LessonPlayer({
       bubbleMicRef.current.cancel();
       bubbleMicRef.current = null;
     }
+    if (hunterMicRef.current) {
+      hunterMicRef.current.cancel();
+      hunterMicRef.current = null;
+    }
   }, [wordPhase, stepIdx, currentItem, retryIndex]);
+
+  // Preload all lesson audio clips into in-memory blob cache on session start
+  useEffect(() => {
+    void preloadLessonSessionAudio(
+      sessionItems.map((entry) => entry.item),
+      { includeAlhamdulillah: bismillahAlhamdulillahEnabled },
+    );
+  }, [sessionItems, bismillahAlhamdulillahEnabled]);
 
   // Full cleanup on unmount
   useEffect(() => {
@@ -572,6 +617,10 @@ export function LessonPlayer({
       if (bubbleMicRef.current) {
         bubbleMicRef.current.cancel();
         bubbleMicRef.current = null;
+      }
+      if (hunterMicRef.current) {
+        hunterMicRef.current.cancel();
+        hunterMicRef.current = null;
       }
     };
   }, []);
@@ -670,8 +719,9 @@ export function LessonPlayer({
   };
 
   const completeSessionRound = () => {
+    stopActiveAudio();
     setShowingWordDone(false);
-    setRoundPraiseDone(false);
+    setRoundPraiseDone(bismillahAlhamdulillahEnabled);
     setAlhamdulillahDone(false);
     if (!roundReportedRef.current) {
       roundReportedRef.current = true;
@@ -680,15 +730,18 @@ export function LessonPlayer({
     triggerCelebrationBurst('round');
     if (praiseTimerRef.current !== null) {
       window.clearTimeout(praiseTimerRef.current);
-    }
-    praiseTimerRef.current = window.setTimeout(() => {
       praiseTimerRef.current = null;
-      void playPraiseAudio('round_complete').finally(() => {
-        if (isMountedRef.current) {
-          setRoundPraiseDone(true);
-        }
-      });
-    }, 800);
+    }
+    if (!bismillahAlhamdulillahEnabled) {
+      praiseTimerRef.current = window.setTimeout(() => {
+        praiseTimerRef.current = null;
+        void playPraiseAudio('round_complete').finally(() => {
+          if (isMountedRef.current) {
+            setRoundPraiseDone(true);
+          }
+        });
+      }, 800);
+    }
     setRoundFinished(true);
   };
 
@@ -711,15 +764,158 @@ export function LessonPlayer({
     }, delayMs);
   };
 
-  const handleBlendSliderChange = (nextValue: number) => {
-    setBlendProgress(nextValue);
-    if (nextValue >= 90 && currentItem && !trainCompletedRef.current) {
-      trainCompletedRef.current = true;
-      setBlendProgress(100);
-      playFeedbackChime('chime');
-      void playWordItemAudio(currentItem);
-      scheduleStage1Advance(720);
+  const verifyWordHunterSpeech = async (result: MicRecordingResult) => {
+    if (!currentItem) return;
+    const myGen = bubbleGenRef.current;
+    setHunterMicChecking(true);
+    setHunterFeedback(null);
+    try {
+      const resp = await verifyAudioWithStt(
+        result.wavBlob,
+        currentItem.text,
+        currentItem.accept,
+      );
+      if (bubbleGenRef.current !== myGen) return;
+      consecutiveSttFailuresRef.current = 0;
+      setConsecutiveSttFailures(0);
+
+      const validation = validateSttReading({
+        targetWord: currentItem.text,
+        parts: currentItem.parts,
+        syllableCount: currentItem.syllables.length,
+        acceptAliases: currentItem.accept,
+        transcript: resp.transcript,
+        isSilence: resp.is_silence,
+        confidence: resp.confidence,
+        confidenceAvailable: resp.confidence_available,
+      });
+
+      if (validation.decision === 'accepted' || resp.accepted) {
+        playFeedbackChime('chime');
+        setHunterFeedback(null);
+        void playWordItemAudio(currentItem);
+        scheduleStage1Advance(650);
+        return;
+      }
+
+      playFeedbackChime('soft-bonk');
+      setHunterAttempts((prev) => prev + 1);
+      if (validation.decision === 'silence') {
+        setHunterFeedback({
+          text: 'Ovozing eshitilmadi — yana bir bor balandroq o‘qi!',
+          audioKey: 'fb_no_speech',
+        });
+        void playFeedbackAudio('fb_no_speech');
+      } else {
+        setHunterFeedback({
+          text: `«${currentItem.text}» so‘zini bo‘g‘inlarga qarab yana bir bor o‘qi!`,
+          audioKey: 'fb_louder_clearer',
+        });
+        void playFeedbackAudio('fb_louder_clearer');
+      }
+    } catch (err) {
+      if (bubbleGenRef.current !== myGen) return;
+      const nextFailures = computeNextSttFailureCount(consecutiveSttFailuresRef.current, err);
+      consecutiveSttFailuresRef.current = nextFailures;
+      setConsecutiveSttFailures(nextFailures);
+      setHunterAttempts((prev) => prev + 1);
+      setHunterFeedback({
+        text: 'Ovoz serveri bilan aloqa bo‘lmadi — «Davom etish» tugmasini bosishingiz mumkin.',
+      });
+    } finally {
+      if (bubbleGenRef.current === myGen) {
+        setHunterMicChecking(false);
+      }
     }
+  };
+
+  const handleToggleWordHunterMic = async () => {
+    if (!currentItem || hunterMicChecking) return;
+    if (hunterMicRecording && hunterMicRef.current) {
+      const rec = await hunterMicRef.current.stop();
+      hunterMicRef.current = null;
+      setHunterMicRecording(false);
+      setHunterMicLevel(0);
+      if (rec) {
+        await verifyWordHunterSpeech(rec);
+      }
+      return;
+    }
+
+    stopActiveAudio();
+    setHunterFeedback(null);
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setMicPermissionBlocked(true);
+      void playWordItemAudio(currentItem);
+      scheduleStage1Advance(850);
+      return;
+    }
+
+    const myGen = bubbleGenRef.current;
+    try {
+      const session = await startMicRecording(
+        (lvl) => {
+          if (bubbleGenRef.current === myGen) setHunterMicLevel(lvl);
+        },
+        (_reason, rec) => {
+          hunterMicRef.current = null;
+          if (bubbleGenRef.current !== myGen) return;
+          setHunterMicRecording(false);
+          setHunterMicLevel(0);
+          void verifyWordHunterSpeech(rec);
+        },
+        SPELLING_FRIENDLY_MIC_CONFIG,
+      );
+      if (bubbleGenRef.current !== myGen) {
+        session.cancel();
+        return;
+      }
+      hunterMicRef.current = session;
+      setHunterMicRecording(true);
+    } catch {
+      if (bubbleGenRef.current === myGen) {
+        setMicPermissionBlocked(true);
+        void playWordItemAudio(currentItem);
+        scheduleStage1Advance(850);
+      }
+    }
+  };
+
+  const handleCheckWordHunter = () => {
+    if (!currentItem || !selectedHunterChoiceId || hunterMatched) return;
+    const picked = wordHunterData.choices.find((c) => c.id === selectedHunterChoiceId);
+    if (!picked) return;
+
+    if (!picked.isTarget) {
+      playFeedbackChime('soft-bonk');
+      setWrongHunterChoiceId(picked.id);
+      setWrongShakeTick((prev) => prev + 1);
+      setHunterFeedback({
+        text: 'Boshqa so‘zga qarab ko‘r! Bo‘g‘inlarni diqqat bilan o‘qi.',
+        audioKey: 'fb_word_hunter_wrong',
+      });
+      void playFeedbackAudio('fb_word_hunter_wrong');
+      return;
+    }
+
+    playFeedbackChime('chime');
+    setWrongHunterChoiceId(null);
+    setHunterFeedback(null);
+    setHunterMatched(true);
+
+    const canVoiceSpeak =
+      !isOfflineFallbackActive &&
+      !micPermissionBlocked &&
+      typeof navigator !== 'undefined' &&
+      Boolean(navigator.mediaDevices?.getUserMedia);
+
+    if (!canVoiceSpeak) {
+      void playWordItemAudio(currentItem);
+      scheduleStage1Advance(850);
+      return;
+    }
+
+    void playInstructionAudio('instr_stage1_word_hunter_speak');
   };
 
   const advanceAfterStage2 = () => {
@@ -1534,7 +1730,9 @@ export function LessonPlayer({
               />
             </div>
 
-            <h1 className="victory-headline">Barakalla! Ajoyib natija!</h1>
+            {!bismillahAlhamdulillahEnabled && (
+              <h1 className="victory-headline">Barakalla! Ajoyib natija!</h1>
+            )}
 
             <div className="victory-metrics-row">
               <span className="stars-pill-3d victory-metric-pill">
@@ -1574,6 +1772,7 @@ export function LessonPlayer({
               <AlhamdulillahHabitBlock
                 readyToPlay={roundPraiseDone}
                 acknowledged={alhamdulillahDone}
+                aiOnline={aiOnline}
                 onAcknowledge={() => setAlhamdulillahDone(true)}
               />
             )}
@@ -1675,7 +1874,11 @@ export function LessonPlayer({
 
   const stagePrompt = (() => {
     if (wordPhase === 'stage1_build') {
-      if (buildGameMode === 'train') return 'Slayderni surib bo‘g‘inlarni birlashtir!';
+      if (buildGameMode === 'word_hunter') {
+        return hunterMatched
+          ? 'Endi topgan so‘zingni ovoz chiqarib o‘qib ber!'
+          : 'Rasmga qarab to‘g‘ri so‘zni top va o‘qib ber!';
+      }
       if (buildGameMode === 'sentence_builder') return 'So‘zlarni to‘g‘ri tartibda ter!';
       return buildGameMode === 'constructor'
         ? 'Qaysi bo‘g‘in mos?'
@@ -1792,8 +1995,8 @@ export function LessonPlayer({
             <div className="stage1-shell">
               <div className="lesson-mode-heading-row">
                 <span className="step-pill-tag">
-                  {buildGameMode === 'train'
-                    ? 'Bo‘g‘in poyezdi'
+                  {buildGameMode === 'word_hunter'
+                    ? 'So‘z ovchisi'
                     : buildGameMode === 'sentence_builder'
                       ? 'Gap tuzish'
                       : buildGameMode === 'constructor'
@@ -1990,10 +2193,10 @@ export function LessonPlayer({
                     </div>
                   </div>
                 </LayoutGroup>
-              ) : buildGameMode === 'train' ? (
+              ) : buildGameMode === 'word_hunter' ? (
                 <div className="lesson-card-white lesson-centered-card">
                   <AnimatedCharacter
-                    mood={charMoodForScreen}
+                    mood={hunterMicRecording ? 'listening' : charMoodForScreen}
                     size={96}
                     avatarId={avatar.id}
                     layout="row"
@@ -2016,68 +2219,122 @@ export function LessonPlayer({
                     />
                   </motion.div>
 
-                  <div
-                    className={`blend-track-box ${
-                      blendProgress >= 90 ? 'blend-track-complete' : ''
-                    }`}
-                  >
-                    <div
-                      className="train-cars-stage"
-                      style={{
-                        gap: `${Math.max(0, Math.round((100 - blendProgress) * 0.42))}px`,
-                      }}
-                    >
-                      <span className="train-locomotive" aria-hidden="true">
-                        🚂
-                      </span>
-                      {currentItem.parts.map((part, idx) => (
-                        <span key={`train-${part}-${idx}`} className="train-car-item">
+                  {!hunterMatched ? (
+                    <>
+                      <div className="word-hunter-grid" role="radiogroup" aria-label="Rasmga mos so‘zni tanlang">
+                        {wordHunterData.choices.map((choice) => {
+                          const isSelected = selectedHunterChoiceId === choice.id;
+                          const isWrong = wrongHunterChoiceId === choice.id;
+                          return (
+                            <motion.button
+                              key={choice.id}
+                              type="button"
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.97 }}
+                              className={`word-hunter-choice-card ${
+                                isSelected ? 'is-selected' : ''
+                              } ${isWrong ? 'is-wrong shake' : ''}`}
+                              onClick={() => {
+                                playFeedbackChime('pop');
+                                setSelectedHunterChoiceId(choice.id);
+                                setWrongHunterChoiceId(null);
+                                setHunterFeedback(null);
+                              }}
+                              aria-pressed={isSelected}
+                            >
+                              <span className="word-hunter-syllables">
+                                {choice.parts.map((part, pIdx) => (
+                                  <span key={`${choice.id}-p-${pIdx}`} className="word-hunter-syl-chip">
+                                    {part}
+                                  </span>
+                                ))}
+                              </span>
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+
+                      {hunterFeedback && (
+                        <p className="gentle-feedback-banner" role="status">
+                          {hunterFeedback.text}
+                        </p>
+                      )}
+
+                      <button
+                        type="button"
+                        className="btn-3d-emerald"
+                        disabled={!selectedHunterChoiceId}
+                        onClick={handleCheckWordHunter}
+                      >
+                        Tekshirish
+                      </button>
+                    </>
+                  ) : (
+                    <div className="word-hunter-speak-box">
+                      <div className="letter-row-centered">
+                        {currentItem.parts.map((part, idx) => (
                           <LetterBlock
+                            key={`hunter-word-${part}-${idx}`}
                             text={part}
                             size="lg"
-                            highlighted={blendProgress >= 90}
+                            highlighted
                             onLetterTap={handleTapLetterRecall}
                           />
-                        </span>
-                      ))}
-                    </div>
-                    {blendProgress >= 90 && (
-                      <span className="blend-celebration-pill">
-                        <Sparkles size={16} />
-                        <span>{currentItem.text}!</span>
-                      </span>
-                    )}
-                  </div>
+                        ))}
+                      </div>
 
-                  <div className="slider-wrap train-slider-box">
-                    <div className="slider-label">
-                      <span>Ajratib o‘qish</span>
-                      <strong className="merged-preview">
-                        {blendProgress >= 90 ? currentItem.text : 'Birga →'}
-                      </strong>
+                      <div className="hunter-mic-actions">
+                        <button
+                          type="button"
+                          className={`mic-btn-big ${hunterMicRecording ? 'mic-btn-recording' : ''}`}
+                          style={
+                            hunterMicRecording
+                              ? { transform: `scale(${1 + Math.min(0.14, hunterMicLevel * 0.25)})` }
+                              : undefined
+                          }
+                          disabled={hunterMicChecking}
+                          onClick={() => void handleToggleWordHunterMic()}
+                        >
+                          {hunterMicRecording ? (
+                            <>
+                              <Square size={20} fill="currentColor" />
+                              <span>Tinglayapman...</span>
+                            </>
+                          ) : hunterMicChecking ? (
+                            <>
+                              <Sparkles size={20} />
+                              <span>Tekshiryapman...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Mic size={22} />
+                              <span>Mikrofonga «{currentItem.text}» de</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+
+                      {hunterFeedback && (
+                        <p className="gentle-feedback-banner" role="status">
+                          {hunterFeedback.text}
+                        </p>
+                      )}
+
+                      {hunterAttempts >= 2 && (
+                        <button
+                          type="button"
+                          className="btn-3d-cream btn-compact btn-with-icon"
+                          onClick={() => {
+                            void playWordItemAudio(currentItem);
+                            scheduleStage1Advance(650);
+                          }}
+                        >
+                          <ArrowRight size={16} />
+                          <span>Davom etish</span>
+                        </button>
+                      )}
                     </div>
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      value={blendProgress}
-                      aria-label="Bo‘g‘inlarni ulash slayderi"
-                      className="blend-slider"
-                      onChange={(e) => handleBlendSliderChange(Number(e.target.value))}
-                    />
-                    <button
-                      type="button"
-                      className="btn-3d-emerald btn-compact"
-                      style={{ marginTop: 10 }}
-                      disabled={blendProgress >= 90}
-                      onClick={() => {
-                        playFeedbackChime('pop');
-                        handleBlendSliderChange(100);
-                      }}
-                    >
-                      Birlashtirish
-                    </button>
-                  </div>
+                  )}
                 </div>
               ) : buildGameMode === 'sentence_builder' ? (
                 <LayoutGroup id={`sent-${currentItem.id}`}>

@@ -50,10 +50,10 @@ export const ASSET_LICENSE_MANIFEST: AssetManifestEntry[] = [
   },
   {
     id: 'audio_voicelab_malika',
-    nameUz: 'VoiceLab Lison v2 va UzbekVoice (Shoira) offline ovozli to‘plam',
+    nameUz: 'VoiceLab Lison v2 (Malika) offline ovozli to‘plam',
     path: 'public/audio/*.mp3',
     kind: 'audio',
-    originUz: 'VoiceLab Lison v2 (Malika) hamda neytral o‘qituvchi ovozi UzbekVoice (Shoira) orqali oldindan generatsiya qilingan statik MP3 audiolari',
-    license: 'Needs Teacher Review (Alifbo 2.2 offline audio paketi)',
+    originUz: 'Yagona VoiceLab Lison v2 (Malika) ovoz modeli orqali oldindan generatsiya qilingan statik MP3 audiolari',
+    license: 'Alifbo 2.3.1 VoiceLab Lison v2 (Malika) yagona ovoz paketi',
   },
 ];

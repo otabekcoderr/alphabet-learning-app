@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { motion } from 'framer-motion';
 import { ASSET_LICENSE_MANIFEST } from '../data/assetManifest';
 import {
@@ -80,7 +80,20 @@ import {
   ParentNotificationsPanel,
   TelegramReminderCard,
 } from './ParentNotificationsPanel';
+import { PwaInstallBanner } from './PwaInstallBanner';
 import { StorybookBackdrop } from './StorybookBackdrop';
+
+function handleMaskedPinInputChange(prevPin: string, nextRawValue: string): string {
+  const addedDigits = nextRawValue.replace(/[●\D]/g, '');
+  if (addedDigits.length > 0) {
+    return (prevPin + addedDigits).slice(0, 4);
+  }
+  const bulletCount = (nextRawValue.match(/●/g) ?? []).length;
+  if (bulletCount < prevPin.length) {
+    return prevPin.slice(0, bulletCount);
+  }
+  return prevPin;
+}
 
 export type ParentTab = 'today' | 'diagnostics' | 'achievements' | 'settings';
 
@@ -346,8 +359,7 @@ export function ParentCorner({
     }
   };
 
-  const handlePinChange = (e: FormEvent) => {
-    e.preventDefault();
+  const handlePinChange = () => {
     const res = changePin({
       salt: state.pinSalt,
       storedHash: state.pinHash,
@@ -1203,38 +1215,92 @@ export function ParentCorner({
 
             <section className="parent-card">
               <h3>PIN-kodni o‘zgartirish</h3>
-              <form onSubmit={handlePinChange} className="pin-change-form">
+              <div className="pin-change-form">
                 <input
-                  type="password"
+                  type="text"
+                  name="alifbo_pin_current"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
                   inputMode="numeric"
                   maxLength={4}
                   placeholder="Amaldagi PIN"
-                  value={currentPin}
-                  onChange={(e) => setCurrentPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  aria-label="Amaldagi PIN"
+                  value={'●'.repeat(currentPin.length)}
+                  onKeyDown={(e) => {
+                    if (/^[0-9]$/.test(e.key)) {
+                      e.preventDefault();
+                      setCurrentPin((prev) => (prev.length < 4 ? `${prev}${e.key}` : prev));
+                    } else if (e.key === 'Backspace') {
+                      e.preventDefault();
+                      setCurrentPin((prev) => prev.slice(0, -1));
+                    }
+                  }}
+                  onChange={(e) => setCurrentPin((prev) => handleMaskedPinInputChange(prev, e.target.value))}
                   className="pin-input-sm"
                 />
                 <input
-                  type="password"
+                  type="text"
+                  name="alifbo_pin_new"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
                   inputMode="numeric"
                   maxLength={4}
                   placeholder="Yangi PIN (4 raqam)"
-                  value={newPin}
-                  onChange={(e) => setNewPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  aria-label="Yangi PIN"
+                  value={'●'.repeat(newPin.length)}
+                  onKeyDown={(e) => {
+                    if (/^[0-9]$/.test(e.key)) {
+                      e.preventDefault();
+                      setNewPin((prev) => (prev.length < 4 ? `${prev}${e.key}` : prev));
+                    } else if (e.key === 'Backspace') {
+                      e.preventDefault();
+                      setNewPin((prev) => prev.slice(0, -1));
+                    }
+                  }}
+                  onChange={(e) => setNewPin((prev) => handleMaskedPinInputChange(prev, e.target.value))}
                   className="pin-input-sm"
                 />
                 <input
-                  type="password"
+                  type="text"
+                  name="alifbo_pin_confirm"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
                   inputMode="numeric"
                   maxLength={4}
                   placeholder="Yangi PIN tasdig‘i"
-                  value={confirmPin}
-                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
+                  aria-label="Yangi PIN tasdig‘i"
+                  value={'●'.repeat(confirmPin.length)}
+                  onKeyDown={(e) => {
+                    if (/^[0-9]$/.test(e.key)) {
+                      e.preventDefault();
+                      setConfirmPin((prev) => (prev.length < 4 ? `${prev}${e.key}` : prev));
+                    } else if (e.key === 'Backspace') {
+                      e.preventDefault();
+                      setConfirmPin((prev) => prev.slice(0, -1));
+                    } else if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handlePinChange();
+                    }
+                  }}
+                  onChange={(e) => setConfirmPin((prev) => handleMaskedPinInputChange(prev, e.target.value))}
                   className="pin-input-sm"
                 />
-                <button type="submit" className="btn-3d-emerald btn-compact">
+                <button type="button" className="btn-3d-emerald btn-compact" onClick={handlePinChange}>
                   PIN-kodni yangilash
                 </button>
-              </form>
+              </div>
               {pinMsg && (
                 <div
                   className={`feedback-banner ${pinMsg.ok ? 'feedback-success' : 'feedback-gentle'}`}
@@ -1244,6 +1310,8 @@ export function ParentCorner({
                 </div>
               )}
             </section>
+
+            <PwaInstallBanner variant="settings" />
 
             <section className="parent-card">
               <h3>Natijalarni faylga saqlash va qayta yuklash</h3>

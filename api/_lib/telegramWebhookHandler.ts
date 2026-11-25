@@ -77,6 +77,18 @@ function parseCommandAndArg(text: string): { command: string; arg: string } {
   };
 }
 
+export function buildReminderConfirmationTextUz(childName?: string | null): string {
+  const child = (childName || '').trim();
+  const statusLine = child
+    ? `<b>${escapeHtml(child)}</b> uchun kunlik mashq bildirishnomalari muvaffaqiyatli yoqildi!`
+    : 'Kunlik mashq bildirishnomalari muvaffaqiyatli yoqildi!';
+  return (
+    `✅ <b>@alifbo_uz_robot</b> ulandi — ${statusLine}\n\n` +
+    '⏰ Har kuni Toshkent vaqti bilan soat <b>19:00</b> da (agar o‘sha kuni mashq qilinmagan bo‘lsa) eslatma yuboraman.\n\n' +
+    'Boshqarish: /eslatma · O‘chirish: /eslatma_off'
+  );
+}
+
 async function handleDeepLinkLogin(
   botToken: string,
   chatId: number,
@@ -126,16 +138,18 @@ async function handleDeepLinkLogin(
     return;
   }
 
-  const keyboard: TelegramInlineButton[][] = [];
+  const keyboard: TelegramInlineButton[][] = [
+    [{ text: '🔕 Eslatmani o‘chirish', callback_data: 'rem_off' }],
+  ];
   if (isPublicHttpsOrigin(appOrigin)) {
-    keyboard.push([{ text: '🌐 Alifbo saytiga qaytish', url: appOrigin }]);
+    keyboard.unshift([{ text: '🌐 Alifbo saytiga qaytish', url: appOrigin }]);
   }
 
   await sendTelegramMessage(
     botToken,
     chatId,
-    '✅ Kirish tasdiqlandi! Endi saytga qaytishingiz mumkin.',
-    keyboard.length > 0 ? keyboard : undefined,
+    '✅ Kirish tasdiqlandi! Endi saytga qaytishingiz mumkin.\n\n⏰ Eslatma: Har kuni Toshkent vaqti bilan soat <b>19:00</b> da (agar o‘sha kuni mashq qilinmagan bo‘lsa) kunlik mashq eslatmasi yuboriladi.',
+    keyboard,
   );
 }
 
@@ -414,7 +428,7 @@ async function handleDeepLinkReminderConnect(
   await sendTelegramMessage(
     botToken,
     chatId,
-    `✅ <b>@alifbo_uz_robot</b> hisobingizga muvaffaqiyatli ulandi!\n\nEndi <b>${escapeHtml(updated[0].child_name)}</b> uchun kunlik mashq eslatmalarini yuborib turamiz.\n\nBoshqarish: /eslatma · O‘chirish: /eslatma_off`,
+    buildReminderConfirmationTextUz(updated[0].child_name),
     keyboard,
   );
 }
@@ -426,12 +440,6 @@ function buildReminderControlKeyboard(enabled: boolean): TelegramInlineButton[][
         ? { text: '🔕 Eslatmani o‘chirish', callback_data: 'rem_off' }
         : { text: '🔔 Eslatmani yoqish', callback_data: 'rem_on' },
     ],
-    [
-      { text: '18:00', callback_data: 'rem_hr_18' },
-      { text: '19:00', callback_data: 'rem_hr_19' },
-      { text: '20:00', callback_data: 'rem_hr_20' },
-      { text: '21:00', callback_data: 'rem_hr_21' },
-    ],
   ];
 }
 
@@ -440,7 +448,7 @@ async function handleReminderCommandOrAction(
   chatId: number,
   tgUser: TelegramUser,
   action: 'status' | 'on' | 'off' | 'hour',
-  hourValue?: number,
+  _hourValue?: number,
 ): Promise<void> {
   if (tgUser.is_bot) return;
   if (!isDbConfigured()) {
@@ -469,11 +477,9 @@ async function handleReminderCommandOrAction(
     return;
   }
 
-  let nextEnabled = Boolean(user.tg_reminder_enabled);
-  let nextHour = Number.isFinite(user.tg_reminder_hour) ? user.tg_reminder_hour : 19;
+  const nextEnabled = Boolean(user.tg_reminder_enabled);
 
   if (action === 'off') {
-    nextEnabled = false;
     await sql`
       UPDATE users
       SET tg_reminder_enabled = FALSE, telegram_chat_id = ${chatIdStr}, updated_at = NOW()
@@ -489,7 +495,6 @@ async function handleReminderCommandOrAction(
   }
 
   if (action === 'on') {
-    nextEnabled = true;
     await sql`
       UPDATE users
       SET
@@ -503,31 +508,18 @@ async function handleReminderCommandOrAction(
     await sendTelegramMessage(
       botToken,
       chatId,
-      `🔔 Kunlik mashq eslatmasi yoqildi! (Vaqti: <b>${String(nextHour).padStart(2, '0')}:00</b>)`,
+      '🔔 Kunlik mashq eslatmasi yoqildi!\n\n⏰ Har kuni Toshkent vaqti bilan soat <b>19:00</b> da (agar o‘sha kuni mashq qilinmagan bo‘lsa) eslatma yuboraman.',
       buildReminderControlKeyboard(true),
     );
     return;
   }
 
-  if (action === 'hour' && typeof hourValue === 'number' && hourValue >= 18 && hourValue <= 21) {
-    nextHour = hourValue;
-    nextEnabled = true;
-    await sql`
-      UPDATE users
-      SET
-        tg_reminder_hour = ${nextHour},
-        tg_reminder_enabled = TRUE,
-        tg_bot_blocked = FALSE,
-        telegram_chat_id = ${chatIdStr},
-        consecutive_missed_reminders = 0,
-        updated_at = NOW()
-      WHERE id = ${user.id}
-    `;
+  if (action === 'hour') {
     await sendTelegramMessage(
       botToken,
       chatId,
-      `⏰ Kunlik eslatma vaqti <b>${String(nextHour).padStart(2, '0')}:00</b> ga saqlandi!`,
-      buildReminderControlKeyboard(true),
+      '⏰ Kunlik mashq eslatmalari har kuni Toshkent vaqti bilan soat <b>19:00</b> da (agar o‘sha kuni mashq qilinmagan bo‘lsa) yuboriladi.',
+      buildReminderControlKeyboard(nextEnabled),
     );
     return;
   }
@@ -536,9 +528,55 @@ async function handleReminderCommandOrAction(
   await sendTelegramMessage(
     botToken,
     chatId,
-    `<b>Kunlik mashq eslatmasi</b>\nBola: <b>${escapeHtml(user.child_name)}</b>\nHolat: ${statusText}\nVaqti: <b>${String(nextHour).padStart(2, '0')}:00</b> (Toshkent vaqti)\n\nQuyidan boshqarishingiz mumkin:`,
+    `<b>Kunlik mashq eslatmasi</b>\nBola: <b>${escapeHtml(user.child_name)}</b>\nHolat: ${statusText}\n⏰ Vaqti: har kuni soat <b>19:00</b> (Toshkent vaqti, o‘sha kuni mashq qilinmagan bo‘lsa)\n\nQuyidan boshqarishingiz mumkin:`,
     buildReminderControlKeyboard(nextEnabled),
   );
+}
+
+async function handlePlainStartCommand(
+  botToken: string,
+  chatId: number,
+  tgUser: TelegramUser,
+  appOrigin: string,
+): Promise<void> {
+  if (tgUser.is_bot) return;
+  if (isDbConfigured()) {
+    await ensureSchema();
+    const sql = getSql();
+    const tgId = String(tgUser.id);
+    const chatIdStr = String(chatId);
+    const linked = (await sql`
+      SELECT id, child_name FROM users
+      WHERE telegram_id = ${tgId} OR telegram_chat_id = ${chatIdStr}
+      LIMIT 1
+    `) as Array<{ id: string; child_name: string }>;
+    if (linked[0]) {
+      await sql`
+        UPDATE users
+        SET
+          tg_reminder_enabled = TRUE,
+          tg_bot_blocked = FALSE,
+          telegram_chat_id = ${chatIdStr},
+          consecutive_missed_reminders = 0,
+          updated_at = NOW()
+        WHERE id = ${linked[0].id}
+      `;
+      const keyboard: TelegramInlineButton[][] = [
+        [{ text: '🔕 Eslatmani o‘chirish', callback_data: 'rem_off' }],
+      ];
+      if (isPublicHttpsOrigin(appOrigin)) {
+        keyboard.unshift([{ text: '🌐 Alifbo saytiga qaytish', url: appOrigin }]);
+      }
+      await sendTelegramMessage(
+        botToken,
+        chatId,
+        buildReminderConfirmationTextUz(linked[0].child_name),
+        keyboard,
+      );
+      return;
+    }
+  }
+  await issueCodeForUser(botToken, chatId, tgUser, appOrigin);
 }
 
 export async function handleTelegramWebhook(request: Request): Promise<Response> {
@@ -599,8 +637,9 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
       } else if (command === '/start' && arg.startsWith('link_')) {
         const linkToken = arg.slice(5).trim();
         await handleDeepLinkReminderConnect(botToken, msg.chat.id, msg.from, linkToken, appOrigin);
+      } else if (command === '/start') {
+        await handlePlainStartCommand(botToken, msg.chat.id, msg.from, appOrigin);
       } else if (
-        command === '/start' ||
         command === '/kod' ||
         command === '/code' ||
         command === '/login'

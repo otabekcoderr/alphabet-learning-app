@@ -677,7 +677,7 @@ export const ALIFBE_LETTERS_29: AlifbeLetterInfo[] = [
   { letter: 'H', display: 'H h', category: 'consonant', soundTextUz: 'h', exampleWord: 'HAVO', exampleEmoji: '🌤️', audioSound: '/audio/sound_h.mp3', audioRecall: '/audio/letter_h.mp3', phoneticTtsPrompt: 'H. Havo.' },
   { letter: 'J', display: 'J j', category: 'consonant', soundTextUz: 'j', exampleWord: 'JO‘JA', exampleEmoji: '🐣', audioSound: '/audio/sound_j.mp3', audioRecall: '/audio/letter_j.mp3', phoneticTtsPrompt: 'J. Jo‘ja.' },
   { letter: 'X', display: 'X x', category: 'consonant', soundTextUz: 'x', exampleWord: 'XO‘ROZ', exampleEmoji: '🐓', audioSound: '/audio/sound_x.mp3', audioRecall: '/audio/letter_x.mp3', phoneticTtsPrompt: 'X. Xo‘roz.' },
-  { letter: 'F', display: 'F f', category: 'consonant', soundTextUz: 'f', exampleWord: 'FIL', exampleEmoji: '🐘', audioSound: '/audio/sound_f.mp3', audioRecall: '/audio/letter_f.mp3', phoneticTtsPrompt: 'F. Fil.' },
+  { letter: 'F', display: 'F f', category: 'consonant', soundTextUz: 'f', exampleWord: 'FIL', exampleEmoji: '🐘', audioSound: '/audio/sound_f.mp3', audioRecall: '/audio/letter_f.mp3', phoneticTtsPrompt: 'Fff. Fil.' },
   { letter: 'P', display: 'P p', category: 'consonant', soundTextUz: 'p', exampleWord: 'POMIDOR', exampleEmoji: '🍅', audioSound: '/audio/sound_p.mp3', audioRecall: '/audio/letter_p.mp3', phoneticTtsPrompt: 'P. Pomidor.' },
   { letter: '’', display: '’ (Tutuq)', category: 'mark', soundTextUz: 'tutuq belgisi', exampleWord: 'A’LO', exampleEmoji: '🏅', audioSound: '/audio/sound_tutuq.mp3', audioRecall: '/audio/letter_tutuq.mp3', phoneticTtsPrompt: 'Tutuq belgisi. A’lo.' },
 ];

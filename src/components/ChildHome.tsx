@@ -11,11 +11,13 @@ import {
   playFeedbackChime,
   playInstructionAudio,
   playInstructionAutoOnEntry,
+  preloadAudioUrls,
 } from '../utils/audioRecorder';
 import { AccountIdBadge } from './AccountIdBadge';
 import { AnimatedCharacter } from './AnimatedCharacter';
 import { GuestSaveBanner } from './GuestSaveBanner';
 import { Clock, Play, Star } from './Icons';
+import { PwaInstallBanner } from './PwaInstallBanner';
 import { WorldIslandArt } from './WorldIslandArt';
 
 interface ChildHomeProps {
@@ -70,6 +72,15 @@ export function ChildHome({
       screenTime.isLimitReached ? 'instr_home_sleep' : 'instr_home_welcome',
     );
   };
+
+  useEffect(() => {
+    void preloadAudioUrls([
+      '/audio/instr_home_welcome.mp3',
+      '/audio/instr_home_sleep.mp3',
+      '/audio/bismillah.mp3',
+      '/audio/instr_alpha_chart.mp3',
+    ]);
+  }, []);
 
   useEffect(() => {
     const key = screenTime.isLimitReached ? 'instr_home_sleep' : 'instr_home_welcome';
@@ -211,6 +222,8 @@ export function ChildHome({
           {isGuest && onOpenGuestUpgrade && (
             <GuestSaveBanner variant="compact" onSaveAccount={onOpenGuestUpgrade} />
           )}
+
+          <PwaInstallBanner variant="home" />
 
           <div className="daily-time-bar-wrap" aria-label="Kunlik mashq vaqti">
             <div className="daily-time-bar-track">

@@ -12,7 +12,6 @@ export const MAX_TTS_TEXT_LENGTH = 300;
 const DEFAULT_VOICELAB_TTS_URL = 'https://api.voicelab.uz/v1/tts';
 const DEFAULT_VOICELAB_MODEL_ID = 'lison-v2';
 const DEFAULT_VOICELAB_VOICE_ID = 'voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a';
-const NEUTRAL_VOICELAB_VOICE_ID = DEFAULT_VOICELAB_VOICE_ID;
 
 class VoiceLabCreditsExhaustedError extends Error {
   constructor(message: string) {
@@ -36,9 +35,14 @@ function detectAudioMime(buf: Buffer): string {
 }
 
 function prepareVoiceLabTtsText(text: string): string {
-  return text.replace(/\bbismill[ao]h\b/gi, (match) =>
-    match === match.toLowerCase() ? 'бисмиллаҳ' : 'Бисмиллаҳ',
-  );
+  return text
+    .replace(/\bbismill[ao]h\b/gi, (match) =>
+      match === match.toLowerCase() ? 'бисмиллаҳ' : 'Бисмиллаҳ',
+    )
+    .replace(/\balhamdulill[ao]h\b/gi, (match) =>
+      match === match.toLowerCase() ? 'алҳамдулиллаҳ' : 'Алҳамдулиллаҳ',
+    )
+    .replace(/\bF+\.\s*Fil\./g, 'Ффф. Фил.');
 }
 
 async function synthesizeVoiceLabWav(
@@ -47,11 +51,8 @@ async function synthesizeVoiceLabWav(
 ): Promise<Buffer> {
   const apiKey = (process.env.VOICELAB_API_KEY || '').trim();
   const ttsUrl = (process.env.VOICELAB_TTS_URL || DEFAULT_VOICELAB_TTS_URL).trim();
-  const modelId = (process.env.VOICELAB_MODEL_ID || DEFAULT_VOICELAB_MODEL_ID).trim();
-  const voiceId =
-    voiceStyle === 'neutral'
-      ? NEUTRAL_VOICELAB_VOICE_ID
-      : (process.env.VOICELAB_VOICE_ID || DEFAULT_VOICELAB_VOICE_ID).trim();
+  const modelId = DEFAULT_VOICELAB_MODEL_ID;
+  const voiceId = DEFAULT_VOICELAB_VOICE_ID;
   const speed = voiceStyle === 'neutral' ? 0.95 : 1;
 
   if (!apiKey) {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   createInitialPin,
@@ -28,8 +28,116 @@ interface PinModalProps {
 }
 
 type ModalMode = 'setup' | 'show_recovery' | 'enter' | 'recover';
+type PinFieldTarget = 'pin' | 'confirm';
 
 const HOLD_DURATION_MS = 2000;
+const KEYPAD_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'C', '0', 'BACK'] as const;
+
+function PinDotsDisplay({
+  label,
+  length,
+  active,
+  onSelect,
+}: {
+  label: string;
+  length: number;
+  active?: boolean;
+  onSelect?: () => void;
+}) {
+  return (
+    <div
+      className={`pin-dots-box ${active ? 'pin-dots-box-active' : ''}`}
+      onClick={onSelect}
+      role={onSelect ? 'button' : undefined}
+      tabIndex={onSelect ? 0 : undefined}
+      onKeyDown={
+        onSelect
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onSelect();
+              }
+            }
+          : undefined
+      }
+      aria-label={`${label}: ${length}/4 raqam kiritildi`}
+    >
+      <span className="pin-dots-label">{label}</span>
+      <div className="pin-dots-row" aria-hidden="true">
+        {[0, 1, 2, 3].map((slot) => (
+          <span key={slot} className={`pin-dot ${slot < length ? 'pin-dot-filled' : ''}`} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function TactilePinKeypad({
+  disabled,
+  onDigit,
+  onBackspace,
+  onClear,
+}: {
+  disabled?: boolean;
+  onDigit: (digit: string) => void;
+  onBackspace: () => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="pin-keypad-grid" role="group" aria-label="Raqamli PIN klaviatura">
+      {KEYPAD_KEYS.map((key) => {
+        if (key === 'C') {
+          return (
+            <button
+              key="clear"
+              type="button"
+              disabled={disabled}
+              className="pin-keypad-btn pin-keypad-fn"
+              onClick={() => {
+                playFeedbackChime('pop');
+                onClear();
+              }}
+              aria-label="Tozalash"
+            >
+              Toza
+            </button>
+          );
+        }
+        if (key === 'BACK') {
+          return (
+            <button
+              key="back"
+              type="button"
+              disabled={disabled}
+              className="pin-keypad-btn pin-keypad-fn"
+              onClick={() => {
+                playFeedbackChime('pop');
+                onBackspace();
+              }}
+              aria-label="O‘chirish"
+            >
+              ⌫
+            </button>
+          );
+        }
+        return (
+          <button
+            key={key}
+            type="button"
+            disabled={disabled}
+            className="pin-keypad-btn"
+            onClick={() => {
+              playFeedbackChime('pop');
+              onDigit(key);
+            }}
+          >
+            {key}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export function PinModal({
   pinSalt,
@@ -49,6 +157,7 @@ export function PinModal({
   const [mode, setMode] = useState<ModalMode>(existingPinHash === null ? 'setup' : 'enter');
   const [pin, setPin] = useState('');
   const [confirmPin, setConfirmPin] = useState('');
+  const [activeField, setActiveField] = useState<PinFieldTarget>('pin');
   const [recoveryInput, setRecoveryInput] = useState('');
   const [createdRecoveryCode, setCreatedRecoveryCode] = useState<string | null>(null);
   const [hasCopied, setHasCopied] = useState(false);
@@ -96,6 +205,7 @@ export function PinModal({
         onEraseAllProgressAndResetPin();
         setPin('');
         setConfirmPin('');
+        setActiveField('pin');
         setRecoveryInput('');
         setError(null);
         setMode('setup');
@@ -103,8 +213,66 @@ export function PinModal({
     }, 50);
   };
 
-  const handleSetupSubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const handleDigitInput = useCallback(
+    (digit: string) => {
+      if (lockoutStatus.locked) return;
+      setError(null);
+      if (mode === 'enter') {
+        setPin((prev) => (prev.length < 4 ? `${prev}${digit}` : prev));
+        return;
+      }
+      if (mode === 'setup' || mode === 'recover') {
+        if (activeField === 'pin') {
+          setPin((prev) => {
+            if (prev.length >= 4) return prev;
+            const next = `${prev}${digit}`;
+            if (next.length === 4) {
+              setActiveField('confirm');
+            }
+            return next;
+          });
+        } else {
+          setConfirmPin((prev) => (prev.length < 4 ? `${prev}${digit}` : prev));
+        }
+      }
+    },
+    [mode, activeField, lockoutStatus.locked],
+  );
+
+  const handleBackspaceInput = useCallback(() => {
+    if (lockoutStatus.locked) return;
+    if (mode === 'enter') {
+      setPin((prev) => prev.slice(0, -1));
+      return;
+    }
+    if (mode === 'setup' || mode === 'recover') {
+      if (activeField === 'confirm') {
+        if (confirmPin.length > 0) {
+          setConfirmPin((prev) => prev.slice(0, -1));
+        } else {
+          setActiveField('pin');
+          setPin((prev) => prev.slice(0, -1));
+        }
+      } else {
+        setPin((prev) => prev.slice(0, -1));
+      }
+    }
+  }, [mode, activeField, confirmPin.length, lockoutStatus.locked]);
+
+  const handleClearInput = useCallback(() => {
+    setError(null);
+    if (mode === 'enter') {
+      setPin('');
+      return;
+    }
+    if (activeField === 'confirm') {
+      setConfirmPin('');
+    } else {
+      setPin('');
+    }
+  }, [mode, activeField]);
+
+  const handleSetupSubmit = useCallback(() => {
     setError(null);
     const res = createInitialPin(existingPinHash, pin.trim(), confirmPin.trim());
     if (!res.ok) {
@@ -122,8 +290,9 @@ export function PinModal({
     setHasCopied(false);
     setPin('');
     setConfirmPin('');
+    setActiveField('pin');
     setMode('show_recovery');
-  };
+  }, [existingPinHash, pin, confirmPin, onCreatePin]);
 
   const handleCopyRecoveryCode = async () => {
     if (!createdRecoveryCode) return;
@@ -161,8 +330,7 @@ export function PinModal({
     }
   };
 
-  const handleEnterSubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const handleEnterSubmit = useCallback(() => {
     setError(null);
     const currentNow = Date.now();
     setNowMs(currentNow);
@@ -184,10 +352,9 @@ export function PinModal({
     }
     playFeedbackChime('chime');
     onUnlocked();
-  };
+  }, [pinSalt, existingPinHash, pin, lockout, onUpdateLockout, onUnlocked]);
 
-  const handleRecoverySubmit = (e: FormEvent) => {
-    e.preventDefault();
+  const handleRecoverySubmit = useCallback(() => {
     setError(null);
     const currentNow = Date.now();
     setNowMs(currentNow);
@@ -211,7 +378,48 @@ export function PinModal({
     playFeedbackChime('chime');
     onUpdatePinAfterRecovery(res.pinHash, res.lockout);
     onUnlocked();
-  };
+  }, [
+    pinSalt,
+    recoveryCodeHash,
+    recoveryInput,
+    pin,
+    confirmPin,
+    lockout,
+    onUpdateLockout,
+    onUpdatePinAfterRecovery,
+    onUnlocked,
+  ]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || mode === 'show_recovery') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const targetTag = (event.target as { tagName?: string } | null)?.tagName;
+      if (targetTag === 'INPUT' || targetTag === 'TEXTAREA') {
+        return;
+      }
+      if (/^[0-9]$/.test(event.key)) {
+        event.preventDefault();
+        handleDigitInput(event.key);
+      } else if (event.key === 'Backspace') {
+        event.preventDefault();
+        handleBackspaceInput();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        if (mode === 'enter') handleEnterSubmit();
+        else if (mode === 'setup') handleSetupSubmit();
+        else if (mode === 'recover') handleRecoverySubmit();
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [
+    mode,
+    handleDigitInput,
+    handleBackspaceInput,
+    handleEnterSubmit,
+    handleSetupSubmit,
+    handleRecoverySubmit,
+  ]);
 
   return (
     <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="pin-modal-title">
@@ -256,34 +464,28 @@ export function PinModal({
               Birinchi kirishda 4 xonali PIN-kod o‘rnating. Bu farzandingiz sozlamalarni tasodifan
               o‘zgartirib yubormasligi uchun oddiy qulf vazifasini bajaradi.
             </p>
-            <form onSubmit={handleSetupSubmit} className="pin-form">
-              <label className="pin-label">
-                4 xonali PIN-kod
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  pattern="\d{4}"
-                  maxLength={4}
-                  autoFocus
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="••••"
-                  className="pin-input"
+            <div className="pin-form">
+              <div className="pin-dots-pair">
+                <PinDotsDisplay
+                  label="4 xonali PIN-kod"
+                  length={pin.length}
+                  active={activeField === 'pin'}
+                  onSelect={() => setActiveField('pin')}
                 />
-              </label>
-              <label className="pin-label">
-                PIN-kodni tasdiqlang
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  pattern="\d{4}"
-                  maxLength={4}
-                  value={confirmPin}
-                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="••••"
-                  className="pin-input"
+                <PinDotsDisplay
+                  label="PIN-kodni tasdiqlang"
+                  length={confirmPin.length}
+                  active={activeField === 'confirm'}
+                  onSelect={() => setActiveField('confirm')}
                 />
-              </label>
+              </div>
+
+              <TactilePinKeypad
+                onDigit={handleDigitInput}
+                onBackspace={handleBackspaceInput}
+                onClear={handleClearInput}
+              />
+
               {error && (
                 <motion.div
                   animate={{ x: [0, -6, 6, -4, 4, 0] }}
@@ -296,11 +498,11 @@ export function PinModal({
                 <button type="button" className="btn-3d-cream" onClick={onClose}>
                   Bekor qilish
                 </button>
-                <button type="submit" className="btn-3d-emerald">
+                <button type="button" className="btn-3d-emerald" onClick={handleSetupSubmit}>
                   Saqlash
                 </button>
               </div>
-            </form>
+            </div>
           </>
         )}
 
@@ -353,24 +555,18 @@ export function PinModal({
         {mode === 'enter' && (
           <>
             <p className="muted-text">
-              Ota-ona bo‘limiga kirish uchun 4 xonali PIN-kodni kiriting.
+              Ota-ona bo‘limiga kirish uchun 4 xonali PIN-kodni tering.
             </p>
-            <form onSubmit={handleEnterSubmit} className="pin-form">
-              <label className="pin-label">
-                4 xonali PIN-kod
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  pattern="\d{4}"
-                  maxLength={4}
-                  autoFocus
-                  disabled={lockoutStatus.locked}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="••••"
-                  className="pin-input"
-                />
-              </label>
+            <div className="pin-form">
+              <PinDotsDisplay label="4 xonali PIN-kod" length={pin.length} active />
+
+              <TactilePinKeypad
+                disabled={lockoutStatus.locked}
+                onDigit={handleDigitInput}
+                onBackspace={handleBackspaceInput}
+                onClear={handleClearInput}
+              />
+
               {lockoutStatus.locked && (
                 <div className="feedback-banner feedback-gentle">
                   Ko‘p xato urinish. {formatLockoutRemainingUz(lockoutStatus.remainingSeconds)} kutib turing.
@@ -392,20 +588,22 @@ export function PinModal({
                     setError(null);
                     setPin('');
                     setConfirmPin('');
+                    setActiveField('pin');
                     setMode('recover');
                   }}
                 >
                   PIN unutildimi?
                 </button>
                 <button
-                  type="submit"
+                  type="button"
                   disabled={lockoutStatus.locked}
                   className="btn-3d-emerald"
+                  onClick={handleEnterSubmit}
                 >
                   Kirish
                 </button>
               </div>
-            </form>
+            </div>
           </>
         )}
 
@@ -414,11 +612,19 @@ export function PinModal({
             <p className="muted-text">
               Saqlab qo‘ygan 10 belgili tiklash kodingizni kiriting — barcha dars natijalari saqlanib qoladi:
             </p>
-            <form onSubmit={handleRecoverySubmit} className="pin-form">
+            <div className="pin-form">
               <label className="pin-label">
                 10 belgili tiklash kodi
                 <input
                   type="text"
+                  name="alifbo_tiklash_kodi"
+                  autoComplete="off"
+                  autoCorrect="off"
+                  autoCapitalize="characters"
+                  spellCheck={false}
+                  data-lpignore="true"
+                  data-1p-ignore="true"
+                  data-form-type="other"
                   maxLength={12}
                   disabled={lockoutStatus.locked}
                   value={recoveryInput}
@@ -427,32 +633,29 @@ export function PinModal({
                   className="pin-input-sm"
                 />
               </label>
-              <label className="pin-label">
-                Yangi 4 xonali PIN
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  disabled={lockoutStatus.locked}
-                  value={pin}
-                  onChange={(e) => setPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="••••"
-                  className="pin-input"
+
+              <div className="pin-dots-pair">
+                <PinDotsDisplay
+                  label="Yangi 4 xonali PIN"
+                  length={pin.length}
+                  active={activeField === 'pin'}
+                  onSelect={() => setActiveField('pin')}
                 />
-              </label>
-              <label className="pin-label">
-                Yangi PIN tasdig‘i
-                <input
-                  type="password"
-                  inputMode="numeric"
-                  maxLength={4}
-                  disabled={lockoutStatus.locked}
-                  value={confirmPin}
-                  onChange={(e) => setConfirmPin(e.target.value.replace(/\D/g, '').slice(0, 4))}
-                  placeholder="••••"
-                  className="pin-input"
+                <PinDotsDisplay
+                  label="Yangi PIN tasdig‘i"
+                  length={confirmPin.length}
+                  active={activeField === 'confirm'}
+                  onSelect={() => setActiveField('confirm')}
                 />
-              </label>
+              </div>
+
+              <TactilePinKeypad
+                disabled={lockoutStatus.locked}
+                onDigit={handleDigitInput}
+                onBackspace={handleBackspaceInput}
+                onClear={handleClearInput}
+              />
+
               {error && (
                 <motion.div
                   animate={{ x: [0, -6, 6, -4, 4, 0] }}
@@ -467,6 +670,7 @@ export function PinModal({
                   className="btn-3d-cream btn-with-icon"
                   onClick={() => {
                     setError(null);
+                    setActiveField('pin');
                     setMode('enter');
                   }}
                 >
@@ -474,14 +678,15 @@ export function PinModal({
                   <span>Orqaga</span>
                 </button>
                 <button
-                  type="submit"
+                  type="button"
                   disabled={lockoutStatus.locked}
                   className="btn-3d-emerald"
+                  onClick={handleRecoverySubmit}
                 >
                   PIN-kodni tiklash
                 </button>
               </div>
-            </form>
+            </div>
 
             {isGuest ? (
               <div className="erase-reset-box">

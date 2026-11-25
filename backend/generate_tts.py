@@ -44,14 +44,8 @@ UZV_TASKS_URL = "https://uzbekvoice.ai/api/v1/tasks"
 VOICELAB_TTS_URL = os.environ.get("VOICELAB_TTS_URL", "https://api.voicelab.uz/v1/tts")
 DEFAULT_VOICELAB_MODEL_ID = os.environ.get("VOICELAB_MODEL_ID", "lison-v2")
 MALIKA_VOICE_ID = "voice_83a39d68-22bc-4062-b86e-0a9dd998ba7a"
-GULNOZA_NEUTRAL_VOICE_ID = "voice_01J9NEUTRAL0000000000000001"
-SAFIYA_VOICE_ID = "voice_2785aabd-21b5-4cc7-9845-2230186ef7d9"
-GULYA_VOICE_ID = "voice_7b350d91-4e56-4bc3-869c-8cd6ba646c3c"
 VOICELAB_VOICE_NAMES = {
     MALIKA_VOICE_ID: "malika",
-    GULNOZA_NEUTRAL_VOICE_ID: "gulnoza",
-    GULYA_VOICE_ID: "gulya",
-    SAFIYA_VOICE_ID: "safiya",
 }
 DISTINCT_VOICES = ["shoira", "lola", "sevinch"]
 
@@ -157,7 +151,7 @@ PLAIN_LETTER_SPEC = [
     ("h", "h", "Havo.", "H. Havo."),
     ("j", "j", "Jo‘ja.", "J. Jo‘ja."),
     ("x", "x", "Xo‘roz.", "X. Xo‘roz."),
-    ("f", "f", "Fil.", "F. Fil."),
+    ("f", "f", "Fil.", "Fff. Fil."),
     ("p", "p", "Pomidor.", "P. Pomidor."),
     ("tutuq", "tutuq belgisi", "A’lo.", "Tutuq belgisi. A’lo."),
 ]
@@ -191,7 +185,10 @@ INSTRUCTION_PHRASES = [
     ("instr_alpha_say", "Endi bu harf va so‘zni ovoz chiqarib ayt!"),
     ("instr_alpha_chart", "Istalgan harf ustiga bos — tovushini va so‘zini aytib beraman!"),
     ("instr_letter_help_tip", "Harfni unutdingmi? Istalgan harf ustiga bos!"),
-    ("instr_stage1_train", "Slayderni surib bo‘g‘inlarni bir-biriga yaqinlashtir va birlashtir!"),
+    ("instr_stage1_word_hunter", "Rasmga qarab to‘g‘ri so‘zni top va o‘qib ber!"),
+    ("instr_stage1_word_hunter_speak", "Endi topgan so‘zingni mikrofonga ovoz chiqarib o‘qib ber!"),
+    ("instr_bismillah_speak", "Darsni boshlash uchun mikrofon tugmasini bosib, «Bismillah» deb ayt!"),
+    ("instr_alhamdulillah_speak", "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!"),
     ("instr_stage1_constructor", "Bo‘g‘inlarni qo‘shib so‘z yasa! Rasmga qarab yetishmayotgan bo‘g‘inni tanla!"),
     ("instr_stage1_bubbles", "Bo‘g‘in pufakchalarini tartib bilan yorib, har birini ovoz chiqarib o‘qi!"),
     ("instr_stage1_bubble_speak", "Ajoyib! Endi bu bo‘g‘inni ovoz chiqarib ayt!"),
@@ -221,6 +218,7 @@ FEEDBACK_PHRASES = [
     ("fb_mic_blocked_pic", "Mikrofonga ruxsat berilmadi — mos rasmni tanlash rejimiga o‘tamiz."),
     ("fb_offline_look_again", "Yana bir bor so‘zni diqqat bilan o‘qib ko‘r-chi!"),
     ("fb_sentence_order", "So‘zlarni to‘g‘ri tartibda joylashtirib ko‘r!"),
+    ("fb_word_hunter_wrong", "Boshqa so‘zga qarab ko‘r! Bo‘g‘inlarni diqqat bilan o‘qi."),
     ("fb_bubble_try_again", "Bu bo‘g‘inni yana bir bor aniqroq aytib ko‘r-chi!"),
     ("fb_bubble_server_offline", "Ovoz serveri bilan aloqa uzildi — eshitib davom etamiz."),
     ("fb_bubble_mic_blocked", "Mikrofonga ruxsat berilmadi — ovozli pauza rejimiga o‘tamiz."),
@@ -255,9 +253,12 @@ HABIT_PHRASES = [
     ),
 ]
 
-# Phonetic VoiceLab prompt overrides (keeps Latin display text in audio_review.csv while avoiding "bismilloh" rounding)
+# Phonetic VoiceLab prompt overrides (keeps Latin display text in audio_review.csv while avoiding vowel rounding)
 HABIT_TTS_OVERRIDES = {
     "bismillah": "Ilming ziyoda bo‘lishi uchun, «Бисмиллаҳ» deb boshla!",
+    "alhamdulillah": "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Алҳамдулиллаҳ» deb ayt!",
+    "instr_bismillah_speak": "Darsni boshlash uchun mikrofon tugmasini bosib, «Бисмиллаҳ» deb ayt!",
+    "instr_alhamdulillah_speak": "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Алҳамдулиллаҳ» deb ayt!",
 }
 
 EXISTING_DYNAMIC_SOUND_IDS = {
@@ -277,25 +278,28 @@ def to_syllable_slug(syl: str) -> str:
 
 
 def load_curriculum_offline_tasks(project_root: Path) -> tuple[list[tuple[str, str, str]], list[tuple[str, str, str]]]:
-    """Parse DYNAMIC_WORD_POOL from src/data/curriculum.ts for offline word & World-4 syllable TTS."""
+    """Parse DYNAMIC_WORD_POOL from src/data/curriculum.ts for offline word & World 1-4 syllable TTS."""
     src_path = project_root / "src" / "data" / "curriculum.ts"
     src = src_path.read_text(encoding="utf-8")
-    pattern = re.compile(r"makeWordItem\('([^']+)',\s*(\d+),\s*'([^']+)',\s*\[([^\]]+)\]")
+    pattern = re.compile(
+        r"makeWordItem\('([^']+)',\s*(\d+),\s*'([^']+)',\s*\[([^\]]+)\],\s*'[^']+',\s*\[[^\]]+\](?:,\s*\[([^\]]+)\])?"
+    )
     word_tasks: list[tuple[str, str, str]] = []
     syl_tasks: list[tuple[str, str, str]] = []
     seen_syls: set[str] = set()
 
-    for item_id, world, text, parts_raw in pattern.findall(src):
+    for item_id, world, text, parts_raw, distractor_raw in pattern.findall(src):
         if item_id not in EXISTING_DYNAMIC_SOUND_IDS:
             tts_text = f"{text.capitalize()}."
             kind = "sentence" if world == "5" else "word"
             word_tasks.append((f"word_{item_id}.mp3", tts_text, kind))
-        if world == "4":
-            for part in re.findall(r"'([^']+)'", parts_raw):
-                slug = to_syllable_slug(part)
-                if slug and slug not in seen_syls:
-                    seen_syls.add(slug)
-                    syl_tasks.append((f"syl_{slug}.mp3", f"{part.capitalize()}.", "syllable"))
+        if world in {"1", "2", "3", "4"}:
+            for chunk in (parts_raw, distractor_raw or ""):
+                for part in re.findall(r"'([^']+)'", chunk):
+                    slug = to_syllable_slug(part)
+                    if slug and slug not in seen_syls:
+                        seen_syls.add(slug)
+                        syl_tasks.append((f"syl_{slug}.mp3", f"{part.capitalize()}.", "syllable"))
 
     return word_tasks, syl_tasks
 
@@ -396,6 +400,85 @@ def concat_audio_with_silence(
             capture_output=True,
             check=True,
         )
+
+
+def build_clean_f_clips(
+    fil_wav_bytes: bytes,
+    sound_f_path: Path,
+    letter_f_path: Path,
+    ffmpeg_exe: str,
+) -> None:
+    """Build clean voiceless [f:] for sound_f.mp3 and '[f:] + pause + Fil.' for letter_f.mp3 from Malika 'Fil.' WAV."""
+    import struct
+    import wave
+
+    sound_f_path.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory() as tmpdir:
+        tmp = Path(tmpdir)
+        fil_in = tmp / "fil_raw.audio"
+        fil_16k = tmp / "fil_16k.wav"
+        f_pure_wav = tmp / "f_pure.wav"
+        fil_in.write_bytes(fil_wav_bytes)
+        subprocess.run(
+            [ffmpeg_exe, "-y", "-v", "error", "-i", str(fil_in), "-ac", "1", "-ar", "16000", "-f", "wav", str(fil_16k)],
+            capture_output=True,
+            check=True,
+        )
+        with wave.open(str(fil_16k), "rb") as wf:
+            frames = wf.readframes(wf.getnframes())
+            samples = struct.unpack(f"<{len(frames) // 2}h", frames)
+
+        # Find contiguous 10ms frames with voiceless fricative energy (high ZCR, low RMS floor, minimal voicing)
+        frame_len = 160  # 10ms at 16kHz
+        good_indices: list[int] = []
+        for idx in range(0, len(samples) - frame_len, frame_len):
+            win = samples[idx : idx + frame_len]
+            rms = (sum(x * x for x in win) / frame_len) ** 0.5 / 32768.0
+            if rms < 0.008:
+                continue
+            zc = sum(1 for a, b in zip(win, win[1:]) if (a >= 0) != (b >= 0)) / (frame_len - 1)
+            if zc >= 0.30:
+                good_indices.append(idx // frame_len)
+            elif good_indices and len(good_indices) >= 6:
+                break
+
+        if len(good_indices) >= 6:
+            # Trim final 1 frame before vowel transition so no voiced [i] leaks in
+            start_s = max(0.0, (good_indices[0] * 10) / 1000.0)
+            end_s = max(start_s + 0.08, ((good_indices[-1] - 1) * 10) / 1000.0)
+            seg_dur = min(0.16, end_s - start_s)
+        else:
+            start_s = 0.25
+            seg_dur = 0.14
+
+        # Extract pure fricative slice, high-pass >= 380 Hz to strip any residual vowel buzz, loop smoothly to ~280ms
+        slice_wav = tmp / "f_slice.wav"
+        subprocess.run(
+            [
+                ffmpeg_exe, "-y", "-v", "error",
+                "-ss", f"{start_s:.3f}", "-t", f"{seg_dur:.3f}", "-i", str(fil_in),
+                "-af", "highpass=f=380,highpass=f=380,aresample=44100,aformat=sample_fmts=fltp:channel_layouts=mono",
+                str(slice_wav),
+            ],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            [
+                ffmpeg_exe, "-y", "-v", "error",
+                "-i", str(slice_wav), "-i", str(slice_wav),
+                "-filter_complex", "[0:a][1:a]acrossfade=d=0.03:c1=tri:c2=tri,afade=t=in:st=0:d=0.025,afade=t=out:st=0.21:d=0.045,volume=1.35[out]",
+                "-map", "[out]", "-ar", "44100", "-ac", "1", str(f_pure_wav),
+            ],
+            capture_output=True,
+            check=True,
+        )
+        subprocess.run(
+            [ffmpeg_exe, "-y", "-v", "error", "-i", str(f_pure_wav), "-ac", "1", "-ar", "44100", "-b:a", "128k", str(sound_f_path)],
+            capture_output=True,
+            check=True,
+        )
+        concat_audio_with_silence(f_pure_wav.read_bytes(), fil_wav_bytes, letter_f_path, ffmpeg_exe, pause_ms=280)
 
 
 def synthesize_uzbekvoice_bytes(api_key: str, text: str, model: str) -> dict:
@@ -593,7 +676,7 @@ def write_review_csv(
         item_fname = f"item_{item_id}.mp3"
         effective_short_sound = (sound_text_overrides or {}).get(sound_fname, short_sound)
         if file_voice_map is not None:
-            fallback_tag = f"{provider}:{active_voice or 'gulya'}"
+            fallback_tag = f"{provider}:{active_voice or 'malika'}"
             rows.append({
                 "file": f"public/audio/{sound_fname}",
                 "text": effective_short_sound,
@@ -658,7 +741,7 @@ def write_review_csv(
     for key, kind, phrase in UI_PHRASES:
         ui_fname = f"{key}.mp3"
         if file_voice_map is not None:
-            voice_tag = file_voice_map.get(ui_fname, f"{provider}:{active_voice or 'gulya'}")
+            voice_tag = file_voice_map.get(ui_fname, f"{provider}:{active_voice or 'malika'}")
             status = "needs teacher review"
         elif active_voice:
             voice_tag = f"{provider}:{active_voice}"
@@ -1151,6 +1234,11 @@ def run_voicelab_offline_full(
     for fname, text, kind in syl_tasks:
         offline_tasks.append((fname, text, kind, None, False, False))
 
+    # Enforce single Malika Lison v2 voice whenever provider is voicelab
+    if strict_voicelab:
+        voice_id = MALIKA_VOICE_ID
+        letter_voice_id = MALIKA_VOICE_ID
+
     existing_offline_fnames = {t[0] for t in offline_tasks}
     tier3_tasks: list[tuple[str, str, str, tuple[str, str] | None, bool, bool]] = []
     if not only_tier1:
@@ -1159,7 +1247,7 @@ def run_voicelab_offline_full(
                 (f"sound_{item_id}.mp3", short_sound, kind),
                 (f"item_{item_id}.mp3", teacher_prompt, "instruction"),
             ):
-                if fname not in existing_offline_fnames and not legacy_voices.get(fname, "").startswith("voicelab:"):
+                if fname not in existing_offline_fnames and "malika" not in legacy_voices.get(fname, "").lower():
                     tier3_tasks.append((fname, text, row_kind, None, False, False))
                     offline_tasks.append(tier3_tasks[-1])
                     existing_offline_fnames.add(fname)
@@ -1207,11 +1295,16 @@ def run_voicelab_offline_full(
         cached = cache.get(fname)
         should_skip = False
         if out_path.exists() and out_path.stat().st_size > 1000 and cached:
-            if is_letter_clip and force_letters:
+            if fname in {"sound_f.mp3", "letter_f.mp3"} and strict_voicelab:
+                should_skip = True
+            elif is_letter_clip and force_letters:
                 should_skip = False
             elif strict_voicelab:
+                cached_voice = str(cached.get("voice") or "").lower()
                 should_skip = (
-                    cached.get("provider") == "voicelab" and cached.get("text") == effective_tts_text
+                    cached.get("provider") == "voicelab"
+                    and "malika" in cached_voice
+                    and cached.get("text") == effective_tts_text
                 )
             elif cached.get("text") == effective_tts_text:
                 if is_letter_clip:
@@ -1331,6 +1424,29 @@ def run_voicelab_offline_full(
                             errors.append(f"[{idx}/{total}] {fname}: {exc}")
                             print(f"  ERR [{idx:03d}/{total}] {fname}: {exc}", flush=True)
             cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+            # Build clean voiceless [f:] clips for F (eliminates leading 'Eff' vowel)
+            if strict_voicelab and not abort_event.is_set() and (
+                force_letters
+                or not cache.get("sound_f.mp3", {}).get("clean_f")
+                or not cache.get("letter_f.mp3", {}).get("clean_f")
+                or not (audio_dir / "sound_f.mp3").exists()
+                or not (audio_dir / "letter_f.mp3").exists()
+            ):
+                assert ffmpeg_exe is not None
+                for key_try in vl_keys[vl_key_idx:] or vl_keys:
+                    fil_res = _synthesize_single_voicelab_bytes(key_try, "Fil.", MALIKA_VOICE_ID, model_id, speed=0.95)
+                    if fil_res.get("ok"):
+                        build_clean_f_clips(
+                            fil_res["audio_bytes"],
+                            audio_dir / "sound_f.mp3",
+                            audio_dir / "letter_f.mp3",
+                            ffmpeg_exe,
+                        )
+                        cache["sound_f.mp3"] = {"provider": "voicelab", "voice": f"{model_id}:malika", "text": "f", "clean_f": True}
+                        cache["letter_f.mp3"] = {"provider": "voicelab", "voice": f"{model_id}:malika", "text": "Fff. Fil.", "clean_f": True}
+                        cache_path.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+                        print("  [F-FIX] Rebuilt sound_f.mp3 & letter_f.mp3 with pure voiceless [f:]", flush=True)
+                        break
     finally:
         file_voice_map = dict(legacy_voices)
         sound_text_overrides: dict[str, str] = {}
@@ -1338,17 +1454,20 @@ def run_voicelab_offline_full(
         for fname in legacy_curriculum_fnames:
             cached = cache.get(fname)
             if cached and cached.get("provider") == "voicelab" and cached.get("voice"):
-                file_voice_map[fname] = f"voicelab:{cached['voice']}"
+                v = cached["voice"]
+                norm_v = v if v.startswith("voicelab:") else f"voicelab:{v}"
+                file_voice_map[fname] = f"voicelab:{model_id}:malika" if norm_v == "voicelab:malika" else norm_v
         for fname, text, kind, _pair, _is_letter, _is_tier1 in offline_tasks:
             out_path = audio_dir / fname
             if not (out_path.exists() and out_path.stat().st_size > 1000):
                 continue
             cached = cache.get(fname)
-            voice_tag = (
+            raw_tag = (
                 f"{cached['provider']}:{cached['voice']}"
                 if cached and cached.get("provider") and cached.get("voice")
                 else file_voice_map.get(fname, f"voicelab:{model_id}:malika")
             )
+            voice_tag = f"voicelab:{model_id}:malika" if raw_tag == "voicelab:malika" else raw_tag
             if fname in ui_fnames or fname in legacy_curriculum_fnames:
                 file_voice_map[fname] = voice_tag
                 if fname in legacy_sound_fnames:

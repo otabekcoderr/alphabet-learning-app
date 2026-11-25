@@ -497,7 +497,7 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
       { adoptGestureClip: true },
     );
     expect(adoptedStatus).toBe('played');
-    expect(createdUrls).toEqual([BISMILLAH_AUDIO_PATH]);
+    expect(createdUrls).toEqual([`${BISMILLAH_AUDIO_PATH}?v=231`]);
 
     // 3. NotAllowedError resolves 'autoplay_blocked' cleanly without calling /api/tts fetch
     const fetchSpy = vi.fn();

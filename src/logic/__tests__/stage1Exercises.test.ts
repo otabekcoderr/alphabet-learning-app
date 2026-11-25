@@ -145,7 +145,7 @@ describe('Stage 1 Exercises: Alphabet Sequential Game, Train Slider & World 5 Se
     });
   });
 
-  it('selects Stage 1 game modes: sentence_builder for World 5, train/constructor/bubbles for Worlds 1-2', () => {
+  it('selects Stage 1 game modes: sentence_builder for World 5, word_hunter/constructor/bubbles for Worlds 1-2', () => {
     const world1Word = DYNAMIC_WORD_POOL.find((w) => w.worldId === 1)!;
     const world2Word = DYNAMIC_WORD_POOL.find((w) => w.worldId === 2)!;
     const world3TwoPart = DYNAMIC_WORD_POOL.find((w) => w.worldId === 3 && w.parts.length === 2)!;
@@ -153,12 +153,12 @@ describe('Stage 1 Exercises: Alphabet Sequential Game, Train Slider & World 5 Se
     const world5Sentence = DYNAMIC_WORD_POOL.find((w) => w.worldId === 5 && w.kind === 'sentence')!;
 
     expect([0, 1, 2].map((idx) => getStage1GameMode(idx, world1Word))).toEqual([
-      'train',
+      'word_hunter',
       'constructor',
       'bubbles',
     ]);
     expect([0, 1, 2].map((idx) => getStage1GameMode(idx, world2Word))).toEqual([
-      'train',
+      'word_hunter',
       'constructor',
       'bubbles',
     ]);

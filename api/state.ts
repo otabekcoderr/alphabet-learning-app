@@ -41,18 +41,20 @@ function extractUserActivityMeta(stateObj: Record<string, unknown>): {
       ? profile.avatarId.trim().slice(0, 24)
       : null;
 
+  const todayUz = getTashkentDateString();
   const rawDates = Array.isArray(stateObj.practiceDates) ? stateObj.practiceDates : [];
   const dateSet = new Set<string>();
   for (const d of rawDates) {
     if (typeof d === 'string' && ISO_DATE_REGEX.test(d)) {
-      dateSet.add(d);
+      dateSet.add(d > todayUz ? todayUz : d);
     }
   }
 
-  const dailyDate =
+  const rawDailyDate =
     typeof stateObj.dailyPracticeDate === 'string' && ISO_DATE_REGEX.test(stateObj.dailyPracticeDate)
       ? stateObj.dailyPracticeDate
       : null;
+  const dailyDate = rawDailyDate ? (rawDailyDate > todayUz ? todayUz : rawDailyDate) : null;
   const todaySeconds =
     typeof stateObj.todayPracticedSeconds === 'number' ? stateObj.todayPracticedSeconds : 0;
   if (dailyDate && todaySeconds > 0) {

@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
+import { SPELLING_FRIENDLY_MIC_CONFIG } from '../logic/micAutoStop';
+import {
+  ALHAMDULILLAH_ACCEPT_ALIASES,
+  BISMILLAH_ACCEPT_ALIASES,
+  validateHabitUtterance,
+} from '../logic/sttValidator';
 import {
   playAudioClip,
   playAudioClipWithStatus,
+  playFeedbackAudio,
   playFeedbackChime,
+  startMicRecording,
   stopActiveAudio,
+  verifyAudioWithStt,
   type AudioClipPlayStatus,
+  type MicRecordingResult,
+  type MicSession,
 } from '../utils/audioRecorder';
 import { AnimatedCharacter } from './AnimatedCharacter';
-import { ArrowLeft, ArrowRight, Check, Mic, Play, RotateCcw, Sparkles, Square, Volume2 } from './Icons';
+import { ArrowLeft, ArrowRight, Check, Mic, Sparkles, Square, Volume2 } from './Icons';
 import { StorybookBackdrop } from './StorybookBackdrop';
 
 export const BISMILLAH_AUDIO_PATH = '/audio/bismillah.mp3';
@@ -17,16 +28,13 @@ export const BISMILLAH_TEXT_UZ = 'Ilming ziyoda bo‘lishi uchun, «Bismillah» 
 export const ALHAMDULILLAH_TEXT_UZ =
   'Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!';
 
-const BISMILLAH_MIN_DISPLAY_MS = 3000;
-const BISMILLAH_MAX_WAIT_MS = 7500;
-const BISMILLAH_POST_AUDIO_PAUSE_MS = 350;
-const ALHAMDULILLAH_MAX_RECORD_MS = 4000;
+const HABIT_SOFT_FALLBACK_THRESHOLD = 2;
 
 const useIsomorphicLayoutEffect =
   typeof window !== 'undefined' && typeof document !== 'undefined' ? useLayoutEffect : useEffect;
 
 /**
- * Check whether the browser supports microphone recording + local playback via MediaRecorder.
+ * Check whether the browser supports microphone recording via getUserMedia + AudioContext/MediaRecorder.
  */
 export function isVoicePlaybackRecordingSupported(): boolean {
   try {
@@ -35,55 +43,69 @@ export function isVoicePlaybackRecordingSupported(): boolean {
       typeof navigator !== 'undefined' &&
       Boolean(navigator.mediaDevices) &&
       typeof navigator.mediaDevices.getUserMedia === 'function' &&
-      typeof MediaRecorder !== 'undefined'
+      (typeof AudioContext !== 'undefined' ||
+        typeof (window as unknown as { webkitAudioContext?: unknown }).webkitAudioContext !== 'undefined' ||
+        typeof MediaRecorder !== 'undefined')
     );
   } catch {
     return false;
   }
 }
 
-function pickSupportedRecorderMimeType(): string | undefined {
-  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') {
-    return undefined;
-  }
-  const candidates = [
-    'audio/webm;codecs=opus',
-    'audio/webm',
-    'audio/mp4',
-    'audio/ogg;codecs=opus',
-  ];
-  for (const mime of candidates) {
-    try {
-      if (MediaRecorder.isTypeSupported(mime)) {
-        return mime;
-      }
-    } catch {
-      // Ignore browser-specific MIME check errors
-    }
-  }
-  return undefined;
+function isMicPermissionDeniedError(err: unknown): boolean {
+  const name =
+    err && typeof err === 'object' && 'name' in err
+      ? String((err as { name?: unknown }).name ?? '')
+      : '';
+  const msg = err instanceof Error ? err.message.toLowerCase() : '';
+  return (
+    name === 'NotAllowedError' ||
+    name === 'PermissionDeniedError' ||
+    msg.includes('permission') ||
+    msg.includes('ruxsat')
+  );
 }
 
 interface BismillahStartCardProps {
   avatarId: string;
   worldTitle: string;
+  aiOnline?: boolean;
   onContinue: () => void;
   onBack?: () => void;
 }
 
 /**
- * Gentle pre-session "Bismillah" card played at the start of each exercise round.
- * Child or parent can skip immediately with 1 tap or let it transition automatically.
+ * Interactive pre-session "Bismillah" card requiring spoken STT verification
+ * (accepting bismillah/bismillo/bismilloh phonetic forms) with a gentle 2-attempt
+ * or offline/blocked-mic fallback so a child is never stuck.
  */
 export function BismillahStartCard({
   avatarId,
   worldTitle,
+  aiOnline = true,
   onContinue,
   onBack,
 }: BismillahStartCardProps) {
   const [audioAutoplayBlocked, setAudioAutoplayBlocked] = useState(false);
+  const [browserOnline, setBrowserOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  const [isRecording, setIsRecording] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const [attempts, setAttempts] = useState(0);
+  const [micBlockedOrMissing, setMicBlockedOrMissing] = useState(false);
+  const [verified, setVerified] = useState(false);
+  const [feedbackText, setFeedbackText] = useState<string | null>(null);
+
+  const micSupported = isVoicePlaybackRecordingSupported();
+  const canUseVoiceStt = aiOnline && browserOnline && micSupported && !micBlockedOrMissing;
+  const allowSoftSkip = !canUseVoiceStt || attempts >= HABIT_SOFT_FALLBACK_THRESHOLD;
+
   const doneRef = useRef(false);
-  const autoAdvanceCancelledRef = useRef(false);
+  const mountedRef = useRef(true);
+  const micRef = useRef<MicSession | null>(null);
+  const advanceTimerRef = useRef<number | null>(null);
   const onContinueRef = useRef(onContinue);
   onContinueRef.current = onContinue;
 
@@ -95,30 +117,39 @@ export function BismillahStartCard({
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onOn = () => setBrowserOnline(true);
+    const onOff = () => setBrowserOnline(false);
+    window.addEventListener('online', onOn);
+    window.addEventListener('offline', onOff);
+    return () => {
+      window.removeEventListener('online', onOn);
+      window.removeEventListener('offline', onOff);
+    };
+  }, []);
+
   const finishOnce = useCallback(() => {
     if (doneRef.current) return;
     doneRef.current = true;
+    if (micRef.current) {
+      micRef.current.cancel();
+      micRef.current = null;
+    }
+    if (advanceTimerRef.current !== null && typeof window !== 'undefined') {
+      window.clearTimeout(advanceTimerRef.current);
+      advanceTimerRef.current = null;
+    }
     stopActiveAudio();
     onContinueRef.current();
   }, []);
 
   useEffect(() => {
+    mountedRef.current = true;
     let cancelled = false;
     doneRef.current = false;
-    autoAdvanceCancelledRef.current = false;
     setAudioAutoplayBlocked(false);
-    const timers: number[] = [];
     let removeGestureListeners = () => {};
-
-    const waitMs = (ms: number) =>
-      new Promise<void>((resolve) => {
-        if (typeof window === 'undefined') {
-          resolve();
-          return;
-        }
-        const id = window.setTimeout(resolve, ms);
-        timers.push(id);
-      });
 
     let audioPromise: Promise<AudioClipPlayStatus>;
     try {
@@ -132,10 +163,7 @@ export function BismillahStartCard({
     void audioPromise.then((status) => {
       if (cancelled || status !== 'autoplay_blocked') return;
       setAudioAutoplayBlocked(true);
-
-      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') {
-        return;
-      }
+      if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return;
 
       const shouldSkipTarget = (target: EventTarget | null): boolean => {
         if (!target || typeof target !== 'object' || !('closest' in target)) return false;
@@ -145,23 +173,18 @@ export function BismillahStartCard({
         return Boolean(
           closestFn.call(target, '.bismillah-skip-btn') ||
             closestFn.call(target, '.btn-squircle-back') ||
-            closestFn.call(target, '.bismillah-listen-btn'),
+            closestFn.call(target, '.bismillah-listen-btn') ||
+            closestFn.call(target, '.bismillah-mic-btn'),
         );
       };
 
       const onUnlockGesture = (event: Event) => {
         removeGestureListeners();
-        if (cancelled || doneRef.current || shouldSkipTarget(event.target)) {
-          return;
-        }
+        if (cancelled || doneRef.current || shouldSkipTarget(event.target)) return;
         setAudioAutoplayBlocked(false);
-        try {
-          void playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ).catch(
-            () => 'unavailable' as const,
-          );
-        } catch {
-          // Audio playback must never break UI
-        }
+        void playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ).catch(
+          () => 'unavailable' as const,
+        );
       };
 
       const eventNames = ['pointerdown', 'touchstart', 'keydown'] as const;
@@ -170,36 +193,132 @@ export function BismillahStartCard({
       }
       removeGestureListeners = () => {
         for (const evtName of eventNames) {
-          if (typeof window.removeEventListener === 'function') {
-            window.removeEventListener(evtName, onUnlockGesture, { capture: true });
-          }
+          window.removeEventListener(evtName, onUnlockGesture, { capture: true });
         }
         removeGestureListeners = () => {};
       };
     });
 
-    void Promise.all([
-      waitMs(BISMILLAH_MIN_DISPLAY_MS),
-      Promise.race([audioPromise, waitMs(BISMILLAH_MAX_WAIT_MS)]),
-    ])
-      .then(() => waitMs(BISMILLAH_POST_AUDIO_PAUSE_MS))
-      .then(() => {
-        if (!cancelled && !autoAdvanceCancelledRef.current) {
-          finishOnce();
-        }
-      });
-
     return () => {
+      mountedRef.current = false;
       cancelled = true;
       removeGestureListeners();
-      for (const id of timers) {
-        if (typeof window !== 'undefined') {
-          window.clearTimeout(id);
-        }
+      if (micRef.current) {
+        micRef.current.cancel();
+        micRef.current = null;
+      }
+      if (advanceTimerRef.current !== null && typeof window !== 'undefined') {
+        window.clearTimeout(advanceTimerRef.current);
+        advanceTimerRef.current = null;
       }
       stopActiveAudio();
     };
-  }, [finishOnce]);
+  }, []);
+
+  const verifyHabitSpeech = async (rec: MicRecordingResult) => {
+    if (!mountedRef.current || doneRef.current) return;
+    setIsChecking(true);
+    setFeedbackText(null);
+    try {
+      const resp = await verifyAudioWithStt(
+        rec.wavBlob,
+        'bismillah',
+        [...BISMILLAH_ACCEPT_ALIASES],
+      );
+      if (!mountedRef.current || doneRef.current) return;
+      const decision = validateHabitUtterance('bismillah', {
+        transcript: resp.transcript,
+        isSilence: resp.is_silence,
+        confidence: resp.confidence,
+        confidenceAvailable: resp.confidence_available,
+      });
+
+      if (decision === 'accepted') {
+        setVerified(true);
+        setFeedbackText('Barakalla! «Bismillah» qabul qilindi!');
+        playFeedbackChime('chime');
+        if (typeof window !== 'undefined') {
+          advanceTimerRef.current = window.setTimeout(() => {
+            advanceTimerRef.current = null;
+            finishOnce();
+          }, 650);
+        } else {
+          finishOnce();
+        }
+        return;
+      }
+
+      setAttempts((prev) => prev + 1);
+      if (decision === 'silence') {
+        setFeedbackText('Ovozing eshitilmadi — «Bismillah» deb balandroq ayt!');
+        void playFeedbackAudio('fb_no_speech');
+      } else {
+        setFeedbackText('Yana bir bor aniqroq qilib «Bismillah» deb ayt!');
+        void playFeedbackAudio('fb_louder_clearer');
+      }
+    } catch {
+      if (!mountedRef.current || doneRef.current) return;
+      setAttempts((prev) => prev + 1);
+      setFeedbackText('Ovoz serveri bilan aloqa bo‘lmadi — «Boshlash» tugmasi bilan davom eting.');
+    } finally {
+      if (mountedRef.current) {
+        setIsChecking(false);
+      }
+    }
+  };
+
+  const handleToggleMic = async () => {
+    if (isChecking || verified) return;
+    if (isRecording && micRef.current) {
+      const rec = await micRef.current.stop();
+      micRef.current = null;
+      setIsRecording(false);
+      setMicLevel(0);
+      if (rec) {
+        await verifyHabitSpeech(rec);
+      }
+      return;
+    }
+
+    stopActiveAudio();
+    setFeedbackText(null);
+    if (!micSupported) {
+      setMicBlockedOrMissing(true);
+      setFeedbackText('Mikrofon topilmadi — «Bismillah» deb aytib, darsni boshlang!');
+      return;
+    }
+
+    try {
+      const session = await startMicRecording(
+        (lvl) => {
+          if (mountedRef.current) setMicLevel(lvl);
+        },
+        (_reason, rec) => {
+          micRef.current = null;
+          if (!mountedRef.current) return;
+          setIsRecording(false);
+          setMicLevel(0);
+          void verifyHabitSpeech(rec);
+        },
+        SPELLING_FRIENDLY_MIC_CONFIG,
+      );
+      if (!mountedRef.current || doneRef.current) {
+        session.cancel();
+        return;
+      }
+      micRef.current = session;
+      setIsRecording(true);
+    } catch (err) {
+      if (!mountedRef.current) return;
+      if (isMicPermissionDeniedError(err)) {
+        setMicBlockedOrMissing(true);
+        setFeedbackText('Mikrofonga ruxsat berilmadi — ovoz chiqarib «Bismillah» deng va boshlang!');
+      } else {
+        setAttempts((prev) => prev + 1);
+        setFeedbackText('Mikrofonni yoqib bo‘lmadi — qayta urining yoki boshlang.');
+      }
+    }
+  };
 
   return (
     <div className="bismillah-shell">
@@ -212,6 +331,10 @@ export function BismillahStartCard({
             className="btn-squircle-back"
             onClick={() => {
               doneRef.current = true;
+              if (micRef.current) {
+                micRef.current.cancel();
+                micRef.current = null;
+              }
               stopActiveAudio();
               playFeedbackChime('pop');
               onBack();
@@ -224,15 +347,12 @@ export function BismillahStartCard({
       )}
 
       <main className="bismillah-stage">
-        <section
-          className="bismillah-card"
-          aria-labelledby="bismillah-heading"
-        >
+        <section className="bismillah-card" aria-labelledby="bismillah-heading">
           <span className="bismillah-world-pill">{worldTitle}</span>
           <span className="bismillah-teacher-pill">Ustoz eslatmasi</span>
 
           <AnimatedCharacter
-            mood="idle"
+            mood={verified ? 'celebrating' : isRecording ? 'listening' : 'idle'}
             size={140}
             avatarId={avatarId}
             bubblePosition="none"
@@ -241,20 +361,55 @@ export function BismillahStartCard({
           <h1 id="bismillah-heading" className="bismillah-title">
             Bismillah
           </h1>
-          <p className="bismillah-sub">
-            {BISMILLAH_TEXT_UZ}
-          </p>
-
-          <div className="bismillah-progress-track" aria-hidden="true">
-            <div
-              className="bismillah-progress-fill"
-              style={{ animationDuration: `${BISMILLAH_MIN_DISPLAY_MS}ms` }}
-            />
-          </div>
+          <p className="bismillah-sub">{BISMILLAH_TEXT_UZ}</p>
 
           {audioAutoplayBlocked && (
             <p className="bismillah-audio-hint" role="status">
               Ovozni eshitish uchun «Eshitish» tugmasini bosing
+            </p>
+          )}
+
+          {canUseVoiceStt && !verified && (
+            <div className="habit-mic-panel">
+              <button
+                type="button"
+                className={`mic-btn-big bismillah-mic-btn ${
+                  isRecording ? 'mic-btn-recording' : ''
+                }`}
+                style={
+                  isRecording
+                    ? { transform: `scale(${1 + Math.min(0.14, micLevel * 0.25)})` }
+                    : undefined
+                }
+                disabled={isChecking}
+                onClick={() => void handleToggleMic()}
+              >
+                {isRecording ? (
+                  <>
+                    <Square size={20} fill="currentColor" />
+                    <span>Tinglayapman... «Bismillah» de!</span>
+                  </>
+                ) : isChecking ? (
+                  <>
+                    <Sparkles size={20} />
+                    <span>Tekshiryapman...</span>
+                  </>
+                ) : (
+                  <>
+                    <Mic size={22} />
+                    <span>Mikrofonga «Bismillah» de</span>
+                  </>
+                )}
+              </button>
+            </div>
+          )}
+
+          {feedbackText && (
+            <p
+              className={`bismillah-feedback-pill ${verified ? 'is-ok' : ''}`}
+              role="status"
+            >
+              {feedbackText}
             </p>
           )}
 
@@ -263,34 +418,31 @@ export function BismillahStartCard({
               type="button"
               className="btn-3d-cream btn-compact btn-with-icon bismillah-listen-btn"
               onClick={() => {
-                autoAdvanceCancelledRef.current = true;
                 setAudioAutoplayBlocked(false);
-                try {
-                  void playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ).catch(
-                    () => 'unavailable' as const,
-                  );
-                } catch {
-                  // Ignore mobile audio replay failures
-                }
+                void playAudioClipWithStatus(BISMILLAH_AUDIO_PATH, BISMILLAH_TEXT_UZ).catch(
+                  () => 'unavailable' as const,
+                );
               }}
             >
               <Volume2 size={17} />
               <span>Eshitish</span>
             </button>
 
-            <motion.button
-              type="button"
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.96 }}
-              className="btn-3d-emerald btn-with-icon bismillah-skip-btn"
-              onClick={() => {
-                playFeedbackChime('pop');
-                finishOnce();
-              }}
-            >
-              <span>Boshlash</span>
-              <ArrowRight size={19} strokeWidth={2.6} />
-            </motion.button>
+            {allowSoftSkip && !verified && (
+              <motion.button
+                type="button"
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.96 }}
+                className="btn-3d-emerald btn-with-icon bismillah-skip-btn"
+                onClick={() => {
+                  playFeedbackChime('pop');
+                  finishOnce();
+                }}
+              >
+                <span>Boshlash</span>
+                <ArrowRight size={19} strokeWidth={2.6} />
+              </motion.button>
+            )}
           </div>
         </section>
       </main>
@@ -298,275 +450,181 @@ export function BismillahStartCard({
   );
 }
 
-type RecordingPhase = 'idle' | 'recording' | 'recorded' | 'unavailable';
-
 interface AlhamdulillahHabitBlockProps {
   readyToPlay: boolean;
   acknowledged: boolean;
+  aiOnline?: boolean;
   onAcknowledge: () => void;
 }
 
 /**
- * End-of-session "Alhamdulillah" habit card with audio prompt, optional MediaRecorder
- * self-playback, and graceful fallback when microphone permission is missing or denied.
+ * End-of-session "Alhamdulillah" habit card with a single Malika voice prompt,
+ * spoken STT verification (accepting alhamdulillah / alhamdulloh), and safe
+ * fallback when offline or after 2 failed attempts.
  */
 export function AlhamdulillahHabitBlock({
   readyToPlay,
   acknowledged,
+  aiOnline = true,
   onAcknowledge,
 }: AlhamdulillahHabitBlockProps) {
-  const [recordingPhase, setRecordingPhase] = useState<RecordingPhase>('idle');
-  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
-  const [isPlayingOwn, setIsPlayingOwn] = useState(false);
+  const [browserOnline, setBrowserOnline] = useState<boolean>(() =>
+    typeof navigator !== 'undefined' ? navigator.onLine : true,
+  );
+  const [isRecording, setIsRecording] = useState(false);
+  const [isChecking, setIsChecking] = useState(false);
+  const [micLevel, setMicLevel] = useState(0);
+  const [attempts, setAttempts] = useState(0);
+  const [micBlockedOrMissing, setMicBlockedOrMissing] = useState(false);
   const [micNote, setMicNote] = useState<string | null>(null);
 
   const micSupported = isVoicePlaybackRecordingSupported();
+  const canUseVoiceStt = aiOnline && browserOnline && micSupported && !micBlockedOrMissing;
+  const allowSoftSkip = !canUseVoiceStt || attempts >= HABIT_SOFT_FALLBACK_THRESHOLD;
+
   const mountedRef = useRef(true);
   const autoPlayedRef = useRef(false);
-  const recordingPhaseRef = useRef<RecordingPhase>('idle');
-  const recorderRef = useRef<MediaRecorder | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const chunksRef = useRef<BlobPart[]>([]);
-  const autoStopTimerRef = useRef<number | null>(null);
-  const playbackAudioRef = useRef<HTMLAudioElement | null>(null);
-  const recordedUrlRef = useRef<string | null>(null);
+  const micRef = useRef<MicSession | null>(null);
+  const onAcknowledgeRef = useRef(onAcknowledge);
+  onAcknowledgeRef.current = onAcknowledge;
 
-  recordingPhaseRef.current = recordingPhase;
-
-  const stopMediaStream = useCallback(() => {
-    if (streamRef.current) {
-      for (const track of streamRef.current.getTracks()) {
-        try {
-          track.stop();
-        } catch {
-          // Ignore track stop errors
-        }
-      }
-      streamRef.current = null;
-    }
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onOn = () => setBrowserOnline(true);
+    const onOff = () => setBrowserOnline(false);
+    window.addEventListener('online', onOn);
+    window.addEventListener('offline', onOff);
+    return () => {
+      window.removeEventListener('online', onOn);
+      window.removeEventListener('offline', onOff);
+    };
   }, []);
-
-  const clearAutoStopTimer = useCallback(() => {
-    if (autoStopTimerRef.current !== null && typeof window !== 'undefined') {
-      window.clearTimeout(autoStopTimerRef.current);
-      autoStopTimerRef.current = null;
-    }
-  }, []);
-
-  const stopOwnPlayback = useCallback(() => {
-    if (playbackAudioRef.current) {
-      try {
-        playbackAudioRef.current.pause();
-        playbackAudioRef.current.currentTime = 0;
-      } catch {
-        // Ignore audio pause errors
-      }
-      playbackAudioRef.current = null;
-    }
-    if (mountedRef.current) {
-      setIsPlayingOwn(false);
-    }
-  }, []);
-
-  const revokeRecordedUrl = useCallback(() => {
-    if (recordedUrlRef.current && typeof URL !== 'undefined' && typeof URL.revokeObjectURL === 'function') {
-      try {
-        URL.revokeObjectURL(recordedUrlRef.current);
-      } catch {
-        // Ignore revoke errors
-      }
-    }
-    recordedUrlRef.current = null;
-  }, []);
-
-  const stopActiveRecorder = useCallback(() => {
-    clearAutoStopTimer();
-    const rec = recorderRef.current;
-    if (rec && rec.state !== 'inactive') {
-      try {
-        rec.stop();
-      } catch {
-        stopMediaStream();
-      }
-    } else {
-      stopMediaStream();
-    }
-  }, [clearAutoStopTimer, stopMediaStream]);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
-      clearAutoStopTimer();
-      if (recorderRef.current) {
-        recorderRef.current.ondataavailable = null;
-        recorderRef.current.onstop = null;
-        recorderRef.current.onerror = null;
-        if (recorderRef.current.state !== 'inactive') {
-          try {
-            recorderRef.current.stop();
-          } catch {
-            // Ignore recorder stop errors on unmount
-          }
-        }
-        recorderRef.current = null;
+      if (micRef.current) {
+        micRef.current.cancel();
+        micRef.current = null;
       }
-      stopMediaStream();
-      stopOwnPlayback();
-      revokeRecordedUrl();
     };
-  }, [clearAutoStopTimer, revokeRecordedUrl, stopMediaStream, stopOwnPlayback]);
+  }, []);
 
   useEffect(() => {
     if (!readyToPlay || acknowledged || autoPlayedRef.current) return;
-    if (recordingPhaseRef.current === 'recording') return;
     autoPlayedRef.current = true;
     void playAudioClip(ALHAMDULILLAH_AUDIO_PATH, ALHAMDULILLAH_TEXT_UZ);
   }, [readyToPlay, acknowledged]);
 
   const handleReplayPromptAudio = () => {
     autoPlayedRef.current = true;
-    stopOwnPlayback();
     void playAudioClip(ALHAMDULILLAH_AUDIO_PATH, ALHAMDULILLAH_TEXT_UZ);
   };
 
-  const handleStartRecording = async () => {
-    autoPlayedRef.current = true;
-    stopActiveAudio();
-    stopOwnPlayback();
+  const verifyAlhamdulillahSpeech = async (rec: MicRecordingResult) => {
+    if (!mountedRef.current || acknowledged) return;
+    setIsChecking(true);
     setMicNote(null);
+    try {
+      const resp = await verifyAudioWithStt(
+        rec.wavBlob,
+        'alhamdulillah',
+        [...ALHAMDULILLAH_ACCEPT_ALIASES],
+      );
+      if (!mountedRef.current || acknowledged) return;
+      const decision = validateHabitUtterance('alhamdulillah', {
+        transcript: resp.transcript,
+        isSilence: resp.is_silence,
+        confidence: resp.confidence,
+        confidenceAvailable: resp.confidence_available,
+      });
 
+      if (decision === 'accepted') {
+        playFeedbackChime('chime');
+        onAcknowledgeRef.current();
+        return;
+      }
+
+      setAttempts((prev) => prev + 1);
+      if (decision === 'silence') {
+        setMicNote('Ovozing eshitilmadi — «Alhamdulillah» deb balandroq aytib ko‘r!');
+        void playFeedbackAudio('fb_no_speech');
+      } else {
+        setMicNote('Yana bir bor aniqroq qilib «Alhamdulillah» deb ayt!');
+        void playFeedbackAudio('fb_louder_clearer');
+      }
+    } catch {
+      if (!mountedRef.current) return;
+      setAttempts((prev) => prev + 1);
+      setMicNote('Ovoz tekshiruvi vaqtincha ishlamadi — ovoz chiqarib aytib davom eting.');
+    } finally {
+      if (mountedRef.current) {
+        setIsChecking(false);
+      }
+    }
+  };
+
+  const handleToggleMic = async () => {
+    if (isChecking || acknowledged) return;
+    autoPlayedRef.current = true;
+
+    if (isRecording && micRef.current) {
+      const rec = await micRef.current.stop();
+      micRef.current = null;
+      setIsRecording(false);
+      setMicLevel(0);
+      if (rec) {
+        await verifyAlhamdulillahSpeech(rec);
+      }
+      return;
+    }
+
+    stopActiveAudio();
+    setMicNote(null);
     if (!micSupported) {
-      setRecordingPhase('unavailable');
+      setMicBlockedOrMissing(true);
       setMicNote('Mikrofon topilmadi — ovoz chiqarib aytib, bemalol davom etishingiz mumkin.');
       return;
     }
 
-    revokeRecordedUrl();
-    setRecordedUrl(null);
-    chunksRef.current = [];
-
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      if (!mountedRef.current) {
-        for (const track of stream.getTracks()) {
-          try {
-            track.stop();
-          } catch {
-            // Ignore
-          }
-        }
+      const session = await startMicRecording(
+        (lvl) => {
+          if (mountedRef.current) setMicLevel(lvl);
+        },
+        (_reason, rec) => {
+          micRef.current = null;
+          if (!mountedRef.current) return;
+          setIsRecording(false);
+          setMicLevel(0);
+          void verifyAlhamdulillahSpeech(rec);
+        },
+        SPELLING_FRIENDLY_MIC_CONFIG,
+      );
+      if (!mountedRef.current || acknowledged) {
+        session.cancel();
         return;
       }
-
-      streamRef.current = stream;
-      const mimeType = pickSupportedRecorderMimeType();
-      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
-      recorderRef.current = recorder;
-
-      recorder.ondataavailable = (ev: BlobEvent) => {
-        if (ev.data && ev.data.size > 0) {
-          chunksRef.current.push(ev.data);
-        }
-      };
-
-      recorder.onerror = () => {
-        clearAutoStopTimer();
-        stopMediaStream();
-        recorderRef.current = null;
-        if (!mountedRef.current) return;
-        setRecordingPhase('unavailable');
-        setMicNote('Mikrofondan yozib bo‘lmadi — ovoz chiqarib aytib, bemalol davom eting.');
-      };
-
-      recorder.onstop = () => {
-        clearAutoStopTimer();
-        stopMediaStream();
-        recorderRef.current = null;
-        if (!mountedRef.current) return;
-
-        if (chunksRef.current.length === 0) {
-          setRecordingPhase('unavailable');
-          setMicNote('Ovoz yozilmadi — qayta urinib ko‘ring yoki davom eting.');
-          return;
-        }
-
-        try {
-          const blob = new Blob(chunksRef.current, {
-            type: recorder.mimeType || mimeType || 'audio/webm',
-          });
-          if (typeof URL === 'undefined' || typeof URL.createObjectURL !== 'function') {
-            setRecordingPhase('unavailable');
-            setMicNote('Ovoz yozib olindi! Endi bemalol davom etishingiz mumkin.');
-            return;
-          }
-          const url = URL.createObjectURL(blob);
-          recordedUrlRef.current = url;
-          setRecordedUrl(url);
-          setRecordingPhase('recorded');
-        } catch {
-          setRecordingPhase('unavailable');
-          setMicNote('Ovozni tayyorlashda xatolik yuz berdi — bemalol davom eting.');
-        }
-      };
-
-      recorder.start();
-      setRecordingPhase('recording');
-      if (typeof window !== 'undefined') {
-        autoStopTimerRef.current = window.setTimeout(() => {
-          stopActiveRecorder();
-        }, ALHAMDULILLAH_MAX_RECORD_MS);
-      }
-    } catch {
-      clearAutoStopTimer();
-      stopMediaStream();
-      recorderRef.current = null;
+      micRef.current = session;
+      setIsRecording(true);
+    } catch (err) {
       if (!mountedRef.current) return;
-      setRecordingPhase('unavailable');
-      setMicNote('Mikrofonga ruxsat berilmadi — ovoz chiqarib aytib, bemalol davom eting.');
-    }
-  };
-
-  const handlePlayOwnVoice = () => {
-    if (!recordedUrl || typeof Audio === 'undefined') return;
-    stopActiveAudio();
-    stopOwnPlayback();
-    try {
-      const audio = new Audio(recordedUrl);
-      playbackAudioRef.current = audio;
-      setIsPlayingOwn(true);
-      audio.onended = () => {
-        if (playbackAudioRef.current === audio) {
-          playbackAudioRef.current = null;
-        }
-        if (mountedRef.current) {
-          setIsPlayingOwn(false);
-        }
-      };
-      audio.onerror = () => {
-        if (playbackAudioRef.current === audio) {
-          playbackAudioRef.current = null;
-        }
-        if (mountedRef.current) {
-          setIsPlayingOwn(false);
-        }
-      };
-      void Promise.resolve(audio.play()).catch(() => {
-        if (playbackAudioRef.current === audio) {
-          playbackAudioRef.current = null;
-        }
-        if (mountedRef.current) {
-          setIsPlayingOwn(false);
-        }
-      });
-    } catch {
-      setIsPlayingOwn(false);
+      if (isMicPermissionDeniedError(err)) {
+        setMicBlockedOrMissing(true);
+        setMicNote('Mikrofonga ruxsat berilmadi — ovoz chiqarib aytib, bemalol davom eting.');
+      } else {
+        setAttempts((prev) => prev + 1);
+        setMicNote('Mikrofondan yozib bo‘lmadi — qayta urining yoki davom eting.');
+      }
     }
   };
 
   const handleContinueClick = () => {
-    stopActiveRecorder();
-    stopOwnPlayback();
+    if (micRef.current) {
+      micRef.current.cancel();
+      micRef.current = null;
+    }
     stopActiveAudio();
     playFeedbackChime('chime');
     onAcknowledge();
@@ -612,11 +670,9 @@ export function AlhamdulillahHabitBlock({
         </button>
       </div>
 
-      <p className="alhamdulillah-prompt">
-        {ALHAMDULILLAH_TEXT_UZ}
-      </p>
+      <p className="alhamdulillah-prompt">{ALHAMDULILLAH_TEXT_UZ}</p>
 
-      {recordingPhase === 'recording' && (
+      {isRecording && (
         <div className="alhamdulillah-recording-pill" role="status">
           <span className="alhamdulillah-rec-dot" aria-hidden="true" />
           <span>Tinglayapman... «Alhamdulillah» deb ayt!</span>
@@ -630,58 +686,51 @@ export function AlhamdulillahHabitBlock({
       )}
 
       <div className="alhamdulillah-controls">
-        {recordingPhase === 'recording' ? (
+        {canUseVoiceStt && (
           <button
             type="button"
-            className="btn-3d-orange btn-compact btn-with-icon"
-            onClick={stopActiveRecorder}
+            className={`btn-3d-amber btn-compact btn-with-icon ${
+              isRecording ? 'mic-btn-recording' : ''
+            }`}
+            style={
+              isRecording
+                ? { transform: `scale(${1 + Math.min(0.08, micLevel * 0.16)})` }
+                : undefined
+            }
+            disabled={isChecking}
+            onClick={() => void handleToggleMic()}
           >
-            <Square size={15} fill="currentColor" />
-            <span>To‘xtatish</span>
+            {isRecording ? (
+              <>
+                <Square size={15} fill="currentColor" />
+                <span>To‘xtatish</span>
+              </>
+            ) : isChecking ? (
+              <>
+                <Sparkles size={15} />
+                <span>Tekshiryapman...</span>
+              </>
+            ) : (
+              <>
+                <Mic size={16} />
+                <span>Mikrofonga «Alhamdulillah» de</span>
+              </>
+            )}
           </button>
-        ) : recordingPhase === 'recorded' && recordedUrl ? (
-          <>
-            <button
-              type="button"
-              className="btn-3d-cream btn-compact btn-with-icon"
-              onClick={handlePlayOwnVoice}
-            >
-              <Play size={15} fill="currentColor" />
-              <span>{isPlayingOwn ? 'Ijro etilmoqda...' : 'O‘z ovozimni eshitish'}</span>
-            </button>
-            <button
-              type="button"
-              className="btn-3d-cream btn-compact btn-with-icon"
-              onClick={() => void handleStartRecording()}
-              aria-label="Qayta yozish"
-            >
-              <RotateCcw size={15} />
-              <span>Qayta yozish</span>
-            </button>
-          </>
-        ) : (
-          micSupported && (
-            <button
-              type="button"
-              className="btn-3d-cream btn-compact btn-with-icon"
-              onClick={() => void handleStartRecording()}
-            >
-              <Mic size={16} />
-              <span>O‘z ovozimni yozish</span>
-            </button>
-          )
         )}
 
-        <motion.button
-          type="button"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.96 }}
-          className="btn-3d-emerald btn-compact btn-with-icon"
-          onClick={handleContinueClick}
-        >
-          <Check size={16} strokeWidth={2.8} />
-          <span>Aytdim / Davom etish</span>
-        </motion.button>
+        {allowSoftSkip && (
+          <motion.button
+            type="button"
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.96 }}
+            className="btn-3d-emerald btn-compact btn-with-icon"
+            onClick={handleContinueClick}
+          >
+            <Check size={16} strokeWidth={2.8} />
+            <span>Aytdim / Davom etish</span>
+          </motion.button>
+        )}
       </div>
     </motion.section>
   );

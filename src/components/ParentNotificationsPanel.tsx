@@ -12,8 +12,6 @@ import {
 import { playFeedbackChime } from '../utils/audioRecorder';
 import { Bell, BellOff, Check, CloseIcon, ExternalLink } from './Icons';
 
-const REMINDER_HOUR_OPTIONS = [18, 19, 20, 21] as const;
-
 interface TelegramReminderCardProps {
   isGuest: boolean;
   dbConfigured: boolean;
@@ -53,13 +51,13 @@ export function TelegramReminderCard({
       try {
         const res = await fetchNotificationsData();
         if (!active || !res.ok || !res.settings) return;
-        if (res.settings.telegramLinked && !res.settings.botBlocked) {
+        if (res.settings.telegramLinked && !res.settings.botBlocked && res.settings.reminderEnabled) {
           setWaitingLink(false);
           setLinkUrl(null);
           playFeedbackChime('chime');
           setStatusMsg({
             ok: true,
-            text: `@${res.settings.botUsername} muvaffaqiyatli ulandi! Kunlik eslatmalar faol.`,
+            text: `@${res.settings.botUsername} muvaffaqiyatli ulandi! Har kuni soat 19:00 da (Toshkent vaqti) eslatma yuboriladi.`,
           });
           onSettingsUpdated(res.settings);
           await onRefreshCenter();
@@ -111,28 +109,6 @@ export function TelegramReminderCard({
     });
   };
 
-  const handleChangeHour = async (hour: number) => {
-    if (!settings || busy) return;
-    setBusy(true);
-    setStatusMsg(null);
-    const res = await saveReminderSettingsApi({
-      reminderHour: hour,
-      reminderEnabled: true,
-    });
-    setBusy(false);
-    if (!res.ok || !res.settings) {
-      playFeedbackChime('soft-bonk');
-      setStatusMsg({ ok: false, text: res.errorUz || 'Vaqtni saqlab bo‘lmadi.' });
-      return;
-    }
-    playFeedbackChime('pop');
-    onSettingsUpdated(res.settings);
-    setStatusMsg({
-      ok: true,
-      text: `Eslatma vaqti ${String(hour).padStart(2, '0')}:00 ga saqlandi.`,
-    });
-  };
-
   const handleStartConnect = async () => {
     if (busy) return;
     setBusy(true);
@@ -147,7 +123,10 @@ export function TelegramReminderCard({
     playFeedbackChime('pop');
     setLinkUrl(res.deepLink);
     setWaitingLink(true);
-    window.open(res.deepLink, '_blank', 'noopener,noreferrer');
+    const popup = window.open(res.deepLink, '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      window.location.assign(res.deepLink);
+    }
   };
 
   const handleUnlink = async () => {
@@ -297,23 +276,10 @@ export function TelegramReminderCard({
           </div>
 
           <div className="tg-hour-row">
-            <label htmlFor="tg-reminder-hour-select" className="muted-text">
-              Qulay eslatma vaqti (Toshkent):
-            </label>
+            <span className="muted-text">
+              Eslatma vaqti: <strong>Har kuni soat 19:00</strong> (Toshkent vaqti)
+            </span>
             <div className="tg-hour-controls">
-              <select
-                id="tg-reminder-hour-select"
-                className="parent-select parent-select-auto"
-                disabled={busy}
-                value={REMINDER_HOUR_OPTIONS.includes(settings.reminderHour as 18 | 19 | 20 | 21) ? settings.reminderHour : 19}
-                onChange={(e) => void handleChangeHour(Number(e.target.value))}
-              >
-                {REMINDER_HOUR_OPTIONS.map((hr) => (
-                  <option key={hr} value={hr}>
-                    {String(hr).padStart(2, '0')}:00 {hr === 19 ? '(Tavsiya)' : ''}
-                  </option>
-                ))}
-              </select>
               <button
                 type="button"
                 className="btn-3d-cream btn-compact"

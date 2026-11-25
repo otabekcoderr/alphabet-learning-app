@@ -272,7 +272,7 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
     expect(sentTelegramMessages).toHaveLength(1);
     expect(sentTelegramMessages[0]?.chat_id).toBe(987654321);
     expect(sentTelegramMessages[0]?.text).toBe(
-      '✅ Kirish tasdiqlandi! Endi saytga qaytishingiz mumkin.',
+      '✅ Kirish tasdiqlandi! Endi saytga qaytishingiz mumkin.\n\n⏰ Eslatma: Har kuni Toshkent vaqti bilan soat <b>19:00</b> da (agar o‘sha kuni mashq qilinmagan bo‘lsa) kunlik mashq eslatmasi yuboriladi.',
     );
 
     // 5. Polling /api/auth/telegram?action=status returns approved session + Set-Cookie + 8-digit publicId

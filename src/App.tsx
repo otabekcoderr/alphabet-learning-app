@@ -52,7 +52,8 @@ import { Lock, Star } from './components/Icons';
 import type { WordAttemptReport } from './components/LessonPlayer';
 import { StorybookBackdrop } from './components/StorybookBackdrop';
 import { WelcomeScreen } from './components/WelcomeScreen';
-import { playFeedbackChime, startGestureAudioClip } from './utils/audioRecorder';
+import { playFeedbackChime, preloadLessonSessionAudio, startGestureAudioClip } from './utils/audioRecorder';
+import { setPwaReloadDeferral } from './utils/pwa';
 
 const LazyAlphabetRecallDrawer = lazy(() =>
   import('./components/AlphabetRecallDrawer').then((m) => ({ default: m.AlphabetRecallDrawer })),
@@ -252,7 +253,12 @@ export function App() {
     });
   }, []);
 
-  // Track healthy daily screen-time while child is playing a reading round
+  // Track healthy daily screen-time while child is playing a reading round,
+  // and defer SW deploy reloads until the child exits the active lesson.
+  useEffect(() => {
+    setPwaReloadDeferral(tab === 'lesson');
+  }, [tab]);
+
   useEffect(() => {
     if (tab !== 'lesson' || bismillahPending) return;
     const timer = window.setInterval(() => {
@@ -300,6 +306,10 @@ export function App() {
           // Audio playback must never block Bismillah screen transition
         }
       }
+      void preloadLessonSessionAudio(
+        items.map((entry) => entry.item),
+        { includeAlhamdulillah: state.bismillahAlhamdulillahEnabled },
+      );
       setRoundWorldId(worldId);
       setSessionItems(items);
       setLessonSessionKey((prev) => prev + 1);
@@ -738,6 +748,7 @@ export function App() {
           key={`bismillah-${lessonSessionKey}`}
           avatarId={state.profile.avatarId}
           worldTitle={activeRoundWorld.titleUz}
+          aiOnline={aiOnline}
           onContinue={() => setBismillahPending(false)}
           onBack={goToChildHome}
         />

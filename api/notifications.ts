@@ -36,6 +36,7 @@ interface ReminderCandidateRow {
   current_streak_days: number;
   mastered_words_count: number;
   consecutive_missed_reminders: number;
+  last_reminded_date: string | null;
 }
 
 const ADMIN_ALERT_WINDOW_MS = 10 * 60 * 1000;
@@ -467,7 +468,7 @@ export async function handleCronDailyReminder(request: Request): Promise<Respons
     const candidates = (
       respectHour
         ? await sql`
-            SELECT id, telegram_chat_id, child_name, current_streak_days, mastered_words_count, consecutive_missed_reminders
+            SELECT id, telegram_chat_id, child_name, current_streak_days, mastered_words_count, consecutive_missed_reminders, last_reminded_date
             FROM users
             WHERE tg_reminder_enabled = TRUE
               AND tg_bot_blocked = FALSE
@@ -478,7 +479,7 @@ export async function handleCronDailyReminder(request: Request): Promise<Respons
             LIMIT 500
           `
         : await sql`
-            SELECT id, telegram_chat_id, child_name, current_streak_days, mastered_words_count, consecutive_missed_reminders
+            SELECT id, telegram_chat_id, child_name, current_streak_days, mastered_words_count, consecutive_missed_reminders, last_reminded_date
             FROM users
             WHERE tg_reminder_enabled = TRUE
               AND tg_bot_blocked = FALSE
@@ -545,6 +546,15 @@ export async function handleCronDailyReminder(request: Request): Promise<Respons
             } else if (pauseRes.ok) {
               paused++;
             } else {
+              await sql`
+                UPDATE users
+                SET
+                  tg_reminder_enabled = TRUE,
+                  last_reminded_date = ${user.last_reminded_date},
+                  consecutive_missed_reminders = ${user.consecutive_missed_reminders},
+                  updated_at = NOW()
+                WHERE id = ${user.id}
+              `;
               failed++;
             }
             return;
@@ -593,6 +603,14 @@ export async function handleCronDailyReminder(request: Request): Promise<Respons
           } else if (sendRes.ok) {
             sent++;
           } else {
+            await sql`
+              UPDATE users
+              SET
+                last_reminded_date = ${user.last_reminded_date},
+                consecutive_missed_reminders = ${user.consecutive_missed_reminders},
+                updated_at = NOW()
+              WHERE id = ${user.id}
+            `;
             failed++;
           }
         }),

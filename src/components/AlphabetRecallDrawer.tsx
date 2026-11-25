@@ -18,6 +18,7 @@ import {
   playLetterRecallAudio,
   playPraiseAudio,
   playWrongFeedbackAudio,
+  preloadAlphabetAudio,
   startMicRecording,
   stopActiveAudio,
   verifyAudioWithStt,
@@ -143,6 +144,10 @@ export function AlphabetRecallDrawer({
   const praiseTimerRef = useRef<number | null>(null);
   const wrongSeqRef = useRef<number>(0);
   const lastRoundLettersRef = useRef<string[]>([]);
+
+  useEffect(() => {
+    void preloadAlphabetAudio();
+  }, []);
   const slotHistoryRef = useRef<{
     lastOverallIdx: number | null;
     lastByStep: Record<'listen_pick' | 'picture_match', number | null>;

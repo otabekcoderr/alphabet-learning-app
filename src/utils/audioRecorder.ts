@@ -15,10 +15,11 @@ import {
 import { playSfx, type SfxKind } from './soundEffects';
 
 const TARGET_SAMPLE_RATE = 16_000;
+export const STATIC_AUDIO_VERSION = '231';
 
 let activeAudio: HTMLAudioElement | null = null;
 let activeAbortController: AbortController | null = null;
-let activeSpeechSynth = false;
+let activeCancelCallback: (() => void) | null = null;
 let playbackGeneration = 0;
 let playedSessionEntryKey: InstructionAudioKey | null = null;
 let activeEntryAttemptKey: InstructionAudioKey | null = null;
@@ -28,6 +29,125 @@ let pendingGestureClip: {
   promise: Promise<StaticPlaybackResult>;
 } | null = null;
 const ttsBlobUrlCache = new Map<string, string>();
+const staticBlobUrlCache = new Map<string, string>();
+const inFlightPreloads = new Map<string, Promise<void>>();
+
+export function withStaticAudioVersion(url: string): string {
+  if (!url || !url.startsWith('/audio/') || url.includes('?')) {
+    return url;
+  }
+  return `${url}?v=${STATIC_AUDIO_VERSION}`;
+}
+
+function getCanonicalStaticAudioKey(url: string): string {
+  return url.split('?')[0] ?? url;
+}
+
+/** Preload static VoiceLab Malika MP3 files into in-memory blob URLs to avoid first-play lag. */
+export async function preloadAudioUrls(urls: readonly string[]): Promise<void> {
+  if (typeof fetch === 'undefined') return;
+  const canCreateObjectUrl = typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+  const uniqueUrls = Array.from(
+    new Set(
+      urls
+        .map((u) => getCanonicalStaticAudioKey(u.trim()))
+        .filter((u) => u.startsWith('/audio/') && !staticBlobUrlCache.has(u)),
+    ),
+  );
+  if (uniqueUrls.length === 0) return;
+
+  const CONCURRENCY = 4;
+  let cursor = 0;
+
+  async function worker(): Promise<void> {
+    while (cursor < uniqueUrls.length) {
+      const idx = cursor;
+      cursor += 1;
+      const canonical = uniqueUrls[idx];
+      if (!canonical || staticBlobUrlCache.has(canonical)) continue;
+      const existing = inFlightPreloads.get(canonical);
+      if (existing) {
+        await existing;
+        continue;
+      }
+      const task = (async () => {
+        try {
+          const resp = await fetch(withStaticAudioVersion(canonical));
+          if (!resp.ok) return;
+          const contentType = resp.headers?.get('content-type') ?? '';
+          if (contentType && !contentType.toLowerCase().startsWith('audio/')) return;
+          if (!canCreateObjectUrl) return;
+          const blob = await resp.blob();
+          if (blob.size > 0) {
+            staticBlobUrlCache.set(canonical, URL.createObjectURL(blob));
+          }
+        } catch {
+          // Ignore best-effort preload failures; playback will retry or use /api/tts.
+        } finally {
+          inFlightPreloads.delete(canonical);
+        }
+      })();
+      inFlightPreloads.set(canonical, task);
+      await task;
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(CONCURRENCY, uniqueUrls.length) }, () => worker()),
+  );
+}
+
+/** Preload all audio clips needed for an upcoming lesson round (habit, instructions, words & syllables). */
+export function preloadLessonSessionAudio(
+  items: readonly WordPoolItem[],
+  opts?: { includeAlhamdulillah?: boolean },
+): Promise<void> {
+  const urls: string[] = [
+    '/audio/bismillah.mp3',
+    '/audio/instr_bismillah_speak.mp3',
+    '/audio/instr_stage1_word_hunter.mp3',
+    '/audio/instr_stage1_word_hunter_speak.mp3',
+    '/audio/instr_stage1_constructor.mp3',
+    '/audio/instr_stage1_bubbles.mp3',
+    '/audio/instr_stage1_bubble_speak.mp3',
+    '/audio/instr_stage1_bubble_read_word.mp3',
+    '/audio/instr_stage1_bubble_confirm_word.mp3',
+    '/audio/instr_stage2_spotlight_word.mp3',
+    '/audio/instr_stage3_exam_voice_word.mp3',
+    '/audio/praise_1.mp3',
+    '/audio/wrong_1.mp3',
+  ];
+  if (opts?.includeAlhamdulillah) {
+    urls.push('/audio/alhamdulillah.mp3', '/audio/instr_alhamdulillah_speak.mp3');
+  }
+  for (const item of items) {
+    if (item.audioSound) urls.push(item.audioSound);
+    for (const part of item.parts) {
+      const slug = toSyllableSlug(part);
+      if (slug) urls.push(`/audio/syl_${slug}.mp3`);
+    }
+    for (const part of item.distractorParts ?? []) {
+      const slug = toSyllableSlug(part);
+      if (slug) urls.push(`/audio/syl_${slug}.mp3`);
+    }
+  }
+  return preloadAudioUrls(urls);
+}
+
+/** Preload Alphabet 29 recall clips and alphabet instructions. */
+export function preloadAlphabetAudio(): Promise<void> {
+  const urls: string[] = [
+    '/audio/instr_alpha_chart.mp3',
+    '/audio/instr_alpha_listen.mp3',
+    '/audio/instr_alpha_picture.mp3',
+    '/audio/instr_alpha_say.mp3',
+    '/audio/praise_alphabet_complete.mp3',
+  ];
+  for (const entry of ALIFBE_LETTERS_29) {
+    urls.push(entry.audioRecall, entry.audioSound);
+  }
+  return preloadAudioUrls(urls);
+}
 
 const DEFAULT_AUTO_ENTRY_SKIP_SELECTORS: readonly string[] = [
   '.world-card',
@@ -71,7 +191,12 @@ export function sanitizeSpeechTextForTts(text: string): string {
 export function stopActiveAudio(): void {
   playbackGeneration += 1;
   pendingGestureClip = null;
+  const cancelPending = activeCancelCallback;
+  activeCancelCallback = null;
   try {
+    if (cancelPending) {
+      cancelPending();
+    }
     if (activeAbortController) {
       activeAbortController.abort();
       activeAbortController = null;
@@ -81,21 +206,9 @@ export function stopActiveAudio(): void {
       activeAudio.currentTime = 0;
       activeAudio = null;
     }
-    if (activeSpeechSynth) {
-      activeSpeechSynth = false;
-      if (
-        typeof window !== 'undefined' &&
-        'speechSynthesis' in window &&
-        window.speechSynthesis &&
-        typeof window.speechSynthesis.cancel === 'function'
-      ) {
-        window.speechSynthesis.cancel();
-      }
-    }
   } catch {
     activeAudio = null;
     activeAbortController = null;
-    activeSpeechSynth = false;
   }
 }
 
@@ -107,33 +220,61 @@ export function resetSessionEntryAudioState(): void {
 
 function playObjectOrUrlAudio(url: string, generation: number): Promise<boolean> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (ok: boolean) => {
+      if (settled) return;
+      settled = true;
+      if (activeCancelCallback === abortNow) {
+        activeCancelCallback = null;
+      }
+      resolve(ok);
+    };
+    let audio: HTMLAudioElement | null = null;
+    const abortNow = () => {
+      if (audio) {
+        audio.onended = null;
+        audio.onerror = null;
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {
+          // Ignore cleanup errors on aborted audio elements
+        }
+        if (activeAudio === audio) {
+          activeAudio = null;
+        }
+      }
+      finish(false);
+    };
+
     try {
       if (typeof Audio === 'undefined' || generation !== playbackGeneration) {
         resolve(false);
         return;
       }
-      const audio = new Audio(url);
+      audio = new Audio(url);
       activeAudio = audio;
+      activeCancelCallback = abortNow;
       audio.onended = () => {
         if (activeAudio === audio) {
           activeAudio = null;
         }
-        resolve(true);
+        finish(generation === playbackGeneration);
       };
       audio.onerror = () => {
         if (activeAudio === audio) {
           activeAudio = null;
         }
-        resolve(false);
+        finish(false);
       };
       void audio.play().catch(() => {
         if (activeAudio === audio) {
           activeAudio = null;
         }
-        resolve(false);
+        finish(false);
       });
     } catch {
-      resolve(false);
+      finish(false);
     }
   });
 }
@@ -238,6 +379,12 @@ export function findStaticAudioUrlForText(text: string): string | null {
     }
   }
 
+  for (const [audioKey, phrase] of Object.entries(HABIT_AUDIO_FALLBACK_TEXT)) {
+    if (normalizeAudioLookupKey(phrase) === key) {
+      return `/audio/${audioKey}.mp3`;
+    }
+  }
+
   for (const [audioKey, phrase] of Object.entries(INSTRUCTION_FALLBACK_TEXT)) {
     if (normalizeAudioLookupKey(phrase) === key) {
       return `/audio/${audioKey}.mp3`;
@@ -245,12 +392,6 @@ export function findStaticAudioUrlForText(text: string): string | null {
   }
 
   for (const [audioKey, phrase] of Object.entries(FEEDBACK_FALLBACK_TEXT)) {
-    if (normalizeAudioLookupKey(phrase) === key) {
-      return `/audio/${audioKey}.mp3`;
-    }
-  }
-
-  for (const [audioKey, phrase] of Object.entries(HABIT_AUDIO_FALLBACK_TEXT)) {
     if (normalizeAudioLookupKey(phrase) === key) {
       return `/audio/${audioKey}.mp3`;
     }
@@ -271,53 +412,9 @@ export function findStaticAudioUrlForText(text: string): string | null {
   return null;
 }
 
-function speakWithBrowserFallback(text: string, generation: number): Promise<boolean> {
-  const cleanText = sanitizeSpeechTextForTts(text);
-  if (!cleanText || generation !== playbackGeneration) {
-    return Promise.resolve(false);
-  }
-  try {
-    if (
-      typeof window === 'undefined' ||
-      typeof SpeechSynthesisUtterance === 'undefined' ||
-      !('speechSynthesis' in window)
-    ) {
-      return Promise.resolve(false);
-    }
-    const synth = window.speechSynthesis;
-    if (!synth || typeof synth.speak !== 'function') {
-      return Promise.resolve(false);
-    }
-
-    return new Promise((resolve) => {
-      try {
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        utterance.lang = 'uz-UZ';
-        utterance.rate = 0.92;
-        activeSpeechSynth = true;
-        utterance.onend = () => {
-          activeSpeechSynth = false;
-          resolve(generation === playbackGeneration);
-        };
-        utterance.onerror = () => {
-          activeSpeechSynth = false;
-          resolve(false);
-        };
-        synth.speak(utterance);
-      } catch {
-        activeSpeechSynth = false;
-        resolve(false);
-      }
-    });
-  } catch {
-    activeSpeechSynth = false;
-    return Promise.resolve(false);
-  }
-}
-
 /**
- * Speak Uzbek text aloud via /api/tts, smoothly falling back to matching static
- * `public/audio/` MP3 clips and then browser SpeechSynthesis if the server is unavailable.
+ * Speak Uzbek text aloud strictly via VoiceLab Lison v2 (Malika), preferring
+ * matching pre-generated static `public/audio/` MP3 clips before `/api/tts`.
  */
 export async function speakUzbekText(text: string): Promise<void> {
   const res = await synthesizeAndPlayVoiceLab(text);
@@ -325,11 +422,7 @@ export async function speakUzbekText(text: string): Promise<void> {
   const gen = playbackGeneration;
   const staticUrl = findStaticAudioUrlForText(text);
   if (staticUrl) {
-    const staticRes = await tryPlayStaticUrl(staticUrl, gen);
-    if (staticRes !== 'unavailable') return;
-  }
-  if (gen === playbackGeneration) {
-    await speakWithBrowserFallback(text, gen);
+    await tryPlayStaticUrl(staticUrl, gen);
   }
 }
 
@@ -342,12 +435,42 @@ function tryPlayStaticUrl(
   onStarted?: () => void,
 ): Promise<StaticPlaybackResult> {
   return new Promise((resolve) => {
+    let settled = false;
+    const finish = (result: StaticPlaybackResult) => {
+      if (settled) return;
+      settled = true;
+      if (activeCancelCallback === abortNow) {
+        activeCancelCallback = null;
+      }
+      resolve(result);
+    };
+    let audio: HTMLAudioElement | null = null;
+    const abortNow = () => {
+      if (audio) {
+        audio.onended = null;
+        audio.onerror = null;
+        try {
+          audio.pause();
+          audio.currentTime = 0;
+        } catch {
+          // Ignore cleanup errors on aborted audio elements
+        }
+        if (activeAudio === audio) {
+          activeAudio = null;
+        }
+      }
+      finish('aborted');
+    };
+
     try {
       if (!url || typeof Audio === 'undefined' || generation !== playbackGeneration) {
         resolve(generation !== playbackGeneration ? 'aborted' : 'unavailable');
         return;
       }
-      const audio = new Audio(url);
+      const canonical = getCanonicalStaticAudioKey(url);
+      const cachedBlobUrl = staticBlobUrlCache.get(canonical);
+      const resolvedSrc = cachedBlobUrl ?? withStaticAudioVersion(url);
+      audio = new Audio(resolvedSrc);
       try {
         audio.preload = 'auto';
         if (typeof audio.setAttribute === 'function') {
@@ -357,17 +480,21 @@ function tryPlayStaticUrl(
         // Ignore attribute/preload errors in mocked or restricted environments
       }
       activeAudio = audio;
+      activeCancelCallback = abortNow;
       audio.onended = () => {
         if (activeAudio === audio) {
           activeAudio = null;
         }
-        resolve(generation === playbackGeneration ? 'played' : 'aborted');
+        finish(generation === playbackGeneration ? 'played' : 'aborted');
       };
       audio.onerror = () => {
         if (activeAudio === audio) {
           activeAudio = null;
         }
-        resolve(generation === playbackGeneration ? 'unavailable' : 'aborted');
+        if (cachedBlobUrl && staticBlobUrlCache.get(canonical) === cachedBlobUrl) {
+          staticBlobUrlCache.delete(canonical);
+        }
+        finish(generation === playbackGeneration ? 'unavailable' : 'aborted');
       };
       void Promise.resolve(audio.play())
         .then(() => {
@@ -385,7 +512,7 @@ function tryPlayStaticUrl(
               'name' in err &&
               (err as { name?: unknown }).name === 'NotAllowedError',
           );
-          resolve(
+          finish(
             generation !== playbackGeneration
               ? 'aborted'
               : isAutoplayBlocked
@@ -394,7 +521,7 @@ function tryPlayStaticUrl(
           );
         });
     } catch {
-      resolve('unavailable');
+      finish('unavailable');
     }
   });
 }
@@ -440,11 +567,7 @@ export async function playAudioClipWithStatus(
       }
       if (adopted.generation === playbackGeneration && fallbackText) {
         const ttsRes = await synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
-        if (ttsRes === 'played' || ttsRes === 'aborted') {
-          return ttsRes;
-        }
-        const spoke = await speakWithBrowserFallback(fallbackText, playbackGeneration);
-        return spoke ? 'played' : 'unavailable';
+        return ttsRes;
       }
       return adopted.generation !== playbackGeneration ? 'aborted' : 'unavailable';
     }
@@ -459,11 +582,7 @@ export async function playAudioClipWithStatus(
     }
     if (myGen === playbackGeneration && fallbackText) {
       const ttsRes = await synthesizeAndPlayVoiceLab(fallbackText, opts?.voiceStyle);
-      if (ttsRes === 'played' || ttsRes === 'aborted') {
-        return ttsRes;
-      }
-      const spoke = await speakWithBrowserFallback(fallbackText, playbackGeneration);
-      return spoke ? 'played' : 'unavailable';
+      return ttsRes;
     }
     return myGen !== playbackGeneration ? 'aborted' : 'unavailable';
   } catch {
@@ -590,7 +709,10 @@ export type InstructionAudioKey =
   | 'instr_alpha_say'
   | 'instr_alpha_chart'
   | 'instr_letter_help_tip'
-  | 'instr_stage1_train'
+  | 'instr_stage1_word_hunter'
+  | 'instr_stage1_word_hunter_speak'
+  | 'instr_bismillah_speak'
+  | 'instr_alhamdulillah_speak'
   | 'instr_stage1_constructor'
   | 'instr_stage1_bubbles'
   | 'instr_stage1_bubble_speak'
@@ -617,7 +739,11 @@ export const INSTRUCTION_FALLBACK_TEXT: Record<InstructionAudioKey, string> = {
   instr_alpha_say: 'Endi bu harf va so‘zni ovoz chiqarib ayt!',
   instr_alpha_chart: 'Istalgan harf ustiga bos — tovushini va so‘zini aytib beraman!',
   instr_letter_help_tip: 'Harfni unutdingmi? Istalgan harf ustiga bos!',
-  instr_stage1_train: 'Slayderni surib bo‘g‘inlarni bir-biriga yaqinlashtir va birlashtir!',
+  instr_stage1_word_hunter: 'Rasmga qarab to‘g‘ri so‘zni top va o‘qib ber!',
+  instr_stage1_word_hunter_speak: 'Endi topgan so‘zingni mikrofonga ovoz chiqarib o‘qib ber!',
+  instr_bismillah_speak: 'Darsni boshlash uchun mikrofon tugmasini bosib, «Bismillah» deb ayt!',
+  instr_alhamdulillah_speak:
+    'Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!',
   instr_stage1_constructor:
     'Bo‘g‘inlarni qo‘shib so‘z yasa! Rasmga qarab yetishmayotgan bo‘g‘inni tanla!',
   instr_stage1_bubbles: 'Rasmga qara! Uning nomidagi bo‘g‘inlarni ketma-ket yor!',
@@ -648,6 +774,7 @@ export type FeedbackAudioKey =
   | 'fb_mic_blocked_pic'
   | 'fb_offline_look_again'
   | 'fb_sentence_order'
+  | 'fb_word_hunter_wrong'
   | 'fb_bubble_try_again'
   | 'fb_bubble_server_offline'
   | 'fb_bubble_mic_blocked'
@@ -668,6 +795,7 @@ export const FEEDBACK_FALLBACK_TEXT: Record<FeedbackAudioKey, string> = {
   fb_mic_blocked_pic: 'Mikrofonga ruxsat berilmadi — mos rasmni tanlash rejimiga o‘tamiz.',
   fb_offline_look_again: 'Yana bir bor so‘zni diqqat bilan o‘qib ko‘r-chi!',
   fb_sentence_order: 'So‘zlarni to‘g‘ri tartibda joylashtirib ko‘r!',
+  fb_word_hunter_wrong: 'Boshqa so‘zga qarab ko‘r! Bo‘g‘inlarni diqqat bilan o‘qi.',
   fb_bubble_try_again: 'Bu bo‘g‘inni yana bir bor aniqroq aytib ko‘r-chi!',
   fb_bubble_server_offline: 'Ovoz serveri bilan aloqa uzildi — eshitib davom etamiz.',
   fb_bubble_mic_blocked: 'Mikrofonga ruxsat berilmadi — ovozli pauza rejimiga o‘tamiz.',
@@ -763,14 +891,11 @@ export async function playSyllableAudio(syllable: string): Promise<void> {
   }
   if (myGen === playbackGeneration) {
     const prompt = `${syllable.toLowerCase()}.`;
-    const ttsRes = await synthesizeAndPlayVoiceLab(prompt);
-    if (ttsRes === 'unavailable') {
-      await speakWithBrowserFallback(prompt, playbackGeneration);
-    }
+    await synthesizeAndPlayVoiceLab(prompt);
   }
 }
 
-/** Play pure plain letter + reminder word via static offline MP3 first (with /api/tts and browser speech fallback). */
+/** Play pure plain letter + reminder word via static offline MP3 first (with VoiceLab /api/tts fallback). */
 export async function playLetterRecallAudio(
   letter: string,
   opts?: { skipChime?: boolean },
@@ -793,14 +918,11 @@ export async function playLetterRecallAudio(
   const soundRes = await tryPlayStaticUrl(entry.audioSound, myGen);
   if (soundRes !== 'unavailable') return;
   if (myGen === playbackGeneration) {
-    const ttsRes = await synthesizeAndPlayVoiceLab(entry.phoneticTtsPrompt, 'neutral');
-    if (ttsRes === 'unavailable') {
-      await speakWithBrowserFallback(entry.phoneticTtsPrompt, playbackGeneration);
-    }
+    await synthesizeAndPlayVoiceLab(entry.phoneticTtsPrompt, 'neutral');
   }
 }
 
-/** Play audio for a WordPoolItem via static offline MP3 first (with /api/tts and browser speech fallback). */
+/** Play audio for a WordPoolItem via static offline MP3 first (with VoiceLab /api/tts fallback). */
 export async function playWordItemAudio(item: WordPoolItem): Promise<void> {
   stopActiveAudio();
   const myGen = playbackGeneration;
@@ -810,10 +932,7 @@ export async function playWordItemAudio(item: WordPoolItem): Promise<void> {
   }
   if (myGen === playbackGeneration) {
     const prompt = item.text.toLowerCase();
-    const ttsRes = await synthesizeAndPlayVoiceLab(prompt);
-    if (ttsRes === 'unavailable') {
-      await speakWithBrowserFallback(prompt, playbackGeneration);
-    }
+    await synthesizeAndPlayVoiceLab(prompt);
   }
 }
 

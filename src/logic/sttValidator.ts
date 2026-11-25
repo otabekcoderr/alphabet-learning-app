@@ -314,3 +314,98 @@ export function validateSttReading(params: {
 
   return { decision: 'mismatch', cadence };
 }
+
+export type HabitPhraseKind = 'bismillah' | 'alhamdulillah';
+
+export const BISMILLAH_ACCEPT_ALIASES: readonly string[] = [
+  'bismillah',
+  'bismillo',
+  'bismilloh',
+  'bismilla',
+  'bismillahir',
+  'bismillohir',
+  'bismillahi',
+  'bismillohi',
+  'besmillah',
+  'besmillo',
+  'bismilo',
+  'bismilah',
+  'bismilloh rahmanir rahim',
+  'bismillahir rahmanir rahim',
+  'бисмиллах',
+  'бисмиллох',
+  'бисмилло',
+  'бисмиллаҳ',
+];
+
+export const ALHAMDULILLAH_ACCEPT_ALIASES: readonly string[] = [
+  'alhamdulillah',
+  'alhamdulloh',
+  'alhamdulilloh',
+  'alhamdulilla',
+  'alhamdullilah',
+  'alhamdullillah',
+  'alhamdulloha',
+  'alxamdulillah',
+  'alxamdulilloh',
+  'alxamdulloh',
+  'elhamdulillah',
+  'alhamdu',
+  'alhamd',
+  'алхамдулиллах',
+  'алхамдулиллох',
+  'алҳамдулиллаҳ',
+];
+
+/** Validate spoken Bismillah or Alhamdulillah with phonetic aliases and zero lexical false positives. */
+export function validateHabitUtterance(
+  kind: HabitPhraseKind,
+  params: {
+    transcript: string;
+    isSilence: boolean;
+    confidence?: number | null;
+    confidenceAvailable?: boolean;
+    thresholds?: ReadingThresholds;
+  },
+): SttValidationDecision {
+  const thresholds = params.thresholds ?? READING_THRESHOLDS;
+  const normTranscript = normalizeText(params.transcript);
+  if (params.isSilence || !normTranscript) {
+    return 'silence';
+  }
+  if (isLowConfidence(params.confidence, params.confidenceAvailable, thresholds)) {
+    return 'low_confidence';
+  }
+
+  const aliases = kind === 'bismillah' ? BISMILLAH_ACCEPT_ALIASES : ALHAMDULILLAH_ACCEPT_ALIASES;
+  const canonical = kind === 'bismillah' ? 'bismillah' : 'alhamdulillah';
+  const canonicalGraphemes = tokenizeGraphemes(canonical);
+  const normalizedSpoken = normalizeUzbek(params.transcript).replace(/[^a-z\u0400-\u04ff\s']/g, ' ');
+  const spokenTokens = normalizedSpoken.split(/\s+/).filter(Boolean);
+  const compactSpoken = spokenTokens.join('');
+
+  for (const alias of aliases) {
+    const compactAlias = alias.replace(/\s+/g, '');
+    if (!compactAlias) continue;
+    if (compactSpoken === compactAlias || compactSpoken.includes(compactAlias)) {
+      return 'accepted';
+    }
+    for (const tok of spokenTokens) {
+      if (tok === compactAlias || tok.includes(compactAlias)) {
+        return 'accepted';
+      }
+      if (tok.length >= 6 && graphemeLevenshtein(tokenizeGraphemes(tok), canonicalGraphemes) <= 2) {
+        return 'accepted';
+      }
+    }
+  }
+
+  if (
+    compactSpoken.length >= 6 &&
+    graphemeLevenshtein(tokenizeGraphemes(compactSpoken), canonicalGraphemes) <= 2
+  ) {
+    return 'accepted';
+  }
+
+  return 'mismatch';
+}

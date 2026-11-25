@@ -1,12 +1,12 @@
 {
   "sound_a.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Aaaaa."
   },
   "item_a.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Salom bolajon! Bu A harfi. Qizil unli harf, Aaaaa tovushi!"
   },
   "sound_o.mp3": {
@@ -16,27 +16,27 @@
   },
   "item_o.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Zo‘r! Bu O harfi. Labingni doira qilib Ooooo deb ayt!"
   },
   "sound_i.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Iiiii."
   },
   "item_i.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Tabassum qil! Bu I harfi, Iiiii tovushi!"
   },
   "sound_u.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Uuuuu."
   },
   "item_u.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Ajoyib! Bu U harfi, Uuuuu deb cho‘zib aytamiz!"
   },
   "sound_e.mp3": {
@@ -46,27 +46,27 @@
   },
   "item_e.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Yangi do‘stimiz — E harfi! Yengilgina Eeeee tovushi!"
   },
   "sound_oi.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Oi."
   },
   "item_oi.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Endi unlilarni ulaymiz! O va I — Oi!"
   },
   "sound_au.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Au."
   },
   "item_au.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Barakalla! A va U ni birga aytamiz: Au!"
   },
   "sound_n.mp3": {
@@ -76,82 +76,82 @@
   },
   "item_n.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Mana ko‘k undosh harf — N harfi! Nnnnn tovushi!"
   },
   "sound_na.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Na."
   },
   "item_na.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Nnnnn va Aaaaa qo‘shilsa — Na! Judayam oson!"
   },
   "sound_no.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "No."
   },
   "item_no.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Endi N va O ni birlashtiramiz: No!"
   },
   "sound_ni.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Ni."
   },
   "item_ni.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Barakalla! N va I qo‘shilsa — Ni bo‘ladi!"
   },
   "sound_m.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Mmmmm."
   },
   "item_m.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Lablarni yumib aytamiz: M harfi, Mmmmm tovushi!"
   },
   "sound_ma.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Ma."
   },
   "item_ma.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Mmmmm va Aaaaa — Ma! Qani, birga aytamiz!"
   },
   "sound_mo.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Mo."
   },
   "item_mo.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Ajoyib! M va O birlashsa — Mo!"
   },
   "sound_l.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "L tovushi."
   },
   "item_l.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Bu esa quvnoq L harfi! L tovushi!"
   },
   "sound_lo.mp3": {
     "provider": "voicelab",
-    "voice": "gulya",
+    "voice": "lison-v2:malika",
     "text": "Lo."
   },
   "letter_o.mp3": {
@@ -292,7 +292,8 @@
   "letter_f.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "F. Fil."
+    "text": "Fff. Fil.",
+    "clean_f": true
   },
   "letter_p.mp3": {
     "provider": "voicelab",
@@ -367,7 +368,8 @@
   "sound_f.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "f"
+    "text": "f",
+    "clean_f": true
   },
   "sound_p.mp3": {
     "provider": "voicelab",
@@ -1682,6 +1684,946 @@
   "alhamdulillah.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!"
+    "text": "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Алҳамдулиллаҳ» deb ayt!"
+  },
+  "instr_stage1_word_hunter_speak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Endi topgan so‘zingni mikrofonga ovoz chiqarib o‘qib ber!"
+  },
+  "instr_stage1_word_hunter.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Rasmga qarab to‘g‘ri so‘zni top va o‘qib ber!"
+  },
+  "instr_bismillah_speak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Darsni boshlash uchun mikrofon tugmasini bosib, «Бисмиллаҳ» deb ayt!"
+  },
+  "instr_alhamdulillah_speak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Алҳамдулиллаҳ» deb ayt!"
+  },
+  "fb_word_hunter_wrong.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Boshqa so‘zga qarab ko‘r! Bo‘g‘inlarni diqqat bilan o‘qi."
+  },
+  "syl_o.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "O."
+  },
+  "syl_no.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "No."
+  },
+  "syl_bo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bo."
+  },
+  "syl_n.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "N."
+  },
+  "syl_ta.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ta."
+  },
+  "syl_nor.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Nor."
+  },
+  "syl_i.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "I."
+  },
+  "syl_lon.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lon."
+  },
+  "syl_man.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Man."
+  },
+  "syl_bor.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bor."
+  },
+  "syl_ar.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ar."
+  },
+  "syl_ra.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ra."
+  },
+  "syl_mo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Mo."
+  },
+  "syl_mon.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Mon."
+  },
+  "syl_nar.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Nar."
+  },
+  "syl_bol.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bol."
+  },
+  "syl_tin.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tin."
+  },
+  "syl_lor.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lor."
+  },
+  "syl_bi.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bi."
+  },
+  "syl_k.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "K."
+  },
+  "syl_ran.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ran."
+  },
+  "syl_tan.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tan."
+  },
+  "syl_lit.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lit."
+  },
+  "syl_ral.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ral."
+  },
+  "syl_tor.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tor."
+  },
+  "syl_lan.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lan."
+  },
+  "syl_nan.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Nan."
+  },
+  "syl_bob.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bob."
+  },
+  "syl_lar.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lar."
+  },
+  "syl_ro.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ro."
+  },
+  "syl_bot.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bot."
+  },
+  "syl_ram.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ram."
+  },
+  "syl_mot.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Mot."
+  },
+  "syl_da.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Da."
+  },
+  "syl_sal.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sal."
+  },
+  "syl_u.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "U."
+  },
+  "syl_zuk.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zuk."
+  },
+  "syl_zum.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zum."
+  },
+  "syl_sab.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sab."
+  },
+  "syl_zeb.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zeb."
+  },
+  "syl_ko.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ko."
+  },
+  "syl_za.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Za."
+  },
+  "syl_e.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "E."
+  },
+  "syl_tik.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tik."
+  },
+  "syl_zar.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zar."
+  },
+  "syl_tul.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tul."
+  },
+  "syl_zo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zo."
+  },
+  "syl_let.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Let."
+  },
+  "syl_zul.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zul."
+  },
+  "syl_mak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Mak."
+  },
+  "syl_tab.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tab."
+  },
+  "syl_zon.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zon."
+  },
+  "syl_run.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Run."
+  },
+  "syl_su.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Su."
+  },
+  "syl_t.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "T."
+  },
+  "syl_z.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Z."
+  },
+  "syl_m.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "M."
+  },
+  "syl_tu.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tu."
+  },
+  "syl_l.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "L."
+  },
+  "syl_ke.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ke."
+  },
+  "syl_lat.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lat."
+  },
+  "syl_zur.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zur."
+  },
+  "syl_so.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "So."
+  },
+  "syl_at.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "At."
+  },
+  "syl_lut.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lut."
+  },
+  "syl_s.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "S."
+  },
+  "syl_zat.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zat."
+  },
+  "syl_dos.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Dos."
+  },
+  "syl_rat.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Rat."
+  },
+  "syl_kak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Kak."
+  },
+  "syl_tus.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Tus."
+  },
+  "syl_rak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Rak."
+  },
+  "syl_zom.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zom."
+  },
+  "syl_lur.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lur."
+  },
+  "syl_san.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "San."
+  },
+  "syl_dal.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Dal."
+  },
+  "syl_sum.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sum."
+  },
+  "syl_sha.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sha."
+  },
+  "syl_r.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "R."
+  },
+  "syl_choy.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Choy."
+  },
+  "syl_nak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Nak."
+  },
+  "syl_o_apr.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "O‘r."
+  },
+  "syl_dak.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Dak."
+  },
+  "syl_g_apoz.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "G‘oz."
+  },
+  "syl_g_apo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "G‘o."
+  },
+  "syl_gi.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Gi."
+  },
+  "syl_los.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Los."
+  },
+  "syl_yul.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Yul."
+  },
+  "syl_duz.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Duz."
+  },
+  "syl_qor.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Qor."
+  },
+  "syl_va.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Va."
+  },
+  "syl_gon.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Gon."
+  },
+  "syl_chir.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Chir."
+  },
+  "syl_ng.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ng."
+  },
+  "syl_ch.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ch."
+  },
+  "syl_q.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Q."
+  },
+  "syl_jo_ap.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Jo‘."
+  },
+  "syl_ja.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ja."
+  },
+  "syl_xo_ap.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Xo‘."
+  },
+  "syl_roz.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Roz."
+  },
+  "syl_fi.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Fi."
+  },
+  "syl_g_ap.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "G‘."
+  },
+  "syl_pax.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Pax."
+  },
+  "syl_cho.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Cho."
+  },
+  "syl_g_api.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "G‘i."
+  },
+  "syl_ha.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ha."
+  },
+  "syl_vo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Vo."
+  },
+  "syl_vun.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Vun."
+  },
+  "syl_o_ap.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "O‘."
+  },
+  "syl_rik.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Rik."
+  },
+  "syl_shir.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Shir."
+  },
+  "syl_chu.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Chu."
+  },
+  "syl_g_apil.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "G‘il."
+  },
+  "syl_di.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Di."
+  },
+  "syl_yon.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Yon."
+  },
+  "syl_liq.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Liq."
+  },
+  "syl_mu.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Mu."
+  },
+  "syl_shuk.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Shuk."
+  },
+  "syl_ku.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ku."
+  },
+  "syl_chuk.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Chuk."
+  },
+  "syl_xa.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Xa."
+  },
+  "syl_voq.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Voq."
+  },
+  "syl_kom.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Kom."
+  },
+  "syl_pot.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Pot."
+  },
+  "syl_v.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "V."
+  },
+  "syl_shik.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Shik."
+  },
+  "syl_daf.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Daf."
+  },
+  "syl_raxt.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Raxt."
+  },
+  "syl_vat.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Vat."
+  },
+  "syl_sh.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sh."
+  },
+  "syl_zoq.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Zoq."
+  },
+  "sound_la.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "La."
+  },
+  "item_lo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "L va Ooooo qo‘shilsa — Lo!"
+  },
+  "sound_ona.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ona."
+  },
+  "item_la.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "L va Aaaaa birga aytilsa — La!"
+  },
+  "sound_non.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Non."
+  },
+  "item_ona.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Birinchi so‘zimiz! O va na — Ona! Juda chiroyli so‘z!"
+  },
+  "item_non.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "No va n tovushi birlashsa — issiq Non!"
+  },
+  "sound_lola.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lola."
+  },
+  "item_lola.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Lo va la qo‘shilsa — chiroyli gul, Lola!"
+  },
+  "sound_olma.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Olma."
+  },
+  "item_olma.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ol va ma bo‘g‘inlari birga — shirin Olma!"
+  },
+  "sound_s.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sssss."
+  },
+  "sound_sa.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sa."
+  },
+  "item_s.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Yangi ko‘k harfimiz — S! Mayin qilib Sssss deng!"
+  },
+  "item_sa.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Sssss va Aaaaa qo‘shilsa — Sa!"
+  },
+  "sound_r.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Rrrrr."
+  },
+  "sound_ro.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ro."
+  },
+  "item_r.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Matorchadek jaranglaymiz: R harfi, Rrrrr tovushi!"
+  },
+  "item_ro.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Rrrrr va Ooooo qo‘shilsa — Ro!"
+  },
+  "item_arra.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ar va ra bo‘g‘inlari qo‘shilsa — Arra!"
+  },
+  "sound_asal.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Asal."
+  },
+  "item_asal.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "A va sal bo‘laklarini o‘qiymiz — shirin Asal!"
+  },
+  "sound_v.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Vvvvv."
+  },
+  "sound_ba.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ba."
+  },
+  "sound_bo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bo."
+  },
+  "sound_ta.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ta."
+  },
+  "sound_da.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Da."
+  },
+  "sound_k.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "K!"
+  },
+  "sound_suv.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Suv."
+  },
+  "sound_bola.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bola."
+  },
+  "sound_bobo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bobo."
+  },
+  "sound_ota.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ota."
+  },
+  "sound_dada.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Dada."
+  },
+  "sound_kitob.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Kitob."
+  },
+  "sound_b.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "B!"
+  },
+  "sound_t.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "T!"
+  },
+  "sound_d.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "D!"
+  },
+  "item_v.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Shamoldek esamiz: V harfi, Vvvvv tovushi!"
+  },
+  "item_b.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Qahramonlar qal’asi! Bu B harfi, chaqqon B tovushi!"
+  },
+  "item_t.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Yana bir chaqqon harf — T harfi, qisqa T tovushi!"
+  },
+  "item_d.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bu esa kuchli D harfi, qisqa D tovushi!"
+  },
+  "item_k.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "So‘nggi kalit harfimiz — K! Chaqqon K tovushi!"
+  },
+  "item_suv.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Su va v qo‘shilsa — tiniq Suv!"
+  },
+  "item_ba.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "B va A birlashsa — Ba!"
+  },
+  "item_bo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "B va O qo‘shilsa — Bo!"
+  },
+  "item_bola.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Bo va la qo‘shilsa — aqlli Bola!"
+  },
+  "item_bobo.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ikkita Bo bo‘g‘ini — mehribon Bobo!"
+  },
+  "item_ta.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "T va A birga o‘qilsa — Ta!"
+  },
+  "item_ota.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "O va ta bo‘laklari qo‘shilsa — Ota!"
+  },
+  "item_da.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "D va A qo‘shilsa — Da!"
+  },
+  "item_dada.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Da va da birlashsa — aziz Dada!"
+  },
+  "item_kitob.mp3": {
+    "provider": "voicelab",
+    "voice": "lison-v2:malika",
+    "text": "Ki va tob qo‘shilsa — bilim manbai Kitob! Barakalla!"
   }
 }

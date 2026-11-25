@@ -55,13 +55,13 @@ def load_dotenv_file(env_path: Path) -> dict[str, str]:
 
 
 def get_voicelab_config(project_root: Path) -> dict[str, str]:
-    """Resolve VoiceLab credentials and Lison v2 defaults from env or .env."""
+    """Resolve VoiceLab credentials and locked Lison v2 Malika defaults from env or .env."""
     file_env = load_dotenv_file(project_root / ".env")
     return {
         "api_key": (os.environ.get("VOICELAB_API_KEY") or file_env.get("VOICELAB_API_KEY", "")).strip(),
         "tts_url": (os.environ.get("VOICELAB_TTS_URL") or file_env.get("VOICELAB_TTS_URL") or DEFAULT_VOICELAB_TTS_URL).strip(),
-        "model_id": (os.environ.get("VOICELAB_MODEL_ID") or file_env.get("VOICELAB_MODEL_ID") or DEFAULT_VOICELAB_MODEL_ID).strip(),
-        "voice_id": (os.environ.get("VOICELAB_VOICE_ID") or file_env.get("VOICELAB_VOICE_ID") or DEFAULT_VOICELAB_VOICE_ID).strip(),
+        "model_id": DEFAULT_VOICELAB_MODEL_ID,
+        "voice_id": DEFAULT_VOICELAB_VOICE_ID,
         "neutral_voice_id": NEUTRAL_VOICELAB_VOICE_ID,
     }
 
@@ -411,13 +411,20 @@ def _detect_audio_mime(audio_bytes: bytes) -> str:
 
 
 def _prepare_voicelab_tts_text(text: str) -> str:
-    """Prevent VoiceLab G2P rounding of 'Bismillah' into 'bismilloh'."""
-    return re.sub(
+    """Prevent VoiceLab G2P rounding of habit words and letter F."""
+    text = re.sub(
         r"\bbismill[ao]h\b",
         lambda m: "бисмиллаҳ" if m.group(0).islower() else "Бисмиллаҳ",
         text,
         flags=re.IGNORECASE,
     )
+    text = re.sub(
+        r"\balhamdulill[ao]h\b",
+        lambda m: "алҳамдулиллаҳ" if m.group(0).islower() else "Алҳамдулиллаҳ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return re.sub(r"\bF+\.\s*Fil\.", "Ффф. Фил.", text)
 
 
 async def _synthesize_voicelab_wav(

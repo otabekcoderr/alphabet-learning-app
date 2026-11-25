@@ -1,0 +1,32 @@
+{
+  "name": "Alifbo — Bolalar uchun o‘qish o‘yini",
+  "short_name": "Alifbo",
+  "description": "O‘zbek tilida bolalar uchun harflarni, bo‘g‘inlarni va so‘zlarni o‘rgatuvchi interaktiv o‘yin.",
+  "lang": "uz",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#FFFDF9",
+  "theme_color": "#10B981",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

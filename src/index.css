@@ -5514,3 +5514,271 @@ h4,
     width: 100%;
   }
 }
+
+/* ==== Alifbo 2.3.1 — So'z Ovchisi, Habit STT, Autofill-free PIN Keypad & PWA Banner ==== */
+.word-hunter-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  width: 100%;
+  margin: 14px 0 18px;
+}
+
+@media (max-width: 560px) {
+  .word-hunter-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.word-hunter-choice-card {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 12px;
+  border-radius: 18px;
+  border: 2.5px solid #E2E8F0;
+  background: #FFFFFF;
+  box-shadow: 0 4px 0 #CBD5E1;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease, background 0.14s ease;
+}
+
+.word-hunter-choice-card.is-selected {
+  border-color: #10B981;
+  background: #ECFDF5;
+  box-shadow: 0 4px 0 #059669;
+  transform: translateY(-2px);
+}
+
+.word-hunter-choice-card.is-wrong {
+  border-color: #F97316;
+  background: #FFF7ED;
+  box-shadow: 0 4px 0 #EA580C;
+}
+
+.word-hunter-syllables {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+}
+
+.word-hunter-syl-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 5px 10px;
+  border-radius: 10px;
+  background: #FEF3C7;
+  color: #92400E;
+  font-family: 'Fredoka', 'Nunito', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.word-hunter-choice-card.is-selected .word-hunter-syl-chip {
+  background: #D1FAE5;
+  color: #065F46;
+}
+
+.word-hunter-speak-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-top: 8px;
+}
+
+.habit-mic-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin: 12px 0;
+}
+
+.bismillah-feedback-pill {
+  display: inline-block;
+  margin: 6px 0;
+  padding: 8px 14px;
+  border-radius: 14px;
+  background: #FEF3C7;
+  color: #92400E;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.bismillah-feedback-pill.is-ok {
+  background: #ECFDF5;
+  color: #065F46;
+}
+
+.pin-dots-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+
+.pin-dots-box {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 16px;
+  border: 2px solid #E2E8F0;
+  background: #F8FAFC;
+  cursor: pointer;
+}
+
+.pin-dots-box-active {
+  border-color: #10B981;
+  background: #ECFDF5;
+}
+
+.pin-dots-label {
+  font-size: 12.5px;
+  font-weight: 800;
+  color: #475569;
+}
+
+.pin-dots-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.pin-dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid #94A3B8;
+  background: transparent;
+  transition: transform 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+
+.pin-dot-filled {
+  background: #059669;
+  border-color: #059669;
+  transform: scale(1.1);
+}
+
+.pin-keypad-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  width: 100%;
+  max-width: 264px;
+  margin: 6px auto 4px;
+}
+
+.pin-keypad-btn {
+  height: 46px;
+  border-radius: 14px;
+  border: 2px solid #E2E8F0;
+  background: #FFFFFF;
+  box-shadow: 0 3px 0 #CBD5E1;
+  font-family: 'Fredoka', 'Nunito', sans-serif;
+  font-size: 20px;
+  font-weight: 700;
+  color: #1E293B;
+  cursor: pointer;
+}
+
+.pin-keypad-btn:active:not(:disabled) {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #CBD5E1;
+}
+
+.pin-keypad-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.pin-keypad-fn {
+  font-size: 14px;
+  background: #F8FAFC;
+  color: #475569;
+}
+
+.pwa-install-banner {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 18px;
+  border: 2px solid #A7F3D0;
+  background: linear-gradient(135deg, #ECFDF5 0%, #FFFBEB 100%);
+  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.08);
+  margin-top: 10px;
+}
+
+.pwa-install-banner-settings {
+  margin-top: 0;
+}
+
+.pwa-install-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pwa-install-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: #10B981;
+  color: #FFFFFF;
+  flex-shrink: 0;
+}
+
+.pwa-install-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1 1 180px;
+  font-size: 13px;
+  color: #334155;
+}
+
+.pwa-install-copy strong {
+  color: #065F46;
+  font-size: 14px;
+}
+
+.pwa-install-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.pwa-dismiss-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 999px;
+  border: 1.5px solid #CBD5E1;
+  background: #FFFFFF;
+  color: #64748B;
+  cursor: pointer;
+}
+
+.pwa-ios-guide {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1.5px dashed #34D399;
+  font-size: 12.5px;
+  color: #1E293B;
+}
