@@ -12,6 +12,15 @@ export interface UserRow {
   google_id: string | null;
   telegram_id: string | null;
   telegram_username: string | null;
+  telegram_chat_id: string | null;
+  tg_reminder_enabled: boolean;
+  tg_reminder_hour: number;
+  tg_bot_blocked: boolean;
+  last_practice_date: string | null;
+  last_reminded_date: string | null;
+  consecutive_missed_reminders: number;
+  mastered_words_count: number;
+  current_streak_days: number;
   display_name: string | null;
   avatar_url: string | null;
   child_name: string;
@@ -66,9 +75,46 @@ export async function ensureSchema(): Promise<void> {
         ALTER TABLE users ADD COLUMN IF NOT EXISTS public_id TEXT
       `;
       await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_reminder_enabled BOOLEAN NOT NULL DEFAULT TRUE
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_reminder_hour SMALLINT NOT NULL DEFAULT 19
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_bot_blocked BOOLEAN NOT NULL DEFAULT FALSE
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_practice_date TEXT
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminded_date TEXT
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS consecutive_missed_reminders SMALLINT NOT NULL DEFAULT 0
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS mastered_words_count INTEGER NOT NULL DEFAULT 0
+      `;
+      await sql`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS current_streak_days INTEGER NOT NULL DEFAULT 0
+      `;
+      await sql`
+        UPDATE users
+        SET telegram_chat_id = telegram_id
+        WHERE telegram_chat_id IS NULL AND telegram_id IS NOT NULL
+      `;
+      await sql`
         CREATE UNIQUE INDEX IF NOT EXISTS idx_users_public_id
         ON users (public_id)
         WHERE public_id IS NOT NULL
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_users_tg_reminders
+        ON users (tg_reminder_hour, last_reminded_date)
+        WHERE tg_reminder_enabled = TRUE AND tg_bot_blocked = FALSE AND telegram_chat_id IS NOT NULL
       `;
       await sql`
         CREATE TABLE IF NOT EXISTS user_states (
@@ -97,6 +143,7 @@ export async function ensureSchema(): Promise<void> {
         CREATE TABLE IF NOT EXISTS telegram_login_sessions (
           token_hash TEXT PRIMARY KEY,
           status TEXT NOT NULL DEFAULT 'pending',
+          link_user_id TEXT,
           child_name TEXT,
           avatar_id TEXT,
           telegram_id TEXT,
@@ -110,8 +157,26 @@ export async function ensureSchema(): Promise<void> {
         )
       `;
       await sql`
+        ALTER TABLE telegram_login_sessions ADD COLUMN IF NOT EXISTS link_user_id TEXT
+      `;
+      await sql`
         CREATE INDEX IF NOT EXISTS idx_tg_login_sessions_expires
         ON telegram_login_sessions (expires_at)
+      `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS parent_notifications (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+          kind TEXT NOT NULL,
+          title_uz TEXT NOT NULL,
+          body_uz TEXT NOT NULL,
+          read_at TIMESTAMPTZ,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_parent_notifications_user
+        ON parent_notifications (user_id, created_at DESC)
       `;
     })().catch((err) => {
       _schemaPromise = null;

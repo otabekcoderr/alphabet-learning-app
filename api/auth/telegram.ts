@@ -80,6 +80,8 @@ async function upsertTelegramUserAndLoadState(
       UPDATE users
       SET
         telegram_username = COALESCE(${username || null}, telegram_username),
+        telegram_chat_id = COALESCE(telegram_chat_id, ${telegramId}),
+        tg_bot_blocked = FALSE,
         display_name = COALESCE(${displayName}, display_name),
         contact_display = ${contactDisplay},
         updated_at = NOW()
@@ -99,10 +101,10 @@ async function upsertTelegramUserAndLoadState(
       try {
         const inserted = (await sql`
           INSERT INTO users (
-            id, public_id, provider, contact_key, contact_display, telegram_id, telegram_username, display_name, child_name, avatar_id
+            id, public_id, provider, contact_key, contact_display, telegram_id, telegram_username, telegram_chat_id, tg_reminder_enabled, tg_bot_blocked, display_name, child_name, avatar_id
           )
           VALUES (
-            ${id}, ${publicId}, 'telegram', ${contactKey}, ${contactDisplay}, ${telegramId}, ${username || null}, ${displayName}, ${childName}, ${avatarId}
+            ${id}, ${publicId}, 'telegram', ${contactKey}, ${contactDisplay}, ${telegramId}, ${username || null}, ${telegramId}, TRUE, FALSE, ${displayName}, ${childName}, ${avatarId}
           )
           RETURNING *
         `) as UserRow[];

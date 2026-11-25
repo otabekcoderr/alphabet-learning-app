@@ -79,6 +79,7 @@ interface FeedbackModalProps {
   onClose: () => void;
   childName?: string;
   publicId?: string;
+  isGuest?: boolean;
   sessionsCompleted: number;
 }
 
@@ -87,6 +88,7 @@ export function FeedbackModal({
   onClose,
   childName,
   publicId,
+  isGuest = false,
   sessionsCompleted,
 }: FeedbackModalProps) {
   const [disappointment, setDisappointment] = useState<FeedbackDisappointment | null>(null);
@@ -176,7 +178,8 @@ export function FeedbackModal({
       recommendationNote: recommendationNote.trim(),
       sessionsCompleted,
       childName,
-      publicId,
+      publicId: isGuest ? undefined : publicId,
+      isGuest,
       submittedAt,
     });
 

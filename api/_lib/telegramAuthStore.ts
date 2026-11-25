@@ -16,8 +16,13 @@ export type ConsumeTelegramSessionResult =
   | { status: 'expired' }
   | { status: 'approved'; data: ApprovedTelegramLoginData };
 
+export type ConsumeTelegramLinkResult =
+  | { ok: true; userId: string }
+  | { ok: false; reason: 'expired_or_invalid' };
+
 interface MemoryTelegramLoginRecord {
-  status: 'pending' | 'approved';
+  status: 'pending' | 'approved' | 'pending_link' | 'linked';
+  linkUserId?: string | null;
   childName: string | null;
   avatarId: string | null;
   telegramId: string | null;
@@ -371,4 +376,132 @@ export async function consumeTelegramLoginSession(
   }
 
   return { status: 'expired' };
+}
+
+export async function createPendingTelegramLinkSession(params: {
+  tokenHash: string;
+  userId: string;
+  ttlSec: number;
+}): Promise<{ expiresAt: string; backend: TelegramAuthStoreBackend }> {
+  const backend = getTelegramAuthStoreBackend();
+  const expiresAtMs = Date.now() + params.ttlSec * 1000;
+  const expiresAt = new Date(expiresAtMs).toISOString();
+
+  if (backend === 'postgres') {
+    await ensureSchema();
+    const sql = getSql();
+    await sql`
+      DELETE FROM telegram_login_sessions
+      WHERE expires_at < NOW() - INTERVAL '1 hour'
+    `;
+    await sql`
+      INSERT INTO telegram_login_sessions (
+        token_hash, status, link_user_id, expires_at
+      )
+      VALUES (
+        ${params.tokenHash}, 'pending_link', ${params.userId}, ${expiresAt}
+      )
+      ON CONFLICT (token_hash) DO UPDATE SET
+        status = 'pending_link',
+        link_user_id = EXCLUDED.link_user_id,
+        expires_at = EXCLUDED.expires_at,
+        consumed_at = NULL,
+        approved_at = NULL
+    `;
+    return { expiresAt, backend };
+  }
+
+  if (backend === 'kv') {
+    const key = `tg_link:${params.tokenHash}`;
+    const record: MemoryTelegramLoginRecord = {
+      status: 'pending_link',
+      linkUserId: params.userId,
+      childName: null,
+      avatarId: null,
+      telegramId: null,
+      telegramUsername: null,
+      firstName: '',
+      lastName: '',
+      expiresAtMs,
+      consumedAtMs: null,
+    };
+    await runKvCommand(['SET', key, JSON.stringify(record), 'EX', String(params.ttlSec)]);
+    return { expiresAt, backend };
+  }
+
+  if (backend === 'memory') {
+    memoryStore.set(params.tokenHash, {
+      status: 'pending_link',
+      linkUserId: params.userId,
+      childName: null,
+      avatarId: null,
+      telegramId: null,
+      telegramUsername: null,
+      firstName: '',
+      lastName: '',
+      expiresAtMs,
+      consumedAtMs: null,
+    });
+    return { expiresAt, backend };
+  }
+
+  throw new Error('Telegram auth store is not configured');
+}
+
+export async function consumeTelegramLinkSessionOnWebhook(params: {
+  tokenHash: string;
+}): Promise<ConsumeTelegramLinkResult> {
+  const backend = getTelegramAuthStoreBackend();
+
+  if (backend === 'postgres') {
+    await ensureSchema();
+    const sql = getSql();
+    const rows = (await sql`
+      UPDATE telegram_login_sessions
+      SET status = 'linked', approved_at = NOW(), consumed_at = NOW()
+      WHERE token_hash = ${params.tokenHash}
+        AND status = 'pending_link'
+        AND consumed_at IS NULL
+        AND expires_at > NOW()
+        AND link_user_id IS NOT NULL
+      RETURNING link_user_id
+    `) as Array<{ link_user_id: string | null }>;
+    const userId = rows[0]?.link_user_id;
+    return userId ? { ok: true, userId } : { ok: false, reason: 'expired_or_invalid' };
+  }
+
+  if (backend === 'kv') {
+    const key = `tg_link:${params.tokenHash}`;
+    const raw = await runKvCommand<string>(['GET', key]);
+    if (!raw) return { ok: false, reason: 'expired_or_invalid' };
+    const record = JSON.parse(raw) as MemoryTelegramLoginRecord;
+    if (
+      record.expiresAtMs <= Date.now() ||
+      record.status !== 'pending_link' ||
+      record.consumedAtMs !== null ||
+      !record.linkUserId
+    ) {
+      return { ok: false, reason: 'expired_or_invalid' };
+    }
+    await runKvCommand(['DEL', key]);
+    return { ok: true, userId: record.linkUserId };
+  }
+
+  if (backend === 'memory') {
+    const record = memoryStore.get(params.tokenHash);
+    if (
+      !record ||
+      record.expiresAtMs <= Date.now() ||
+      record.status !== 'pending_link' ||
+      record.consumedAtMs !== null ||
+      !record.linkUserId
+    ) {
+      return { ok: false, reason: 'expired_or_invalid' };
+    }
+    record.status = 'linked';
+    record.consumedAtMs = Date.now();
+    return { ok: true, userId: record.linkUserId };
+  }
+
+  return { ok: false, reason: 'expired_or_invalid' };
 }

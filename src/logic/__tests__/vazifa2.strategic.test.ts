@@ -34,6 +34,7 @@ import {
   STRATEGIC_ONBOARDING_STORAGE_KEY,
 } from '../onboarding';
 import {
+  flushPendingTelegramMessages,
   formatFeedbackTelegramMessage,
   formatOnboardingTelegramMessage,
   getPendingTelegramMessages,
@@ -71,19 +72,26 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     vi.restoreAllMocks();
   });
 
-  it('queues Telegram messages in localStorage without crashing when env is missing, network fails, or HTTP fails', async () => {
+  it('queues Telegram messages in localStorage when server endpoint is unconfigured (503), network fails, or HTTP fails, and flushes later', async () => {
     const mockStorage = createMockLocalStorage();
     vi.stubGlobal('window', { localStorage: mockStorage });
 
-    // 1. Missing env variables
+    // 1. Server returns 503 (TELEGRAM_ADMIN_CHAT_ID or TELEGRAM_BOT_TOKEN not configured)
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => ({
+        ok: false,
+        status: 503,
+      })),
+    );
     const missingEnvRes = await sendTelegramMessage('Test xabar 1', {
       category: 'onboarding',
-      env: { botToken: '', chatId: '' },
     });
     expect(missingEnvRes).toEqual({
       ok: false,
       queuedLocally: true,
       reason: 'missing_env',
+      statusCode: 503,
     });
 
     // 2. Network failure / blocked request
@@ -95,7 +103,6 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     );
     const networkRes = await sendTelegramMessage('Test xabar 2', {
       category: 'feedback',
-      env: { botToken: '123:abc', chatId: '999' },
     });
     expect(networkRes).toEqual({
       ok: false,
@@ -113,7 +120,6 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     );
     const httpRes = await sendTelegramMessage('Test xabar 3', {
       category: 'feedback',
-      env: { botToken: '123:abc', chatId: '999' },
     });
     expect(httpRes).toEqual({
       ok: false,
@@ -131,7 +137,7 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     ]);
     expect(mockStorage.getItem(TG_PENDING_QUEUE_KEY)).toBeTruthy();
 
-    // 4. Successful Telegram Bot API call
+    // 4. Successful server proxy call & flush of pending queue
     const fetchOkMock = vi.fn(async () => ({
       ok: true,
       status: 200,
@@ -141,23 +147,25 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
 
     const okRes = await sendTelegramMessage('Salom Telegram!', {
       category: 'onboarding',
-      env: { botToken: '12345:token', chatId: '-100777' },
     });
     expect(okRes).toEqual({ ok: true, queuedLocally: false });
     expect(fetchOkMock).toHaveBeenCalledWith(
-      'https://api.telegram.org/bot12345:token/sendMessage',
+      '/api/notifications/admin-alert',
       expect.objectContaining({
         method: 'POST',
         body: JSON.stringify({
-          chat_id: '-100777',
+          category: 'onboarding',
           text: 'Salom Telegram!',
-          disable_web_page_preview: true,
         }),
       }),
     );
+
+    const flushed = await flushPendingTelegramMessages();
+    expect(flushed).toBe(3);
+    expect(getPendingTelegramMessages()).toHaveLength(0);
   });
 
-  it('formats onboarding and feedback Telegram messages in clean Uzbek', () => {
+  it('formats onboarding and feedback Telegram messages in clean Uzbek and marks Guest mode without fake ID', () => {
     const onboardingMsg = formatOnboardingTelegramMessage({
       childStageLabel: 'Harflarni biladi, lekin so‘z o‘qiy olmaydi',
       previousAttemptsLabel: 'O‘zim kitob/alifbedan o‘rgatishga urindim',
@@ -171,6 +179,17 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
     expect(onboardingMsg).toContain('Zukko');
     expect(onboardingMsg).toContain('48291034');
     expect(onboardingMsg).toContain('@ota_ona');
+
+    const guestOnboarding = formatOnboardingTelegramMessage({
+      childStageLabel: 'Harflarni biladi, lekin so‘z o‘qiy olmaydi',
+      previousAttemptsLabel: 'O‘zim kitob/alifbedan o‘rgatishga urindim',
+      biggestDifficultyLabel: 'Harflarni bir-biriga qo‘shib o‘qiy olmayapti',
+      childName: 'Zukko',
+      publicId: '99999999',
+      isGuest: true,
+    });
+    expect(guestOnboarding).toContain('Holat: Sinov rejimi (Guest)');
+    expect(guestOnboarding).not.toContain('99999999');
 
     const feedbackMsg = formatFeedbackTelegramMessage({
       disappointmentLabel: 'Juda xafa bo‘laman',

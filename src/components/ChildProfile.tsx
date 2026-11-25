@@ -8,6 +8,7 @@ import {
   getAvatarOption,
   getLevelInfo,
 } from '../logic/gamification';
+import { getDisplayablePublicId } from '../logic/auth';
 import type { AlifboState, ChildProfileData } from '../storage/progressStorage';
 import { playAudioClip } from '../utils/audioRecorder';
 import { AccountIdBadge } from './AccountIdBadge';
@@ -32,6 +33,7 @@ export function ChildProfile({ state, onUpdateProfile, onStartLesson }: ChildPro
   const dailyXpProgress = Math.min(totalXp, profile.dailyGoalXp);
   const dailyGoalPct = profile.dailyGoalXp > 0 ? Math.min(100, Math.round((dailyXpProgress / profile.dailyGoalXp) * 100)) : 0;
 
+  const displayPublicId = getDisplayablePublicId(state.account);
   return (
     <div className="profile-shell">
       <section className="profile-hero-card">
@@ -52,8 +54,8 @@ export function ChildProfile({ state, onUpdateProfile, onStartLesson }: ChildPro
               <span className="xp-pill">⚡ {totalXp} XP</span>
             </div>
 
-            {state.account?.publicId && (
-              <AccountIdBadge publicId={state.account.publicId} label="Profil ID:" />
+            {displayPublicId && (
+              <AccountIdBadge publicId={displayPublicId} label="Profil ID:" />
             )}
 
             <label className="profile-name-label" htmlFor="child-name-input">

@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomUUID, timingSafeEqual } from 'node:crypto';
 import { formatAccountPublicId } from './crypto.js';
 import {
   ensureSchema,
@@ -11,6 +11,7 @@ import {
 import { jsonResponse } from './session.js';
 import {
   approveTelegramLoginSession,
+  consumeTelegramLinkSessionOnWebhook,
   isTelegramAuthStoreConfigured,
 } from './telegramAuthStore.js';
 import {
@@ -289,6 +290,257 @@ async function handleIdCommand(
   );
 }
 
+async function syncPrivateTelegramChatId(tgUser: TelegramUser, chatId: number): Promise<void> {
+  if (tgUser.is_bot || !isDbConfigured()) return;
+  try {
+    await ensureSchema();
+    const sql = getSql();
+    const tgId = String(tgUser.id);
+    const username = (tgUser.username || '').trim().replace(/^@+/, '') || null;
+    await sql`
+      UPDATE users
+      SET
+        telegram_chat_id = ${String(chatId)},
+        telegram_username = COALESCE(${username}, telegram_username),
+        tg_bot_blocked = FALSE,
+        updated_at = NOW()
+      WHERE telegram_id = ${tgId}
+    `;
+  } catch {
+    // Best-effort sync
+  }
+}
+
+async function handleDeepLinkReminderConnect(
+  botToken: string,
+  chatId: number,
+  tgUser: TelegramUser,
+  linkToken: string,
+  appOrigin: string,
+): Promise<void> {
+  if (tgUser.is_bot) return;
+
+  if (!isDbConfigured() || !isTelegramAuthStoreConfigured()) {
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      'Uzr, tizim bazasi hali sozlanmagan. Keyinroq urinib ko‘ring.',
+    );
+    return;
+  }
+
+  if (!verifyTelegramLoginToken(linkToken, botToken)) {
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      'Ulanish havolasi noto‘g‘ri yoki eskirgan. Saytdagi «Ota-ona → Bildirishnomalar» bo‘limidan yangi havola oling.',
+    );
+    return;
+  }
+
+  const tokenHash = hashTelegramLoginToken(linkToken, botToken);
+  const consumed = await consumeTelegramLinkSessionOnWebhook({ tokenHash });
+  if (!consumed.ok) {
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      'Havolaning amal qilish muddati tugagan yoki u allaqachon ishlatilgan. Saytdan qaytadan urinib ko‘ring.',
+    );
+    return;
+  }
+
+  await ensureSchema();
+  const sql = getSql();
+  const tgId = String(tgUser.id);
+  const chatIdStr = String(chatId);
+  const username = (tgUser.username || '').trim().replace(/^@+/, '') || null;
+
+  const conflictRows = (await sql`
+    SELECT id FROM users
+    WHERE telegram_id = ${tgId} AND id <> ${consumed.userId}
+    LIMIT 1
+  `) as Array<{ id: string }>;
+
+  if (conflictRows[0]) {
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      'Bu Telegram profili allaqachon boshqa Alifbo hisobiga ulangan. O‘sha hisobga Telegram orqali kirishingiz mumkin.',
+    );
+    return;
+  }
+
+  const updated = (await sql`
+    UPDATE users
+    SET
+      telegram_id = COALESCE(telegram_id, ${tgId}),
+      telegram_chat_id = ${chatIdStr},
+      telegram_username = COALESCE(${username}, telegram_username),
+      tg_reminder_enabled = TRUE,
+      tg_bot_blocked = FALSE,
+      consecutive_missed_reminders = 0,
+      updated_at = NOW()
+    WHERE id = ${consumed.userId}
+    RETURNING *
+  `) as UserRow[];
+
+  if (!updated[0]) {
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      'Hisob topilmadi. Iltimos, saytga qaytib qaytadan kiring.',
+    );
+    return;
+  }
+
+  await sql`
+    INSERT INTO parent_notifications (id, user_id, kind, title_uz, body_uz)
+    VALUES (
+      ${`notif_${randomUUID()}`},
+      ${consumed.userId},
+      'telegram_linked',
+      'Telegram eslatmalari ulandi',
+      '@alifbo_uz_robot orqali kunlik mashq eslatmalari faollashtirildi.'
+    )
+  `;
+
+  const keyboard: TelegramInlineButton[][] = [
+    [{ text: '🔕 Eslatmani o‘chirish', callback_data: 'rem_off' }],
+  ];
+  if (isPublicHttpsOrigin(appOrigin)) {
+    keyboard.unshift([{ text: '🌐 Alifbo saytiga qaytish', url: appOrigin }]);
+  }
+
+  await sendTelegramMessage(
+    botToken,
+    chatId,
+    `✅ <b>@alifbo_uz_robot</b> hisobingizga muvaffaqiyatli ulandi!\n\nEndi <b>${escapeHtml(updated[0].child_name)}</b> uchun kunlik mashq eslatmalarini yuborib turamiz.\n\nBoshqarish: /eslatma · O‘chirish: /eslatma_off`,
+    keyboard,
+  );
+}
+
+function buildReminderControlKeyboard(enabled: boolean): TelegramInlineButton[][] {
+  return [
+    [
+      enabled
+        ? { text: '🔕 Eslatmani o‘chirish', callback_data: 'rem_off' }
+        : { text: '🔔 Eslatmani yoqish', callback_data: 'rem_on' },
+    ],
+    [
+      { text: '18:00', callback_data: 'rem_hr_18' },
+      { text: '19:00', callback_data: 'rem_hr_19' },
+      { text: '20:00', callback_data: 'rem_hr_20' },
+      { text: '21:00', callback_data: 'rem_hr_21' },
+    ],
+  ];
+}
+
+async function handleReminderCommandOrAction(
+  botToken: string,
+  chatId: number,
+  tgUser: TelegramUser,
+  action: 'status' | 'on' | 'off' | 'hour',
+  hourValue?: number,
+): Promise<void> {
+  if (tgUser.is_bot) return;
+  if (!isDbConfigured()) {
+    await sendTelegramMessage(botToken, chatId, "Ma'lumotlar bazasi hali ulanmagan.");
+    return;
+  }
+
+  await ensureSchema();
+  const sql = getSql();
+  const tgId = String(tgUser.id);
+  const chatIdStr = String(chatId);
+
+  const existing = (await sql`
+    SELECT * FROM users
+    WHERE telegram_id = ${tgId} OR telegram_chat_id = ${chatIdStr}
+    LIMIT 1
+  `) as UserRow[];
+
+  const user = existing[0];
+  if (!user) {
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      'Sizda hali Alifbo hisobi ulanmagan. Avval saytda «Telegram orqali kirish» yoki «Bildirishnomalar → @alifbo_uz_robot ni ulash» tugmasini bosing.',
+    );
+    return;
+  }
+
+  let nextEnabled = Boolean(user.tg_reminder_enabled);
+  let nextHour = Number.isFinite(user.tg_reminder_hour) ? user.tg_reminder_hour : 19;
+
+  if (action === 'off') {
+    nextEnabled = false;
+    await sql`
+      UPDATE users
+      SET tg_reminder_enabled = FALSE, telegram_chat_id = ${chatIdStr}, updated_at = NOW()
+      WHERE id = ${user.id}
+    `;
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      '🔕 Kunlik mashq eslatmasi o‘chirildi. Istalgan payt /eslatma_on orqali qayta yoqishingiz mumkin.',
+      [[{ text: '🔔 Qayta yoqish', callback_data: 'rem_on' }]],
+    );
+    return;
+  }
+
+  if (action === 'on') {
+    nextEnabled = true;
+    await sql`
+      UPDATE users
+      SET
+        tg_reminder_enabled = TRUE,
+        tg_bot_blocked = FALSE,
+        telegram_chat_id = ${chatIdStr},
+        consecutive_missed_reminders = 0,
+        updated_at = NOW()
+      WHERE id = ${user.id}
+    `;
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      `🔔 Kunlik mashq eslatmasi yoqildi! (Vaqti: <b>${String(nextHour).padStart(2, '0')}:00</b>)`,
+      buildReminderControlKeyboard(true),
+    );
+    return;
+  }
+
+  if (action === 'hour' && typeof hourValue === 'number' && hourValue >= 18 && hourValue <= 21) {
+    nextHour = hourValue;
+    nextEnabled = true;
+    await sql`
+      UPDATE users
+      SET
+        tg_reminder_hour = ${nextHour},
+        tg_reminder_enabled = TRUE,
+        tg_bot_blocked = FALSE,
+        telegram_chat_id = ${chatIdStr},
+        consecutive_missed_reminders = 0,
+        updated_at = NOW()
+      WHERE id = ${user.id}
+    `;
+    await sendTelegramMessage(
+      botToken,
+      chatId,
+      `⏰ Kunlik eslatma vaqti <b>${String(nextHour).padStart(2, '0')}:00</b> ga saqlandi!`,
+      buildReminderControlKeyboard(true),
+    );
+    return;
+  }
+
+  const statusText = nextEnabled ? '🔔 Yoqilgan' : '🔕 O‘chirilgan';
+  await sendTelegramMessage(
+    botToken,
+    chatId,
+    `<b>Kunlik mashq eslatmasi</b>\nBola: <b>${escapeHtml(user.child_name)}</b>\nHolat: ${statusText}\nVaqti: <b>${String(nextHour).padStart(2, '0')}:00</b> (Toshkent vaqti)\n\nQuyidan boshqarishingiz mumkin:`,
+    buildReminderControlKeyboard(nextEnabled),
+  );
+}
+
 export async function handleTelegramWebhook(request: Request): Promise<Response> {
   const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
   if (!botToken) {
@@ -319,18 +571,34 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
     if (update.callback_query) {
       const cb = update.callback_query;
       await answerTelegramCallbackQuery(botToken, cb.id);
-      if (cb.data === 'new_code' && cb.message?.chat?.id !== undefined) {
-        await issueCodeForUser(botToken, cb.message.chat.id, cb.from, appOrigin);
+      const cbChatId = cb.message?.chat?.id;
+      if (cbChatId !== undefined) {
+        if (cb.data === 'new_code') {
+          await issueCodeForUser(botToken, cbChatId, cb.from, appOrigin);
+        } else if (cb.data === 'rem_off') {
+          await handleReminderCommandOrAction(botToken, cbChatId, cb.from, 'off');
+        } else if (cb.data === 'rem_on') {
+          await handleReminderCommandOrAction(botToken, cbChatId, cb.from, 'on');
+        } else if (cb.data && /^rem_hr_(18|19|20|21)$/.test(cb.data)) {
+          const hourVal = Number(cb.data.slice(-2));
+          await handleReminderCommandOrAction(botToken, cbChatId, cb.from, 'hour', hourVal);
+        }
       }
       return jsonResponse({ ok: true });
     }
 
     const msg = update.message;
     if (msg?.from && msg.chat && typeof msg.text === 'string') {
+      if (msg.chat.type === 'private' || msg.chat.id > 0) {
+        await syncPrivateTelegramChatId(msg.from, msg.chat.id);
+      }
       const { command, arg } = parseCommandAndArg(msg.text);
       if (command === '/start' && arg.startsWith('auth_')) {
         const loginToken = arg.slice(5).trim();
         await handleDeepLinkLogin(botToken, msg.chat.id, msg.from, loginToken, appOrigin);
+      } else if (command === '/start' && arg.startsWith('link_')) {
+        const linkToken = arg.slice(5).trim();
+        await handleDeepLinkReminderConnect(botToken, msg.chat.id, msg.from, linkToken, appOrigin);
       } else if (
         command === '/start' ||
         command === '/kod' ||
@@ -340,11 +608,17 @@ export async function handleTelegramWebhook(request: Request): Promise<Response>
         await issueCodeForUser(botToken, msg.chat.id, msg.from, appOrigin);
       } else if (command === '/id') {
         await handleIdCommand(botToken, msg.chat.id, msg.from);
+      } else if (command === '/eslatma') {
+        await handleReminderCommandOrAction(botToken, msg.chat.id, msg.from, 'status');
+      } else if (command === '/eslatma_on') {
+        await handleReminderCommandOrAction(botToken, msg.chat.id, msg.from, 'on');
+      } else if (command === '/eslatma_off') {
+        await handleReminderCommandOrAction(botToken, msg.chat.id, msg.from, 'off');
       } else {
         await sendTelegramMessage(
           botToken,
           msg.chat.id,
-          'Alifbo boti buyruqlari:\n• Saytdagi «Telegram orqali kirish» tugmasini bosing\n• /kod — bir martalik 6 xonali kod olish\n• /id — Alifbo hisob ID raqamini ko‘rish',
+          'Alifbo boti buyruqlari:\n• Saytdagi «Telegram orqali kirish» tugmasini bosing\n• /kod — bir martalik 6 xonali kod olish\n• /id — Alifbo hisob ID raqamini ko‘rish\n• /eslatma — kunlik mashq eslatmasini sozlash',
         );
       }
     }

@@ -105,6 +105,7 @@ interface LessonPlayerProps {
   firstSessionFeedbackPrompted?: boolean;
   childName?: string;
   publicId?: string;
+  isGuest?: boolean;
   onLetterHintTap: (letter: string) => void;
   onWordCompleted: (report: WordAttemptReport) => void;
   onRoundFinished?: () => void;
@@ -203,6 +204,7 @@ export function LessonPlayer({
   firstSessionFeedbackPrompted = false,
   childName,
   publicId,
+  isGuest = false,
   onLetterHintTap,
   onWordCompleted,
   onRoundFinished,
@@ -1658,6 +1660,7 @@ export function LessonPlayer({
           onClose={() => setFeedbackOpen(false)}
           childName={childName}
           publicId={publicId}
+          isGuest={isGuest}
           sessionsCompleted={completedSessionsCount}
         />
       </div>

@@ -10,7 +10,45 @@ export interface TelegramInlineButton {
   url?: string;
 }
 
+export interface TelegramSendDetailedResult {
+  ok: boolean;
+  status: number;
+  blockedByUser: boolean;
+  retryAfterSec: number | null;
+}
+
 let _registeredWebhookUrl: string | null = null;
+
+/** Format a Date in Asia/Tashkent (UTC+5) as YYYY-MM-DD. */
+export function getTashkentDateString(now: Date = new Date()): string {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Tashkent',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(now);
+  } catch {
+    const tashkentMs = now.getTime() + 5 * 60 * 60 * 1000;
+    return new Date(tashkentMs).toISOString().slice(0, 10);
+  }
+}
+
+/** Get the current hour (0..23) in Asia/Tashkent (UTC+5). */
+export function getTashkentHour(now: Date = new Date()): number {
+  try {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'Asia/Tashkent',
+      hour: '2-digit',
+      hour12: false,
+    }).formatToParts(now);
+    const hourVal = Number(parts.find((p) => p.type === 'hour')?.value ?? '0');
+    return Number.isFinite(hourVal) ? hourVal % 24 : 0;
+  } catch {
+    const tashkentMs = now.getTime() + 5 * 60 * 60 * 1000;
+    return new Date(tashkentMs).getUTCHours();
+  }
+}
 
 export function sanitizeBotUsername(raw: string | undefined): string {
   return (raw || '').trim().replace(/^@+/, '');
@@ -88,8 +126,9 @@ export function deriveTelegramWebhookSecret(botToken: string): string {
   if (configured) {
     return configured;
   }
-  return createHmac('sha256', botToken)
-    .update('alifbo-telegram-webhook-secret-v1')
+  const signingKey = getLoginTokenSigningKey(botToken);
+  return createHmac('sha256', signingKey)
+    .update(`alifbo-telegram-webhook-secret-v1:${botToken}`)
     .digest('hex')
     .slice(0, 48);
 }
@@ -121,12 +160,28 @@ export function isPublicHttpsOrigin(origin: string): boolean {
   }
 }
 
-export async function sendTelegramMessage(
+/**
+ * Guard webhook auto-registration so Preview Vercel deployments never hijack
+ * the live production @alifbo_uz_robot webhook URL.
+ */
+export function canRegisterWebhookForOrigin(appOrigin: string): boolean {
+  if (!isPublicHttpsOrigin(appOrigin)) return false;
+  const configuredOrigin = process.env.PUBLIC_APP_URL?.trim().replace(/\/+$/, '');
+  if (configuredOrigin) {
+    return appOrigin.replace(/\/+$/, '') === configuredOrigin;
+  }
+  if (process.env.VERCEL) {
+    return process.env.VERCEL_ENV === 'production';
+  }
+  return true;
+}
+
+export async function sendTelegramMessageDetailed(
   botToken: string,
   chatId: number | string,
   text: string,
   inlineKeyboard?: TelegramInlineButton[][],
-): Promise<boolean> {
+): Promise<TelegramSendDetailedResult> {
   try {
     const body: Record<string, unknown> = {
       chat_id: chatId,
@@ -143,10 +198,50 @@ export async function sendTelegramMessage(
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(5000),
     });
-    return resp.ok;
+
+    if (resp.ok) {
+      return { ok: true, status: resp.status, blockedByUser: false, retryAfterSec: null };
+    }
+
+    let description = '';
+    let retryAfterSec: number | null = null;
+    try {
+      const errJson = (await resp.json()) as {
+        description?: string;
+        parameters?: { retry_after?: number };
+      };
+      description = (errJson.description || '').toLowerCase();
+      if (typeof errJson.parameters?.retry_after === 'number') {
+        retryAfterSec = errJson.parameters.retry_after;
+      }
+    } catch {
+      // Ignore non-JSON error body
+    }
+
+    const blockedByUser =
+      resp.status === 403 ||
+      (resp.status === 400 &&
+        (description.includes('chat not found') || description.includes('user is deactivated')));
+
+    return {
+      ok: false,
+      status: resp.status,
+      blockedByUser,
+      retryAfterSec,
+    };
   } catch {
-    return false;
+    return { ok: false, status: 0, blockedByUser: false, retryAfterSec: null };
   }
+}
+
+export async function sendTelegramMessage(
+  botToken: string,
+  chatId: number | string,
+  text: string,
+  inlineKeyboard?: TelegramInlineButton[][],
+): Promise<boolean> {
+  const res = await sendTelegramMessageDetailed(botToken, chatId, text, inlineKeyboard);
+  return res.ok;
 }
 
 export async function answerTelegramCallbackQuery(
@@ -185,6 +280,9 @@ export async function ensureTelegramWebhookRegistered(
   }
   if (!isPublicHttpsOrigin(appOrigin)) {
     return { ok: false, webhookUrl: null, updated: false, reason: 'non_public_origin' };
+  }
+  if (!canRegisterWebhookForOrigin(appOrigin)) {
+    return { ok: false, webhookUrl: null, updated: false, reason: 'preview_env_skipped' };
   }
 
   const expectedUrl = `${appOrigin}/api/telegram-webhook`;

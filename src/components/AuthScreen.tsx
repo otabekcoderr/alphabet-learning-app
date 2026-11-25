@@ -26,6 +26,11 @@ import { StorybookBackdrop } from './StorybookBackdrop';
 interface AuthScreenProps {
   initialMode?: 'signup' | 'login';
   initialError?: string | null;
+  isGuestUpgrade?: boolean;
+  defaultChildName?: string;
+  defaultAvatarId?: string;
+  backButtonLabelUz?: string;
+  onBeforeExternalRedirect?: () => void;
   onBackToWelcome?: () => void;
   onAuthenticated: (payload: {
     session: ParentAccountSession;
@@ -79,6 +84,11 @@ function TelegramIcon() {
 export function AuthScreen({
   initialMode,
   initialError = null,
+  isGuestUpgrade = false,
+  defaultChildName = '',
+  defaultAvatarId = '',
+  backButtonLabelUz = 'Bosh ekran',
+  onBeforeExternalRedirect,
   onBackToWelcome,
   onAuthenticated,
 }: AuthScreenProps) {
@@ -87,8 +97,10 @@ export function AuthScreen({
   );
   const [contact, setContact] = useState('');
   const [password, setPassword] = useState('');
-  const [childName, setChildName] = useState('');
-  const [selectedAvatarId, setSelectedAvatarId] = useState<string | null>(null);
+  const [childName, setChildName] = useState(() => defaultChildName.trim());
+  const [selectedAvatarId, setSelectedAvatarId] = useState<string | null>(() =>
+    defaultAvatarId.trim() ? defaultAvatarId.trim() : null,
+  );
   const [error, setError] = useState<string | null>(initialError);
   const [submitting, setSubmitting] = useState(false);
   const [providers, setProviders] = useState<AuthProvidersStatus | null>(null);
@@ -230,10 +242,13 @@ export function AuthScreen({
     }
 
     playFeedbackChime('pop');
+    onBeforeExternalRedirect?.();
     const params = new URLSearchParams();
-    if (mode === 'signup') {
-      if (childName.trim()) params.set('childName', childName.trim());
-      if (selectedAvatarId) params.set('avatarId', selectedAvatarId);
+    const effectiveChildName = childName.trim() || defaultChildName.trim();
+    const effectiveAvatarId = selectedAvatarId || defaultAvatarId.trim();
+    if (mode === 'signup' || isGuestUpgrade) {
+      if (effectiveChildName) params.set('childName', effectiveChildName);
+      if (effectiveAvatarId) params.set('avatarId', effectiveAvatarId);
     }
     const qs = params.toString();
     window.location.href = qs ? `/api/auth/google?${qs}` : '/api/auth/google';
@@ -271,10 +286,12 @@ export function AuthScreen({
     setTgToken(null);
     setTgDeepLink(null);
 
+    const effectiveChildName = childName.trim() || defaultChildName.trim();
+    const effectiveAvatarId = selectedAvatarId || defaultAvatarId.trim();
     const res = await startTelegramDeepLinkAuth({
       mode,
-      childName: mode === 'signup' && childName.trim() ? childName.trim() : undefined,
-      avatarId: mode === 'signup' && selectedAvatarId ? selectedAvatarId : undefined,
+      childName: (mode === 'signup' || isGuestUpgrade) && effectiveChildName ? effectiveChildName : undefined,
+      avatarId: (mode === 'signup' || isGuestUpgrade) && effectiveAvatarId ? effectiveAvatarId : undefined,
     });
     setTgStarting(false);
 
@@ -303,10 +320,12 @@ export function AuthScreen({
     }
 
     setTgSubmitting(true);
+    const effectiveChildName = childName.trim() || defaultChildName.trim();
+    const effectiveAvatarId = selectedAvatarId || defaultAvatarId.trim();
     const res = await authenticateWithTelegramCode({
       code: cleanCode,
-      childName: mode === 'signup' && childName.trim() ? childName.trim() : undefined,
-      avatarId: mode === 'signup' && selectedAvatarId ? selectedAvatarId : undefined,
+      childName: (mode === 'signup' || isGuestUpgrade) && effectiveChildName ? effectiveChildName : undefined,
+      avatarId: (mode === 'signup' || isGuestUpgrade) && effectiveAvatarId ? effectiveAvatarId : undefined,
     });
     setTgSubmitting(false);
 
@@ -448,7 +467,7 @@ export function AuthScreen({
             }}
           >
             <ArrowLeft size={16} />
-            <span>Bosh ekran</span>
+            <span>{backButtonLabelUz}</span>
           </button>
         )}
       </div>
@@ -460,6 +479,12 @@ export function AuthScreen({
         className="fullscreen-flow-card auth-flow-card"
         aria-labelledby="auth-screen-title"
       >
+        {isGuestUpgrade && (
+          <div className="feedback-banner feedback-success" style={{ marginBottom: 12 }}>
+            Sinov rejimidagi barcha yulduzlar va o‘qilgan so‘zlar yangi hisobingizga avtomatik
+            ko‘chiriladi hamda doimiy 8 xonali ID beriladi.
+          </div>
+        )}
         <div className="auth-tabs" role="tablist" aria-label="Hisob amallari">
           <button
             type="button"

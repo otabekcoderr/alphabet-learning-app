@@ -10,6 +10,27 @@ export interface ParentAccountSession {
   signedInAt: string;
   provider?: AuthProviderKind;
   avatarUrl?: string;
+  isGuest?: boolean;
+  telegramLinked?: boolean;
+}
+
+export const GUEST_TRIAL_ACCOUNT_ID = 'guest_trial';
+
+/** Return true when the active session is a temporary device-only guest trial. */
+export function isGuestAccount(account: ParentAccountSession | null | undefined): boolean {
+  return Boolean(
+    account && (account.id === GUEST_TRIAL_ACCOUNT_ID || account.isGuest === true),
+  );
+}
+
+/** Return the permanent 8-digit public ID only for registered accounts (never for Guest Trial). */
+export function getDisplayablePublicId(
+  account: ParentAccountSession | null | undefined,
+): string | undefined {
+  if (!account || isGuestAccount(account)) {
+    return undefined;
+  }
+  return isValidAccountPublicId(account.publicId) ? account.publicId : undefined;
 }
 
 export interface StoredParentAccountRecord {

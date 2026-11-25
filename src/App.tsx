@@ -8,10 +8,14 @@ import { startAsrHealthPolling } from './logic/asrHealth';
 import {
   fetchCurrentSession,
   generateAccountPublicId,
+  getDisplayablePublicId,
+  GUEST_TRIAL_ACCOUNT_ID,
+  isGuestAccount,
   isValidAccountPublicId,
   logoutRemoteSession,
   saveRemoteState,
 } from './logic/auth';
+import { flushPendingTelegramMessages } from './services/telegramService';
 import {
   applyParentWordVerification,
   applyWordReadingAttempt,
@@ -26,13 +30,16 @@ import {
   type AdaptiveSessionWord,
 } from './logic/wordPoolEngine';
 import {
-  createDefaultProfile,
+  clearGuestMigrationSnapshot,
+  consumeGuestMigrationSnapshot,
   createInitialState,
   getLocalDateString,
   hydrateAlifboState,
   loadAlifboState,
+  mergeAlifboStates,
   recordPracticeDate,
   saveAlifboState,
+  stageGuestMigrationSnapshot,
   type AlifboState,
   type ChildProfileData,
 } from './storage/progressStorage';
@@ -101,14 +108,17 @@ export function App() {
     isReplay: false,
   });
   const [parentUnlocked, setParentUnlocked] = useState<boolean>(false);
+  const [upgradeAuthOpen, setUpgradeAuthOpen] = useState<boolean>(false);
 
   useEffect(() => {
     saveAlifboState(state);
   }, [state]);
 
-  // Restore remote session from HttpOnly cookie + handle OAuth redirect callbacks
+  // Restore remote session from HttpOnly cookie + handle OAuth redirect callbacks & Guest migration
   useEffect(() => {
     let active = true;
+    void flushPendingTelegramMessages();
+
     const params = new URLSearchParams(window.location.search);
     const authParam = params.get('auth');
     const authErrorParam = params.get('auth_error');
@@ -127,48 +137,37 @@ export function App() {
       if (res.authenticated && res.session) {
         const remoteSession = {
           ...res.session,
+          isGuest: false,
           publicId: isValidAccountPublicId(res.session.publicId)
             ? res.session.publicId
             : generateAccountPublicId(),
         };
+        const stagedGuest = consumeGuestMigrationSnapshot();
         setRemoteSessionActive(true);
         setAuthUrlError(null);
+        setUpgradeAuthOpen(false);
         const hydrated = hydrateAlifboState(res.state);
-        skipNextRemoteSyncRef.current = true;
+
         setState((prev) => {
-          if (hydrated) {
-            return {
-              ...hydrated,
-              account: remoteSession,
-              profile: {
-                ...hydrated.profile,
-                name: res.childName || hydrated.profile.name,
-                avatarId: res.avatarId || hydrated.profile.avatarId,
-              },
-            };
+          const guestSource =
+            stagedGuest ??
+            (isGuestAccount(prev.account) || prev.progressOwnerId === GUEST_TRIAL_ACCOUNT_ID
+              ? prev
+              : null);
+          const merged = mergeAlifboStates({
+            remoteState: hydrated,
+            guestState: guestSource,
+            session: remoteSession,
+            childName: res.childName,
+            avatarId: res.avatarId,
+          });
+          if (!merged.state.pendingRemoteSync) {
+            skipNextRemoteSyncRef.current = true;
           }
-          if (prev.account && prev.account.id === remoteSession.id) {
-            return {
-              ...prev,
-              account: remoteSession,
-              profile: {
-                ...prev.profile,
-                name: res.childName || prev.profile.name,
-                avatarId: res.avatarId || prev.profile.avatarId,
-              },
-            };
-          }
-          return {
-            ...createInitialState(),
-            account: remoteSession,
-            profile: {
-              ...createDefaultProfile(),
-              name: res.childName || 'Bolajon',
-              avatarId: res.avatarId || 'fox',
-            },
-            surveyData: null,
-          };
+          return merged.state;
         });
+      } else {
+        clearGuestMigrationSnapshot();
       }
     });
 
@@ -177,18 +176,24 @@ export function App() {
     };
   }, []);
 
-  // Debounced sync of authenticated state to Neon Postgres
+  // Sync authenticated state to Neon Postgres (immediately after Guest migration, debounced otherwise)
   useEffect(() => {
-    if (!remoteSessionActive || !state.account || state.account.id === 'guest_trial') {
+    if (!remoteSessionActive || !state.account || isGuestAccount(state.account)) {
       return;
     }
     if (skipNextRemoteSyncRef.current) {
       skipNextRemoteSyncRef.current = false;
       return;
     }
+    const delayMs = state.pendingRemoteSync ? 0 : 1500;
     const timer = window.setTimeout(() => {
-      void saveRemoteState(state);
-    }, 1500);
+      void saveRemoteState(state).then((ok) => {
+        if (ok && state.pendingRemoteSync) {
+          skipNextRemoteSyncRef.current = true;
+          setState((prev) => (prev.pendingRemoteSync ? { ...prev, pendingRemoteSync: false } : prev));
+        }
+      });
+    }, delayMs);
     return () => window.clearTimeout(timer);
   }, [remoteSessionActive, state]);
 
@@ -423,32 +428,44 @@ export function App() {
   }, []);
 
   const handleSignOut = useCallback(() => {
+    const wasPermanentRemote = remoteSessionActive && !isGuestAccount(state.account);
+    const snapshotToFlush = state;
     setParentUnlocked(false);
     setPinModalOpen(false);
     setOnboardingModal({ open: false, isReplay: false });
     setEditingSurvey(false);
+    setUpgradeAuthOpen(false);
     setRemoteSessionActive(false);
     setAuthUrlError(null);
     setBismillahPending(false);
     setTab('home');
     setGateView({ screen: 'welcome' });
-    setState((prev) => ({ ...prev, account: null }));
-    void logoutRemoteSession();
-  }, []);
+    clearGuestMigrationSnapshot();
+    setState(createInitialState());
+    if (wasPermanentRemote) {
+      void saveRemoteState(snapshotToFlush).finally(() => {
+        void logoutRemoteSession();
+      });
+    } else {
+      void logoutRemoteSession();
+    }
+  }, [remoteSessionActive, state]);
 
   const handleStartGuestTrial = useCallback(() => {
     const nowIso = new Date().toISOString();
+    setUpgradeAuthOpen(false);
     setState((prev) => ({
       ...prev,
       account: {
-        id: 'guest_trial',
-        publicId: isValidAccountPublicId(prev.account?.publicId)
-          ? prev.account.publicId
-          : generateAccountPublicId(),
+        id: GUEST_TRIAL_ACCOUNT_ID,
+        isGuest: true,
+        publicId: undefined,
         contact: 'Sinov rejimi',
         createdAt: nowIso,
         signedInAt: nowIso,
       },
+      progressOwnerId: GUEST_TRIAL_ACCOUNT_ID,
+      pendingRemoteSync: false,
       profile: {
         ...prev.profile,
         name: prev.profile.name || 'Bolajon',
@@ -457,6 +474,76 @@ export function App() {
     }));
     setTab('home');
   }, []);
+
+  const handleAuthenticatedSuccess = useCallback(
+    (payload: {
+      session: NonNullable<AlifboState['account']>;
+      childName: string;
+      avatarId: string;
+      isNewSignup: boolean;
+      remoteState?: unknown | null;
+      isRemote?: boolean;
+    }) => {
+      const { session, childName, avatarId, isNewSignup, remoteState, isRemote } = payload;
+      setAuthUrlError(null);
+      setUpgradeAuthOpen(false);
+      clearGuestMigrationSnapshot();
+
+      const normalizedSession = {
+        ...session,
+        isGuest: false,
+        publicId: isValidAccountPublicId(session.publicId)
+          ? session.publicId
+          : generateAccountPublicId(),
+      };
+
+      const hydrated = isRemote ? hydrateAlifboState(remoteState) : null;
+      if (isRemote) {
+        setRemoteSessionActive(true);
+      } else {
+        setRemoteSessionActive(false);
+      }
+
+      setState((prev) => {
+        const guestSource =
+          isGuestAccount(prev.account) || prev.progressOwnerId === GUEST_TRIAL_ACCOUNT_ID
+            ? prev
+            : null;
+        if (isRemote && !guestSource && !hydrated) {
+          skipNextRemoteSyncRef.current = true;
+          const fresh = createInitialState();
+          return {
+            ...fresh,
+            account: normalizedSession,
+            progressOwnerId: normalizedSession.id,
+            pendingRemoteSync: false,
+            profile: {
+              ...fresh.profile,
+              name: childName || fresh.profile.name,
+              avatarId: avatarId || fresh.profile.avatarId,
+            },
+            surveyData: isNewSignup ? null : fresh.surveyData,
+          };
+        }
+        const merged = mergeAlifboStates({
+          remoteState: hydrated,
+          guestState: guestSource,
+          session: normalizedSession,
+          childName,
+          avatarId,
+        });
+        if (!merged.state.pendingRemoteSync && isRemote) {
+          skipNextRemoteSyncRef.current = true;
+        }
+        return merged.state;
+      });
+      setTab('home');
+    },
+    [],
+  );
+
+  const isGuest = isGuestAccount(state.account);
+  const displayPublicId = getDisplayablePublicId(state.account);
 
   const totalStarsAll = state.totalStars + state.totalEffortStars;
   const masteredWordsCount = useMemo(
@@ -489,57 +576,27 @@ export function App() {
           setAuthUrlError(null);
           setGateView({ screen: 'welcome' });
         }}
-        onAuthenticated={({
-          session,
-          childName,
-          avatarId,
-          isNewSignup,
-          remoteState,
-          isRemote,
-        }) => {
+        onAuthenticated={handleAuthenticatedSuccess}
+      />
+    );
+  }
+
+  // Upgrade modal/screen from Guest Trial -> Permanent Account without losing current progress
+  if (upgradeAuthOpen && isGuest) {
+    return (
+      <AuthScreen
+        initialMode="signup"
+        initialError={authUrlError}
+        isGuestUpgrade
+        defaultChildName={state.profile.name}
+        defaultAvatarId={state.profile.avatarId}
+        backButtonLabelUz="Sinov rejimiga qaytish"
+        onBeforeExternalRedirect={() => stageGuestMigrationSnapshot(state)}
+        onBackToWelcome={() => {
           setAuthUrlError(null);
-          if (isRemote) {
-            setRemoteSessionActive(true);
-            skipNextRemoteSyncRef.current = true;
-          } else {
-            setRemoteSessionActive(false);
-          }
-
-          const normalizedSession = {
-            ...session,
-            publicId: isValidAccountPublicId(session.publicId)
-              ? session.publicId
-              : generateAccountPublicId(),
-          };
-
-          const hydrated = isRemote ? hydrateAlifboState(remoteState) : null;
-          setState((prev) => {
-            if (hydrated) {
-              return {
-                ...hydrated,
-                account: normalizedSession,
-                profile: {
-                  ...hydrated.profile,
-                  name: childName || hydrated.profile.name,
-                  avatarId: avatarId || hydrated.profile.avatarId,
-                },
-              };
-            }
-            const isSameAccount = prev.account?.id === normalizedSession.id;
-            const base = isRemote && !isSameAccount ? createInitialState() : prev;
-            return {
-              ...base,
-              account: normalizedSession,
-              profile: {
-                ...base.profile,
-                name: childName || base.profile.name,
-                avatarId: avatarId || base.profile.avatarId,
-              },
-              surveyData: isNewSignup ? null : base.surveyData,
-            };
-          });
-          setTab('home');
+          setUpgradeAuthOpen(false);
         }}
+        onAuthenticated={handleAuthenticatedSuccess}
       />
     );
   }
@@ -550,7 +607,8 @@ export function App() {
       <OnboardingSurveyPage
         childName={state.profile.name}
         avatarId={state.profile.avatarId}
-        publicId={state.account?.publicId}
+        publicId={displayPublicId}
+        isGuest={isGuest}
         initialSurvey={editingSurvey ? state.surveyData : null}
         onComplete={({ surveyData, recommendedWorldId }) => {
           setEditingSurvey(false);
@@ -567,9 +625,9 @@ export function App() {
             setEditingSurvey(false);
             return;
           }
-          if (state.account?.id === 'guest_trial') {
+          if (state.account?.id === GUEST_TRIAL_ACCOUNT_ID) {
             setGateView({ screen: 'welcome' });
-            setState((prev) => ({ ...prev, account: null }));
+            setState((prev) => ({ ...prev, account: null, progressOwnerId: null }));
             return;
           }
           handleSignOut();
@@ -605,7 +663,8 @@ export function App() {
         completedSessionsCount={state.completedSessionsCount}
         firstSessionFeedbackPrompted={state.firstSessionFeedbackPrompted}
         childName={state.profile.name}
-        publicId={state.account?.publicId}
+        publicId={displayPublicId}
+        isGuest={isGuest}
         onLetterHintTap={handleLetterHintTap}
         onWordCompleted={handleWordCompleted}
         onRoundFinished={handleRoundFinished}
@@ -688,6 +747,13 @@ export function App() {
           }));
         }}
         onSignOut={handleSignOut}
+        onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
+        onMarkNotificationsRead={(ids) => {
+          setState((prev) => ({
+            ...prev,
+            readNotificationIds: Array.from(new Set([...prev.readNotificationIds, ...ids])),
+          }));
+        }}
       />
     );
   }
@@ -743,7 +809,9 @@ export function App() {
         <ChildHome
           childName={state.profile.name}
           avatarId={state.profile.avatarId}
-          publicId={state.account?.publicId}
+          publicId={displayPublicId}
+          isGuest={isGuest}
+          onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
           seenWordIds={state.seenWordIds}
           masteredWordsCount={masteredWordsCount}
           activeWorldId={state.activeWorldId}

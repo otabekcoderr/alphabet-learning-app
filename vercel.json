@@ -58,8 +58,34 @@
       "destination": "/api/auth/session?action=logout"
     },
     {
+      "source": "/api/notifications/settings",
+      "destination": "/api/notifications?action=settings"
+    },
+    {
+      "source": "/api/notifications/telegram-link",
+      "destination": "/api/notifications?action=telegram-link"
+    },
+    {
+      "source": "/api/notifications/telegram-unlink",
+      "destination": "/api/notifications?action=telegram-unlink"
+    },
+    {
+      "source": "/api/notifications/admin-alert",
+      "destination": "/api/notifications?action=admin-alert"
+    },
+    {
+      "source": "/api/cron/daily-reminder",
+      "destination": "/api/notifications?action=cron-daily-reminder"
+    },
+    {
       "source": "/((?!api/|assets/|audio/|images/).*)",
       "destination": "/index.html"
+    }
+  ],
+  "crons": [
+    {
+      "path": "/api/cron/daily-reminder",
+      "schedule": "0 14 * * *"
     }
   ]
 }

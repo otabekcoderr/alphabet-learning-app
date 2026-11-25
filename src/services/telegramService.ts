@@ -2,6 +2,7 @@ export const TG_PENDING_QUEUE_KEY = 'alifbo_tg_pending_queue_v1';
 
 const MAX_PENDING_MESSAGES = 50;
 const DEFAULT_TELEGRAM_TIMEOUT_MS = 8000;
+const DEFAULT_ADMIN_ALERT_ENDPOINT = '/api/notifications/admin-alert';
 
 export type TelegramMessageCategory = 'onboarding' | 'feedback' | 'general';
 
@@ -27,14 +28,9 @@ export interface TelegramSendResult {
   statusCode?: number;
 }
 
-export interface TelegramEnvConfig {
-  botToken?: string;
-  chatId?: string;
-}
-
 export interface SendTelegramMessageOptions {
   category?: TelegramMessageCategory;
-  env?: TelegramEnvConfig;
+  endpoint?: string;
   timeoutMs?: number;
 }
 
@@ -81,7 +77,7 @@ function generateLocalQueueId(): string {
 }
 
 /**
- * Read locally queued Telegram messages saved when offline, blocked, or missing env vars.
+ * Read locally queued Telegram messages saved when offline, blocked, or unconfigured.
  */
 export function getPendingTelegramMessages(): PendingTelegramMessage[] {
   const storage = getStorageSafe();
@@ -126,53 +122,16 @@ export function savePendingTelegramMessage(params: {
   }
 }
 
-function resolveTelegramEnv(override?: TelegramEnvConfig): { botToken: string; chatId: string } {
-  const rawToken =
-    override !== undefined ? override.botToken : import.meta.env?.VITE_TG_BOT_TOKEN;
-  const rawChatId =
-    override !== undefined ? override.chatId : import.meta.env?.VITE_TG_CHAT_ID;
-  return {
-    botToken: typeof rawToken === 'string' ? rawToken.trim() : '',
-    chatId: typeof rawChatId === 'string' ? rawChatId.trim() : '',
-  };
-}
-
-/**
- * Send a plain-text notification via Telegram Bot API (`sendMessage`).
- * Never throws; on missing env, offline state, HTTP error, or network block,
- * stores the payload safely in localStorage.
- */
-export async function sendTelegramMessage(
-  text: string,
-  options?: SendTelegramMessageOptions,
-): Promise<TelegramSendResult> {
-  const trimmedText = text.trim();
-  const category: TelegramMessageCategory = options?.category ?? 'general';
-
-  if (!trimmedText) {
-    return { ok: false, queuedLocally: false, reason: 'unavailable' };
-  }
-
-  const { botToken, chatId } = resolveTelegramEnv(options?.env);
-  if (!botToken || !chatId) {
-    const queuedLocally = savePendingTelegramMessage({
-      category,
-      text: trimmedText,
-      reason: 'missing_env',
-    });
-    return { ok: false, queuedLocally, reason: 'missing_env' };
-  }
-
+async function postAdminAlert(
+  endpoint: string,
+  category: TelegramMessageCategory,
+  trimmedText: string,
+  timeoutMs: number,
+): Promise<{ ok: true } | { ok: false; reason: TelegramFailureReason; statusCode?: number }> {
   if (typeof fetch !== 'function') {
-    const queuedLocally = savePendingTelegramMessage({
-      category,
-      text: trimmedText,
-      reason: 'unavailable',
-    });
-    return { ok: false, queuedLocally, reason: 'unavailable' };
+    return { ok: false, reason: 'unavailable' };
   }
 
-  const timeoutMs = options?.timeoutMs ?? DEFAULT_TELEGRAM_TIMEOUT_MS;
   const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
   let timerId: ReturnType<typeof setTimeout> | null = null;
   if (controller) {
@@ -182,69 +141,117 @@ export async function sendTelegramMessage(
   }
 
   try {
-    const safeTokenPath = botToken.split(':').map(encodeURIComponent).join(':');
-    const endpoint = `https://api.telegram.org/bot${safeTokenPath}/sendMessage`;
     const resp = await fetch(endpoint, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
+      credentials: 'include',
       body: JSON.stringify({
-        chat_id: chatId,
+        category,
         text: trimmedText,
-        disable_web_page_preview: true,
       }),
       ...(controller ? { signal: controller.signal } : {}),
     });
 
+    if (resp.status === 503) {
+      return { ok: false, reason: 'missing_env', statusCode: 503 };
+    }
+
     if (!resp.ok) {
-      const queuedLocally = savePendingTelegramMessage({
-        category,
-        text: trimmedText,
-        reason: 'http_error',
-        statusCode: resp.status,
-      });
-      return {
-        ok: false,
-        queuedLocally,
-        reason: 'http_error',
-        statusCode: resp.status,
-      };
+      return { ok: false, reason: 'http_error', statusCode: resp.status };
     }
 
     try {
       const body = (await resp.json()) as { ok?: unknown } | null;
       if (body && typeof body === 'object' && body.ok === false) {
-        const queuedLocally = savePendingTelegramMessage({
-          category,
-          text: trimmedText,
-          reason: 'http_error',
-          statusCode: resp.status,
-        });
-        return {
-          ok: false,
-          queuedLocally,
-          reason: 'http_error',
-          statusCode: resp.status,
-        };
+        return { ok: false, reason: 'http_error', statusCode: resp.status };
       }
     } catch {
       // Response was HTTP 2xx without parseable JSON body; treat as sent
     }
 
-    return { ok: true, queuedLocally: false };
+    return { ok: true };
   } catch {
-    const queuedLocally = savePendingTelegramMessage({
-      category,
-      text: trimmedText,
-      reason: 'network_error',
-    });
-    return { ok: false, queuedLocally, reason: 'network_error' };
+    return { ok: false, reason: 'network_error' };
   } finally {
     if (timerId !== null) {
       clearTimeout(timerId);
     }
   }
+}
+
+/**
+ * Send a plain-text notification via the server-side `/api/notifications/admin-alert` endpoint.
+ * Never exposes bot tokens to the browser; queues locally on network/server failure.
+ */
+export async function sendTelegramMessage(
+  text: string,
+  options?: SendTelegramMessageOptions,
+): Promise<TelegramSendResult> {
+  const trimmedText = text.trim();
+  const category: TelegramMessageCategory = options?.category ?? 'general';
+  const endpoint = options?.endpoint ?? DEFAULT_ADMIN_ALERT_ENDPOINT;
+  const timeoutMs = options?.timeoutMs ?? DEFAULT_TELEGRAM_TIMEOUT_MS;
+
+  if (!trimmedText) {
+    return { ok: false, queuedLocally: false, reason: 'unavailable' };
+  }
+
+  const result = await postAdminAlert(endpoint, category, trimmedText, timeoutMs);
+  if (result.ok) {
+    return { ok: true, queuedLocally: false };
+  }
+
+  const queuedLocally = savePendingTelegramMessage({
+    category,
+    text: trimmedText,
+    reason: result.reason,
+    ...(result.statusCode !== undefined ? { statusCode: result.statusCode } : {}),
+  });
+  return {
+    ok: false,
+    queuedLocally,
+    reason: result.reason,
+    ...(result.statusCode !== undefined ? { statusCode: result.statusCode } : {}),
+  };
+}
+
+/**
+ * Retry delivering locally queued messages via the server-side endpoint when online.
+ */
+export async function flushPendingTelegramMessages(
+  endpoint: string = DEFAULT_ADMIN_ALERT_ENDPOINT,
+): Promise<number> {
+  const storage = getStorageSafe();
+  if (!storage) return 0;
+
+  const queued = getPendingTelegramMessages();
+  if (queued.length === 0) return 0;
+
+  const remaining: PendingTelegramMessage[] = [];
+  let flushedCount = 0;
+
+  for (const item of queued) {
+    const res = await postAdminAlert(endpoint, item.category, item.text, DEFAULT_TELEGRAM_TIMEOUT_MS);
+    if (res.ok) {
+      flushedCount++;
+    } else {
+      remaining.push(item);
+    }
+  }
+
+  try {
+    if (remaining.length === 0) {
+      storage.removeItem(TG_PENDING_QUEUE_KEY);
+    } else {
+      storage.setItem(TG_PENDING_QUEUE_KEY, JSON.stringify(remaining));
+    }
+  } catch {
+    // Ignore storage quota errors
+  }
+
+  return flushedCount;
 }
 
 export interface OnboardingTelegramPayload {
@@ -254,6 +261,7 @@ export interface OnboardingTelegramPayload {
   contact?: string;
   childName?: string;
   publicId?: string;
+  isGuest?: boolean;
   completedAt?: string;
 }
 
@@ -261,7 +269,12 @@ export interface OnboardingTelegramPayload {
 export function formatOnboardingTelegramMessage(payload: OnboardingTelegramPayload): string {
   const contactText = payload.contact?.trim() || 'Kiritilmadi';
   const childLabel = payload.childName?.trim() || 'Bolajon';
-  const idLine = payload.publicId?.trim() ? `ID: ${payload.publicId.trim()}` : null;
+  const idLine =
+    payload.isGuest === true
+      ? 'Holat: Sinov rejimi (Guest)'
+      : payload.publicId?.trim()
+        ? `ID: ${payload.publicId.trim()}`
+        : null;
   const timeLine = payload.completedAt?.trim() || new Date().toISOString();
 
   return [
@@ -283,13 +296,19 @@ export interface FeedbackTelegramPayload {
   sessionsCompleted: number;
   childName?: string;
   publicId?: string;
+  isGuest?: boolean;
   submittedAt?: string;
 }
 
 /** Format PMF / Mom Test feedback responses as a clean Uzbek Telegram message. */
 export function formatFeedbackTelegramMessage(payload: FeedbackTelegramPayload): string {
   const childLabel = payload.childName?.trim() || 'Bolajon';
-  const idLine = payload.publicId?.trim() ? `ID: ${payload.publicId.trim()}` : null;
+  const idLine =
+    payload.isGuest === true
+      ? 'Holat: Sinov rejimi (Guest)'
+      : payload.publicId?.trim()
+        ? `ID: ${payload.publicId.trim()}`
+        : null;
   const stuckText = payload.stuckPoint.trim() || 'Yozilmadi';
   const recText = payload.recommendationNote.trim() || 'Yozilmadi';
   const timeLine = payload.submittedAt?.trim() || new Date().toISOString();

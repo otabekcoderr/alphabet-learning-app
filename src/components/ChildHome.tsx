@@ -14,6 +14,7 @@ import {
 } from '../utils/audioRecorder';
 import { AccountIdBadge } from './AccountIdBadge';
 import { AnimatedCharacter } from './AnimatedCharacter';
+import { GuestSaveBanner } from './GuestSaveBanner';
 import { Clock, Play, Star } from './Icons';
 import { WorldIslandArt } from './WorldIslandArt';
 
@@ -21,6 +22,8 @@ interface ChildHomeProps {
   childName: string;
   avatarId: string;
   publicId?: string;
+  isGuest?: boolean;
+  onOpenGuestUpgrade?: () => void;
   seenWordIds: string[];
   masteredWordsCount?: number;
   activeWorldId: number;
@@ -41,6 +44,8 @@ export function ChildHome({
   childName,
   avatarId,
   publicId,
+  isGuest = false,
+  onOpenGuestUpgrade,
   seenWordIds,
   masteredWordsCount = 0,
   activeWorldId,
@@ -199,8 +204,12 @@ export function ChildHome({
             </span>
           </div>
 
-          {publicId && (
+          {!isGuest && publicId && (
             <AccountIdBadge publicId={publicId} label="ID:" variant="compact" />
+          )}
+
+          {isGuest && onOpenGuestUpgrade && (
+            <GuestSaveBanner variant="compact" onSaveAccount={onOpenGuestUpgrade} />
           )}
 
           <div className="daily-time-bar-wrap" aria-label="Kunlik mashq vaqti">

@@ -30,6 +30,7 @@ interface OnboardingSurveyPageProps {
   childName: string;
   avatarId: string;
   publicId?: string;
+  isGuest?: boolean;
   initialSurvey?: SurveyData | null;
   onComplete: (result: { surveyData: SurveyData; recommendedWorldId: 1 | 2 | 3 | 4 | 5 }) => void;
   onCancelEdit?: () => void;
@@ -45,6 +46,7 @@ export function OnboardingSurveyPage({
   childName,
   avatarId,
   publicId,
+  isGuest = false,
   initialSurvey,
   onComplete,
   onCancelEdit,
@@ -169,7 +171,8 @@ export function OnboardingSurveyPage({
       ...labels,
       contact: resolvedContact,
       childName: displayName,
-      publicId,
+      publicId: isGuest ? undefined : publicId,
+      isGuest,
       completedAt,
     });
     void sendTelegramMessage(messageText, { category: 'onboarding' });

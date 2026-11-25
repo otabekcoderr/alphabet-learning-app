@@ -5174,3 +5174,272 @@ h4,
     align-self: flex-start;
   }
 }
+
+/* ==========================================================================
+   Alifbo 2.3 Phase 1: Guest Trial Banner, Notifications & Telegram Reminders
+   ========================================================================== */
+.guest-save-banner {
+  background: linear-gradient(135deg, #FFFBEB 0%, #FEF3C7 100%);
+  border: 2px solid #F59E0B;
+  color: var(--text-brown);
+}
+
+.guest-save-banner-compact {
+  width: 100%;
+  border-radius: 18px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+  box-shadow: 0 4px 12px rgba(217, 119, 6, 0.14);
+}
+
+.guest-save-compact-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: #92400E;
+}
+
+.guest-save-cta-compact {
+  width: 100%;
+  font-size: 13px;
+  min-height: 44px;
+  padding: 8px 10px;
+}
+
+.guest-save-banner-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.guest-save-card-copy {
+  flex: 1 1 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guest-save-card-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.guest-save-icon-badge {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #FDE68A;
+  color: #B45309;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.guest-save-card-title {
+  margin: 0;
+  font-size: 18px;
+  color: #78350F;
+}
+
+.guest-save-card-text {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+  font-weight: 600;
+  color: #78350F;
+}
+
+.guest-save-cta-card {
+  flex-shrink: 0;
+}
+
+.notif-bell-btn {
+  position: relative;
+}
+
+.notif-unread-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--orange);
+  color: #FFFFFF;
+  font-size: 11.5px;
+  font-weight: 800;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.notif-modal-card {
+  max-width: 580px;
+  max-height: 88dvh;
+  overflow-y: auto;
+}
+
+.notif-modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.notif-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.notif-section-heading {
+  margin: 0;
+  font-size: 17px;
+}
+
+.notif-panel-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.notif-item-card {
+  border-radius: 18px;
+  padding: 14px 16px;
+  background: #FFFFFF;
+  border: 2px solid var(--border-warm);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.notif-item-unread {
+  border-color: #34D399;
+  background: #F0FDF4;
+}
+
+.notif-item-high {
+  border-color: #F59E0B;
+  background: #FFFBEB;
+}
+
+.notif-item-top {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.notif-item-title {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  color: var(--text-teal);
+}
+
+.notif-new-pill {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 800;
+  flex-shrink: 0;
+}
+
+.notif-item-body {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.48;
+  font-weight: 600;
+  color: var(--text-brown);
+}
+
+.notif-item-cta {
+  margin-top: 2px;
+}
+
+.tg-reminder-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tg-reminder-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tg-reminder-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-teal);
+}
+
+.tg-reminder-title-wrap h3 {
+  margin: 0;
+}
+
+.tg-linked-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: #ECFDF5;
+  border: 1.5px solid #A7F3D0;
+  color: var(--emerald-dark);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.tg-connect-box,
+.tg-settings-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.tg-connect-actions,
+.tg-hour-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.tg-hour-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.parent-account-actions-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+@media (max-width: 767px) {
+  .guest-save-cta-card {
+    width: 100%;
+  }
+}

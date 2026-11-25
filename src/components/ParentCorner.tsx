@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { motion } from 'framer-motion';
 import { ASSET_LICENSE_MANIFEST } from '../data/assetManifest';
 import {
@@ -8,7 +8,16 @@ import {
   READING_WORLDS,
 } from '../data/curriculum';
 import { getAlphabetMasterySummary } from '../logic/alphabetReview';
+import { getDisplayablePublicId, isGuestAccount } from '../logic/auth';
 import { getOnboardingOptionLabels } from '../logic/onboarding';
+import {
+  buildParentNotifications,
+  fetchNotificationsData,
+  saveReminderSettingsApi,
+  type AppNotificationAction,
+  type RemoteReminderSettings,
+  type ServerNotificationDto,
+} from '../logic/notifications';
 import {
   AVATAR_OPTIONS,
   buildWeekStreakDays,
@@ -44,12 +53,15 @@ import { AccountIdBadge } from './AccountIdBadge';
 import { AvatarVisual } from './AvatarVisual';
 import { FeedbackModal } from './FeedbackModal';
 import { GameVisual } from './GameVisual';
+import { GuestSaveBanner } from './GuestSaveBanner';
 import {
   ArrowLeft,
   BarChart3,
+  Bell,
   Calendar,
   Check,
   Clock,
+  Cloud,
   Download,
   Flame,
   LogOut,
@@ -63,6 +75,10 @@ import {
   Upload,
 } from './Icons';
 import { MascotSvg } from './MascotSvg';
+import {
+  ParentNotificationsPanel,
+  TelegramReminderCard,
+} from './ParentNotificationsPanel';
 import { StorybookBackdrop } from './StorybookBackdrop';
 
 export type ParentTab = 'today' | 'diagnostics' | 'achievements' | 'settings';
@@ -85,6 +101,8 @@ interface ParentCornerProps {
   onToggleBismillahAlhamdulillah: (enabled: boolean) => void;
   onResetProgress: () => void;
   onSignOut: () => void;
+  onOpenGuestUpgrade: () => void;
+  onMarkNotificationsRead: (ids: string[]) => void;
 }
 
 const CHALLENGE_LABELS: Record<string, string> = {
@@ -122,6 +140,8 @@ export function ParentCorner({
   onToggleBismillahAlhamdulillah,
   onResetProgress,
   onSignOut,
+  onOpenGuestUpgrade,
+  onMarkNotificationsRead,
 }: ParentCornerProps) {
   const [activeTab, setActiveTab] = useState<ParentTab>('today');
   const [diagResult, setDiagResult] = useState<SttApiResponse | null>(null);
@@ -135,6 +155,79 @@ export function ParentCorner({
   const [backupMsg, setBackupMsg] = useState<{ ok: boolean; text: string } | null>(null);
   const [confirmReset, setConfirmReset] = useState(false);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifDbConfigured, setNotifDbConfigured] = useState(false);
+  const [serverNotifications, setServerNotifications] = useState<ServerNotificationDto[]>([]);
+  const [reminderSettings, setReminderSettings] = useState<RemoteReminderSettings | null>(null);
+
+  const isGuest = isGuestAccount(state.account);
+  const displayPublicId = getDisplayablePublicId(state.account);
+
+  const refreshNotificationCenter = useCallback(async () => {
+    if (isGuest) {
+      setNotifDbConfigured(false);
+      setServerNotifications([]);
+      setReminderSettings(null);
+      return;
+    }
+    const res = await fetchNotificationsData();
+    if (res.ok) {
+      setNotifDbConfigured(res.dbConfigured);
+      setServerNotifications(res.notifications);
+      setReminderSettings(res.settings);
+    }
+  }, [isGuest]);
+
+  useEffect(() => {
+    void refreshNotificationCenter();
+  }, [refreshNotificationCenter]);
+
+  const notifications = useMemo(
+    () =>
+      buildParentNotifications({
+        state,
+        remoteSettings: reminderSettings,
+        serverNotifications,
+      }),
+    [state, reminderSettings, serverNotifications],
+  );
+  const unreadNotifCount = useMemo(
+    () => notifications.filter((n) => n.unread).length,
+    [notifications],
+  );
+
+  const handleMarkNotificationsRead = useCallback(
+    (ids: string[]) => {
+      if (ids.length === 0) return;
+      onMarkNotificationsRead(ids);
+      const serverIds = ids.filter((id) => !id.startsWith('local:'));
+      if (serverIds.length > 0 && !isGuest) {
+        void saveReminderSettingsApi({ markReadIds: serverIds });
+      }
+    },
+    [isGuest, onMarkNotificationsRead],
+  );
+
+  const handleNotificationAction = useCallback(
+    (action: AppNotificationAction) => {
+      if (action === 'open_guest_upgrade') {
+        onOpenGuestUpgrade();
+        return;
+      }
+      if (action === 'open_verify_tab') {
+        setActiveTab('today');
+        return;
+      }
+      if (action === 'open_diagnostics') {
+        setActiveTab('diagnostics');
+        return;
+      }
+      if (action === 'connect_telegram') {
+        setActiveTab('settings');
+      }
+    },
+    [onOpenGuestUpgrade],
+  );
 
   const weekDays = buildWeekStreakDays(state.practiceDates);
   const activeAvatar = getAvatarOption(state.profile.avatarId);
@@ -332,6 +425,22 @@ export function ParentCorner({
         <div className="parent-topbar-actions">
           <button
             type="button"
+            className="btn-3d-cream btn-compact btn-with-icon nav-btn notif-bell-btn"
+            aria-label={`Bildirishnomalar${unreadNotifCount > 0 ? ` (${unreadNotifCount} ta yangi)` : ''}`}
+            onClick={() => {
+              playFeedbackChime('pop');
+              setNotificationsOpen(true);
+            }}
+          >
+            <Bell size={16} />
+            <span>Bildirishnomalar</span>
+            {unreadNotifCount > 0 && (
+              <span className="notif-unread-badge">{unreadNotifCount}</span>
+            )}
+          </button>
+
+          <button
+            type="button"
             className="btn-3d-cream btn-compact btn-with-icon nav-btn"
             onClick={() => {
               playFeedbackChime('pop');
@@ -371,7 +480,16 @@ export function ParentCorner({
 
         {activeTab === 'today' && (
           <div className="parent-tab-pane">
-            {state.account?.publicId && (
+            {isGuest && (
+              <GuestSaveBanner
+                variant="card"
+                practicedCount={Object.keys(state.wordProgress).length}
+                totalStars={state.totalStars + state.totalEffortStars}
+                onSaveAccount={onOpenGuestUpgrade}
+              />
+            )}
+
+            {!isGuest && displayPublicId && (
               <section className="parent-card parent-profile-strip" aria-label="Foydalanuvchi profili va ID">
                 <div className="parent-profile-strip-left">
                   <div
@@ -386,11 +504,11 @@ export function ParentCorner({
                       {state.profile.name.trim() || 'Bolajon'}
                     </strong>
                     <div className="muted-text" style={{ fontSize: 12.5 }}>
-                      {activeAvatar.label} · {state.account.contact}
+                      {activeAvatar.label} · {state.account?.contact}
                     </div>
                   </div>
                 </div>
-                <AccountIdBadge publicId={state.account.publicId} label="Foydalanuvchi ID:" />
+                <AccountIdBadge publicId={displayPublicId} label="Foydalanuvchi ID:" />
               </section>
             )}
 
@@ -1005,9 +1123,9 @@ export function ParentCorner({
                   );
                 })}
               </div>
-              {state.account?.publicId && (
+              {!isGuest && displayPublicId && (
                 <div style={{ marginTop: 12 }}>
-                  <AccountIdBadge publicId={state.account.publicId} label="Foydalanuvchi ID:" />
+                  <AccountIdBadge publicId={displayPublicId} label="Foydalanuvchi ID:" />
                 </div>
               )}
             </section>
@@ -1159,22 +1277,59 @@ export function ParentCorner({
               )}
             </section>
 
+            <TelegramReminderCard
+              isGuest={isGuest}
+              dbConfigured={notifDbConfigured}
+              settings={reminderSettings}
+              onSettingsUpdated={setReminderSettings}
+              onRefreshCenter={refreshNotificationCenter}
+              onOpenGuestUpgrade={onOpenGuestUpgrade}
+            />
+
             <section className="parent-card">
               <h3>Hisob</h3>
-              <p className="muted-text" style={{ marginTop: 0 }}>
-                Faol hisob: <strong>{state.account?.contact ?? '—'}</strong>
-              </p>
-              {state.account?.publicId && (
-                <AccountIdBadge publicId={state.account.publicId} label="Hisob ID:" />
+              {isGuest ? (
+                <>
+                  <p className="muted-text" style={{ marginTop: 0 }}>
+                    Faol rejim: <strong>Sinov rejimi (Natijalar faqat shu qurilmada saqlanadi)</strong>
+                  </p>
+                  <div className="parent-account-actions-row">
+                    <button
+                      type="button"
+                      className="btn-3d-emerald btn-compact btn-with-icon"
+                      onClick={onOpenGuestUpgrade}
+                    >
+                      <Cloud size={16} />
+                      <span>Hisob yaratib saqlash (Telegram / Google)</span>
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-3d-cream btn-compact btn-with-icon"
+                      onClick={onSignOut}
+                    >
+                      <LogOut size={16} />
+                      <span>Sinov rejimidan chiqish</span>
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="muted-text" style={{ marginTop: 0 }}>
+                    Faol hisob: <strong>{state.account?.contact ?? '—'}</strong>
+                  </p>
+                  {displayPublicId && (
+                    <AccountIdBadge publicId={displayPublicId} label="Hisob ID:" />
+                  )}
+                  <button
+                    type="button"
+                    className="btn-3d-cream btn-compact btn-with-icon"
+                    onClick={onSignOut}
+                  >
+                    <LogOut size={16} />
+                    <span>Hisobdan chiqish</span>
+                  </button>
+                </>
               )}
-              <button
-                type="button"
-                className="btn-3d-cream btn-compact btn-with-icon"
-                onClick={onSignOut}
-              >
-                <LogOut size={16} />
-                <span>Hisobdan chiqish</span>
-              </button>
             </section>
 
             <section className="parent-card">
@@ -1312,8 +1467,22 @@ export function ParentCorner({
         isOpen={feedbackOpen}
         onClose={() => setFeedbackOpen(false)}
         childName={state.profile.name}
-        publicId={state.account?.publicId}
+        publicId={displayPublicId}
+        isGuest={isGuest}
         sessionsCompleted={state.completedSessionsCount}
+      />
+      <ParentNotificationsPanel
+        isOpen={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        isGuest={isGuest}
+        dbConfigured={notifDbConfigured}
+        notifications={notifications}
+        settings={reminderSettings}
+        onSettingsUpdated={setReminderSettings}
+        onRefreshCenter={refreshNotificationCenter}
+        onMarkAllRead={handleMarkNotificationsRead}
+        onNotificationAction={handleNotificationAction}
+        onOpenGuestUpgrade={onOpenGuestUpgrade}
       />
     </div>
   );

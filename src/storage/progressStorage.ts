@@ -11,6 +11,8 @@ import {
 import type { LetterMasteryEntry, LetterMasteryStatus } from '../logic/alphabetReview';
 import {
   generateAccountPublicId,
+  GUEST_TRIAL_ACCOUNT_ID,
+  isGuestAccount,
   isValidAccountPublicId,
   type ParentAccountSession,
 } from '../logic/auth';
@@ -86,6 +88,10 @@ export interface AlifboState {
   completedSessionsCount: number;
   bismillahAlhamdulillahEnabled: boolean;
   firstSessionFeedbackPrompted: boolean;
+  // Alifbo 2.3 Phase 1 fields
+  progressOwnerId: string | null;
+  readNotificationIds: string[];
+  pendingRemoteSync: boolean;
 }
 
 export function createDefaultProfile(): ChildProfileData {
@@ -105,6 +111,8 @@ const STORAGE_KEY = 'alifbo_app_state_v3';
 const BACKUP_PREFIX = 'alifbo_app_state_backup_';
 export const PRE_PHASE_A_BACKUP_KEY = 'alifbo_backup_before_phase_a';
 export const PRE_PHASE_B_BACKUP_KEY = 'alifbo_backup_before_phase_b';
+export const GUEST_MIGRATION_STORAGE_KEY = 'alifbo_pending_guest_migration_v1';
+export const GUEST_MIGRATION_TTL_MS = 30 * 60 * 1000;
 
 export function getLocalDateString(date: Date = new Date()): string {
   const year = date.getFullYear();
@@ -143,6 +151,9 @@ export function createInitialState(): AlifboState {
     completedSessionsCount: 0,
     bismillahAlhamdulillahEnabled: true,
     firstSessionFeedbackPrompted: false,
+    progressOwnerId: null,
+    readNotificationIds: [],
+    pendingRemoteSync: false,
   };
 }
 
@@ -160,8 +171,18 @@ function isValidAccount(value: unknown): value is ParentAccountSession | null {
 
 function normalizeAccount(value: unknown): ParentAccountSession | null {
   if (!isValidAccount(value) || value === null) return null;
+  if (isGuestAccount(value)) {
+    const { publicId: _omit, ...rest } = value;
+    return {
+      ...rest,
+      id: GUEST_TRIAL_ACCOUNT_ID,
+      isGuest: true,
+      publicId: undefined,
+    };
+  }
   return {
     ...value,
+    isGuest: false,
     publicId: isValidAccountPublicId(value.publicId)
       ? value.publicId
       : generateAccountPublicId(),
@@ -440,9 +461,20 @@ function normalizeLoadedState(rawObj: Record<string, unknown>, parsed: AlifboSta
     }
   }
 
+  const normalizedAccount = normalizeAccount(rawObj.account);
+  const readNotificationIds = Array.isArray(rawObj.readNotificationIds)
+    ? Array.from(
+        new Set(
+          rawObj.readNotificationIds.filter(
+            (id): id is string => typeof id === 'string' && id.trim().length > 0,
+          ),
+        ),
+      )
+    : [];
+
   return {
     ...parsed,
-    account: normalizeAccount(rawObj.account),
+    account: normalizedAccount,
     profile: parsed.profile ?? createDefaultProfile(),
     progressByItem: normalizeItemProgressMap(parsed.progressByItem),
     shownStageRewards: normalizeShownStageRewards(parsed.shownStageRewards),
@@ -482,6 +514,13 @@ function normalizeLoadedState(rawObj: Record<string, unknown>, parsed: AlifboSta
       typeof rawObj.firstSessionFeedbackPrompted === 'boolean'
         ? rawObj.firstSessionFeedbackPrompted
         : false,
+    progressOwnerId:
+      typeof rawObj.progressOwnerId === 'string' && rawObj.progressOwnerId
+        ? rawObj.progressOwnerId
+        : (normalizedAccount?.id ?? null),
+    readNotificationIds,
+    pendingRemoteSync:
+      typeof rawObj.pendingRemoteSync === 'boolean' ? rawObj.pendingRemoteSync : false,
   };
 }
 
@@ -528,7 +567,12 @@ function isValidState(value: unknown): value is AlifboState {
     (obj.bismillahAlhamdulillahEnabled !== undefined &&
       typeof obj.bismillahAlhamdulillahEnabled !== 'boolean') ||
     (obj.firstSessionFeedbackPrompted !== undefined &&
-      typeof obj.firstSessionFeedbackPrompted !== 'boolean')
+      typeof obj.firstSessionFeedbackPrompted !== 'boolean') ||
+    (obj.progressOwnerId !== undefined &&
+      obj.progressOwnerId !== null &&
+      typeof obj.progressOwnerId !== 'string') ||
+    (obj.readNotificationIds !== undefined && !Array.isArray(obj.readNotificationIds)) ||
+    (obj.pendingRemoteSync !== undefined && typeof obj.pendingRemoteSync !== 'boolean')
   ) {
     return false;
   }
@@ -568,10 +612,15 @@ export function loadAlifboState(): StorageLoadResult {
       rawObj.account && typeof rawObj.account === 'object'
         ? (rawObj.account as Record<string, unknown>)
         : null;
+    const isRawGuest =
+      rawAccount !== null &&
+      (rawAccount.id === GUEST_TRIAL_ACCOUNT_ID || rawAccount.isGuest === true);
     const needsAccountPublicIdBackfill =
-      rawAccount !== null && !isValidAccountPublicId(rawAccount.publicId);
+      rawAccount !== null && !isRawGuest && !isValidAccountPublicId(rawAccount.publicId);
+    const needsLegacyGuestIdStrip =
+      isRawGuest && typeof rawAccount.publicId === 'string' && rawAccount.publicId.length > 0;
     const normalized = normalizeLoadedState(rawObj, parsed, getLocalDateString());
-    if (needsAccountPublicIdBackfill) {
+    if (needsAccountPublicIdBackfill || needsLegacyGuestIdStrip) {
       saveAlifboState(normalized);
     }
     return { state: normalized, recoveredCorruptData: false };
@@ -798,5 +847,376 @@ export function importProgressJson(
       wordProgress: migratedWordProgress,
     },
     migratedLegacyCount,
+  };
+}
+
+/** Return true if the state contains any child progress, stars, or onboarding survey data. */
+export function hasMeaningfulLearningProgress(state: AlifboState): boolean {
+  return (
+    Object.keys(state.wordProgress).length > 0 ||
+    Object.keys(state.letterMastery).length > 0 ||
+    Object.keys(state.progressByItem).length > 0 ||
+    state.seenWordIds.length > 0 ||
+    state.totalStars > 0 ||
+    state.totalEffortStars > 0 ||
+    state.completedSessionsCount > 0 ||
+    state.surveyData !== null
+  );
+}
+
+/** Persist a Guest Trial snapshot right before an external OAuth redirect (e.g. Google). */
+export function stageGuestMigrationSnapshot(
+  state: AlifboState,
+  nowMs: number = Date.now(),
+): boolean {
+  if (!isGuestAccount(state.account) && state.progressOwnerId !== GUEST_TRIAL_ACCOUNT_ID) {
+    return false;
+  }
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    window.localStorage.setItem(
+      GUEST_MIGRATION_STORAGE_KEY,
+      JSON.stringify({ stagedAtMs: nowMs, state }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Clear any pending Guest migration snapshot from localStorage. */
+export function clearGuestMigrationSnapshot(): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(GUEST_MIGRATION_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/** Read and atomically remove a staged Guest snapshot if present and within TTL. */
+export function consumeGuestMigrationSnapshot(nowMs: number = Date.now()): AlifboState | null {
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return null;
+    const raw = window.localStorage.getItem(GUEST_MIGRATION_STORAGE_KEY);
+    window.localStorage.removeItem(GUEST_MIGRATION_STORAGE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as { stagedAtMs?: unknown; state?: unknown };
+    if (
+      typeof parsed?.stagedAtMs !== 'number' ||
+      nowMs - parsed.stagedAtMs > GUEST_MIGRATION_TTL_MS
+    ) {
+      return null;
+    }
+    return hydrateAlifboState(parsed.state);
+  } catch {
+    clearGuestMigrationSnapshot();
+    return null;
+  }
+}
+
+const WORD_STATUS_RANK: Record<MasteryStatus, number> = {
+  new: 0,
+  assisted: 1,
+  syllable: 2,
+  mastered: 3,
+};
+
+const LETTER_STATUS_RANK: Record<LetterMasteryStatus, number> = {
+  new: 0,
+  practiced: 1,
+  mastered: 2,
+};
+
+function mergeWordProgressRecords(
+  remoteMap: Record<string, WordProgress>,
+  guestMap: Record<string, WordProgress>,
+): { merged: Record<string, WordProgress>; newGuestMasteredWords: number } {
+  const merged: Record<string, WordProgress> = { ...remoteMap };
+  let newGuestMasteredWords = 0;
+
+  for (const [wordId, guestProg] of Object.entries(guestMap)) {
+    const remoteProg = remoteMap[wordId];
+    if (!remoteProg) {
+      merged[wordId] = guestProg;
+      if (guestProg.status === 'mastered') {
+        newGuestMasteredWords++;
+      }
+      continue;
+    }
+
+    const rRank = WORD_STATUS_RANK[remoteProg.status];
+    const gRank = WORD_STATUS_RANK[guestProg.status];
+    const winner = gRank > rRank ? guestProg : remoteProg;
+    if (gRank > rRank && guestProg.status === 'mastered' && remoteProg.status !== 'mastered') {
+      newGuestMasteredWords++;
+    }
+
+    merged[wordId] = {
+      ...winner,
+      reviewIntervalDays: Math.max(remoteProg.reviewIntervalDays, guestProg.reviewIntervalDays),
+      nextReviewDate:
+        winner.nextReviewDate || remoteProg.nextReviewDate || guestProg.nextReviewDate,
+      attemptCount: Math.max(remoteProg.attemptCount, guestProg.attemptCount),
+      assistedCount: Math.max(remoteProg.assistedCount, guestProg.assistedCount),
+      offlineCorrectStreak: Math.max(
+        remoteProg.offlineCorrectStreak ?? 0,
+        guestProg.offlineCorrectStreak ?? 0,
+      ),
+      fluentStreak: Math.max(remoteProg.fluentStreak ?? 0, guestProg.fluentStreak ?? 0),
+      pendingVoiceVerify:
+        winner.status === 'mastered'
+          ? false
+          : Boolean(remoteProg.pendingVoiceVerify || guestProg.pendingVoiceVerify),
+    };
+  }
+
+  return { merged, newGuestMasteredWords };
+}
+
+function mergeLetterMasteryRecords(
+  remoteMap: Record<string, LetterMasteryEntry>,
+  guestMap: Record<string, LetterMasteryEntry>,
+): Record<string, LetterMasteryEntry> {
+  const merged: Record<string, LetterMasteryEntry> = { ...remoteMap };
+
+  for (const [letter, guestEntry] of Object.entries(guestMap)) {
+    const remoteEntry = remoteMap[letter];
+    if (!remoteEntry) {
+      merged[letter] = guestEntry;
+      continue;
+    }
+    const rRank = LETTER_STATUS_RANK[remoteEntry.status];
+    const gRank = LETTER_STATUS_RANK[guestEntry.status];
+    const winner = gRank > rRank ? guestEntry : remoteEntry;
+    const latestDate =
+      guestEntry.lastReviewedAt > remoteEntry.lastReviewedAt
+        ? guestEntry.lastReviewedAt
+        : remoteEntry.lastReviewedAt;
+
+    merged[letter] = {
+      ...winner,
+      correctCount: Math.max(remoteEntry.correctCount, guestEntry.correctCount),
+      streak: Math.max(remoteEntry.streak, guestEntry.streak),
+      lastReviewedAt: latestDate,
+    };
+  }
+
+  return merged;
+}
+
+function mergeItemProgressRecords(
+  remoteMap: Record<string, ItemProgress>,
+  guestMap: Record<string, ItemProgress>,
+): Record<string, ItemProgress> {
+  const merged: Record<string, ItemProgress> = { ...remoteMap };
+  for (const [itemId, guestItem] of Object.entries(guestMap)) {
+    const remoteItem = remoteMap[itemId];
+    if (!remoteItem) {
+      merged[itemId] = guestItem;
+      continue;
+    }
+    const mastered = remoteItem.mastered || guestItem.mastered;
+    merged[itemId] = {
+      ...(guestItem.mastered && !remoteItem.mastered ? guestItem : remoteItem),
+      status: mastered ? 'mastered' : 'unverified',
+      mastered,
+      stars: Math.max(remoteItem.stars, guestItem.stars),
+      effortStars: Math.max(remoteItem.effortStars, guestItem.effortStars),
+      voiceAttempts: Math.max(remoteItem.voiceAttempts, guestItem.voiceAttempts),
+      parentVerified: remoteItem.parentVerified || guestItem.parentVerified,
+      lastPracticedAt:
+        guestItem.lastPracticedAt > remoteItem.lastPracticedAt
+          ? guestItem.lastPracticedAt
+          : remoteItem.lastPracticedAt,
+    };
+  }
+  return merged;
+}
+
+/**
+ * Deterministically migrate Guest Trial progress into a brand-new permanent account
+ * OR merge Guest Trial progress into an existing cloud account without losing either side.
+ */
+export function mergeAlifboStates(params: {
+  remoteState: AlifboState | null;
+  guestState: AlifboState | null;
+  session: ParentAccountSession;
+  childName?: string;
+  avatarId?: string;
+}): { state: AlifboState; didMergeGuest: boolean } {
+  const cleanSession: ParentAccountSession = {
+    ...params.session,
+    isGuest: false,
+    publicId: isValidAccountPublicId(params.session.publicId)
+      ? params.session.publicId
+      : generateAccountPublicId(),
+  };
+
+  const { remoteState, guestState, childName, avatarId } = params;
+
+  if (!guestState) {
+    if (remoteState) {
+      return {
+        didMergeGuest: false,
+        state: {
+          ...remoteState,
+          account: cleanSession,
+          progressOwnerId: cleanSession.id,
+          pendingRemoteSync: false,
+          profile: {
+            ...remoteState.profile,
+            name: childName || remoteState.profile.name,
+            avatarId: avatarId || remoteState.profile.avatarId,
+          },
+        },
+      };
+    }
+
+    const fresh = createInitialState();
+    return {
+      didMergeGuest: false,
+      state: {
+        ...fresh,
+        account: cleanSession,
+        progressOwnerId: cleanSession.id,
+        pendingRemoteSync: false,
+        profile: {
+          ...fresh.profile,
+          name: childName || fresh.profile.name,
+          avatarId: avatarId || fresh.profile.avatarId,
+        },
+      },
+    };
+  }
+
+  // Case 2: Brand-new permanent account receiving Guest Trial data
+  if (!remoteState) {
+    const didMigrate = hasMeaningfulLearningProgress(guestState);
+    const resolvedName =
+      childName && childName !== 'Bolajon'
+        ? childName
+        : guestState.profile.name || childName || 'Bolajon';
+    const resolvedAvatar =
+      guestState.profile.avatarId && guestState.profile.avatarId !== 'fox'
+        ? guestState.profile.avatarId
+        : avatarId || guestState.profile.avatarId || 'fox';
+
+    return {
+      didMergeGuest: didMigrate,
+      state: {
+        ...guestState,
+        account: cleanSession,
+        progressOwnerId: cleanSession.id,
+        pendingRemoteSync: true,
+        profile: {
+          ...guestState.profile,
+          name: resolvedName,
+          avatarId: resolvedAvatar,
+        },
+      },
+    };
+  }
+
+  // Case 3: Existing cloud account + Guest Trial data on current device -> CRDT merge
+  const didMergeGuest = hasMeaningfulLearningProgress(guestState);
+  const wordMerge = mergeWordProgressRecords(remoteState.wordProgress, guestState.wordProgress);
+  const mergedLetterMastery = mergeLetterMasteryRecords(
+    remoteState.letterMastery,
+    guestState.letterMastery,
+  );
+  const mergedProgressByItem = mergeItemProgressRecords(
+    remoteState.progressByItem,
+    guestState.progressByItem,
+  );
+
+  const mergedHintCounts: Record<string, number> = { ...remoteState.letterHintCounts };
+  for (const [k, count] of Object.entries(guestState.letterHintCounts)) {
+    mergedHintCounts[k] = Math.max(mergedHintCounts[k] ?? 0, count);
+  }
+
+  const mergedSeen = Array.from(
+    new Set([...remoteState.seenWordIds, ...guestState.seenWordIds]),
+  );
+  const mergedDates = Array.from(
+    new Set([...remoteState.practiceDates, ...guestState.practiceDates]),
+  ).sort();
+  const mergedRewards = Array.from(
+    new Set([...remoteState.shownStageRewards, ...guestState.shownStageRewards]),
+  ).sort((a, b) => a - b);
+  const mergedReadNotifs = Array.from(
+    new Set([...remoteState.readNotificationIds, ...guestState.readNotificationIds]),
+  );
+
+  const todayPracticedSeconds =
+    remoteState.dailyPracticeDate === guestState.dailyPracticeDate
+      ? Math.max(remoteState.todayPracticedSeconds, guestState.todayPracticedSeconds)
+      : remoteState.dailyPracticeDate > guestState.dailyPracticeDate
+        ? remoteState.todayPracticedSeconds
+        : guestState.todayPracticedSeconds;
+  const latestPracticeDate =
+    remoteState.dailyPracticeDate >= guestState.dailyPracticeDate
+      ? remoteState.dailyPracticeDate
+      : guestState.dailyPracticeDate;
+
+  const addedMasteryStars = wordMerge.newGuestMasteredWords * 3;
+  const totalStars = Math.max(
+    remoteState.totalStars + addedMasteryStars,
+    guestState.totalStars,
+  );
+  const totalEffortStars = Math.max(
+    remoteState.totalEffortStars,
+    guestState.totalEffortStars,
+  );
+  const completedSessionsCount =
+    remoteState.completedSessionsCount > 0 && guestState.completedSessionsCount > 0
+      ? remoteState.completedSessionsCount + guestState.completedSessionsCount
+      : Math.max(remoteState.completedSessionsCount, guestState.completedSessionsCount);
+
+  return {
+    didMergeGuest,
+    state: {
+      ...remoteState,
+      account: cleanSession,
+      progressOwnerId: cleanSession.id,
+      pendingRemoteSync: didMergeGuest,
+      profile: {
+        ...remoteState.profile,
+        name: childName || remoteState.profile.name,
+        avatarId: avatarId || remoteState.profile.avatarId,
+      },
+      pinSalt: remoteState.pinHash ? remoteState.pinSalt : guestState.pinSalt,
+      pinHash: remoteState.pinHash ?? guestState.pinHash,
+      recoveryCodeHash: remoteState.pinHash
+        ? remoteState.recoveryCodeHash
+        : guestState.recoveryCodeHash,
+      pinLockout: remoteState.pinHash ? remoteState.pinLockout : guestState.pinLockout,
+      parentOnboardingDone:
+        remoteState.parentOnboardingDone || guestState.parentOnboardingDone,
+      surveyData: remoteState.surveyData ?? guestState.surveyData,
+      progressByItem: mergedProgressByItem,
+      wordProgress: wordMerge.merged,
+      letterMastery: mergedLetterMastery,
+      seenWordIds: mergedSeen,
+      letterHintCounts: mergedHintCounts,
+      practiceDates: mergedDates,
+      shownStageRewards: mergedRewards,
+      totalStars,
+      totalEffortStars,
+      completedSessionsCount,
+      dailyPracticeDate: latestPracticeDate,
+      todayPracticedSeconds,
+      recentLatenciesMs: [...remoteState.recentLatenciesMs, ...guestState.recentLatenciesMs].slice(
+        -30,
+      ),
+      recentReadingTimesMs: [
+        ...remoteState.recentReadingTimesMs,
+        ...guestState.recentReadingTimesMs,
+      ].slice(-20),
+      firstSessionFeedbackPrompted:
+        remoteState.firstSessionFeedbackPrompted || guestState.firstSessionFeedbackPrompted,
+      readNotificationIds: mergedReadNotifs,
+    },
   };
 }
