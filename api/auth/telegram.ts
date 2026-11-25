@@ -13,6 +13,7 @@ import {
   dbUnavailableResponse,
   jsonResponse,
 } from '../_lib/session.js';
+import { consumeRateLimit, getClientIp } from '../_lib/rateLimit.js';
 import {
   consumeTelegramLoginSession,
   createPendingTelegramLoginSession,
@@ -156,6 +157,24 @@ async function handleTelegramStart(request: Request): Promise<Response> {
           "Ma'lumotlar bazasi yoki token xotirasi ulanmagan (DATABASE_URL yoki KV_REST_API_URL kerak).",
       },
       503,
+    );
+  }
+
+  const startIpLimit = await consumeRateLimit({
+    scope: 'auth_tg_start_ip',
+    key: getClientIp(request),
+    limit: 12,
+    windowSec: 600,
+  });
+  if (!startIpLimit.allowed) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'rate_limited',
+        errorUz: 'Juda ko‘p urinish. Biroz kutib qayta bosing.',
+      },
+      429,
+      { 'Retry-After': String(startIpLimit.retryAfterSec) },
     );
   }
 
@@ -390,6 +409,24 @@ async function handleTelegramCodeAuth(request: Request): Promise<Response> {
         errorUz: 'Bot yuborgan 6 xonali raqamli kodni kiriting.',
       },
       400,
+    );
+  }
+
+  const codeIpLimit = await consumeRateLimit({
+    scope: 'auth_tg_code_ip',
+    key: getClientIp(request),
+    limit: 6,
+    windowSec: 600,
+  });
+  if (!codeIpLimit.allowed) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'rate_limited',
+        errorUz: 'Juda ko‘p kod kiritish urinishi. 10 daqiqa kutib turing.',
+      },
+      429,
+      { 'Retry-After': String(codeIpLimit.retryAfterSec) },
     );
   }
 

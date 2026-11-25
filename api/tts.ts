@@ -1,5 +1,13 @@
 import { randomUUID } from 'node:crypto';
-import { jsonResponse } from './_lib/session.js';
+import {
+  consumeDailyGlobalBudget,
+  consumeRateLimit,
+  getClientIp,
+  isAllowedAppOrigin,
+} from './_lib/rateLimit.js';
+import { getSessionUserId, jsonResponse } from './_lib/session.js';
+
+export const MAX_TTS_TEXT_LENGTH = 300;
 
 const DEFAULT_VOICELAB_TTS_URL = 'https://api.voicelab.uz/v1/tts';
 const DEFAULT_VOICELAB_MODEL_ID = 'lison-v2';
@@ -129,15 +137,71 @@ async function synthesizeVoiceLabWav(
   throw new Error('VoiceLab TTS rate limit retries exhausted');
 }
 
-async function handleTts(text: string, voiceStyle: 'friendly' | 'neutral'): Promise<Response> {
+async function handleTts(
+  request: Request,
+  text: string,
+  voiceStyle: 'friendly' | 'neutral',
+): Promise<Response> {
   if (!text) {
     return jsonResponse({ ok: false, error: "text parametri bo'sh" }, 400);
   }
-  if (text.length > 1000) {
+  if (text.length > MAX_TTS_TEXT_LENGTH) {
     return jsonResponse({ ok: false, error: 'text juda uzun' }, 400);
   }
+
+  const userId = getSessionUserId(request);
+  if (
+    !isAllowedAppOrigin(request, {
+      requireRefererOrSessionOnGet: true,
+      hasSession: Boolean(userId),
+    })
+  ) {
+    return jsonResponse(
+      { ok: false, code: 'tts_forbidden_origin', error: 'Ruxsat etilmagan manba.' },
+      403,
+    );
+  }
+
   if (!(process.env.VOICELAB_API_KEY || '').trim()) {
     return jsonResponse({ ok: false, error: 'VOICELAB_API_KEY sozlanmagan' }, 503);
+  }
+
+  const clientIp = getClientIp(request);
+  const minLimit = await consumeRateLimit({
+    scope: 'tts_min',
+    key: clientIp,
+    limit: 25,
+    windowSec: 60,
+  });
+  const dayLimit = minLimit.allowed
+    ? await consumeRateLimit({
+        scope: userId ? 'tts_day_user' : 'tts_day_guest',
+        key: userId ?? clientIp,
+        limit: userId ? 200 : 50,
+        windowSec: 86_400,
+      })
+    : minLimit;
+  const dailyCap = Math.max(50, Number(process.env.TTS_DAILY_GLOBAL_CAP || '2000') || 2000);
+  const globalBudget =
+    minLimit.allowed && dayLimit.allowed
+      ? await consumeDailyGlobalBudget({ service: 'tts', dailyCap })
+      : { allowed: true, count: 0, triggeredAlert: false };
+
+  if (!minLimit.allowed || !dayLimit.allowed || !globalBudget.allowed) {
+    const retryAfterSec = !minLimit.allowed
+      ? minLimit.retryAfterSec
+      : !dayLimit.allowed
+        ? dayLimit.retryAfterSec
+        : 3600;
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'tts_rate_limited',
+        error: 'Ovoz sintez so‘rovlari juda ko‘p. Biroz kuting.',
+      },
+      429,
+      { 'Retry-After': String(retryAfterSec) },
+    );
   }
 
   try {
@@ -146,7 +210,7 @@ async function handleTts(text: string, voiceStyle: 'friendly' | 'neutral'): Prom
       status: 200,
       headers: {
         'Content-Type': detectAudioMime(audioBuffer),
-        'Cache-Control': 'public, max-age=86400',
+        'Cache-Control': 'private, max-age=86400',
       },
     });
   } catch (err) {
@@ -177,7 +241,7 @@ export async function GET(request: Request): Promise<Response> {
     (url.searchParams.get('voice_style') || '').trim().toLowerCase() === 'neutral'
       ? 'neutral'
       : 'friendly';
-  return handleTts(text, voiceStyle);
+  return handleTts(request, text, voiceStyle);
 }
 
 export async function POST(request: Request): Promise<Response> {
@@ -192,5 +256,5 @@ export async function POST(request: Request): Promise<Response> {
     typeof parsed.voice_style === 'string' && parsed.voice_style.trim().toLowerCase() === 'neutral'
       ? 'neutral'
       : 'friendly';
-  return handleTts(text, voiceStyle);
+  return handleTts(request, text, voiceStyle);
 }

@@ -168,7 +168,7 @@ function voicelabTtsDevPlugin(env: Record<string, string>): Plugin {
               res.end(JSON.stringify({ ok: false, error: "text parametri bo'sh" }));
               return;
             }
-            if (text.length > 1000) {
+            if (text.length > 300) {
               res.statusCode = 400;
               res.setHeader('Content-Type', 'application/json');
               res.end(JSON.stringify({ ok: false, error: 'text juda uzun' }));
@@ -252,6 +252,24 @@ export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, process.cwd(), '');
   return {
     plugins: [react(), voicelabTtsDevPlugin(env)],
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks(id) {
+            if (
+              id.includes('node_modules/react/') ||
+              id.includes('node_modules/react-dom/') ||
+              id.includes('node_modules/scheduler/')
+            ) {
+              return 'vendor-react';
+            }
+            if (id.includes('node_modules/framer-motion/')) {
+              return 'vendor-motion';
+            }
+          },
+        },
+      },
+    },
     server: {
       port: 5173,
       proxy: {

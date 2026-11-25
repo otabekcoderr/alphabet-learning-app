@@ -178,6 +178,18 @@ export async function ensureSchema(): Promise<void> {
         CREATE INDEX IF NOT EXISTS idx_parent_notifications_user
         ON parent_notifications (user_id, created_at DESC)
       `;
+      await sql`
+        CREATE TABLE IF NOT EXISTS api_rate_limits (
+          bucket_key TEXT PRIMARY KEY,
+          hit_count INTEGER NOT NULL DEFAULT 1,
+          reset_at TIMESTAMPTZ NOT NULL,
+          alerted BOOLEAN NOT NULL DEFAULT FALSE
+        )
+      `;
+      await sql`
+        CREATE INDEX IF NOT EXISTS idx_api_rate_limits_reset
+        ON api_rate_limits (reset_at)
+      `;
     })().catch((err) => {
       _schemaPromise = null;
       throw err;

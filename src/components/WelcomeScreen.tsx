@@ -268,7 +268,7 @@ export function WelcomeScreen({
                   {infoTopic === 'games'
                     ? '5 ta O‘qish Olami va O‘yinlar'
                     : infoTopic === 'about'
-                      ? 'Alifbo 2.2 haqida'
+                      ? 'Alifbo haqida'
                       : '3 bosqichli ravon o‘qish usuli'}
                 </h2>
                 <button

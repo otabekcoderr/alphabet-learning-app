@@ -113,6 +113,11 @@ export const PRE_PHASE_A_BACKUP_KEY = 'alifbo_backup_before_phase_a';
 export const PRE_PHASE_B_BACKUP_KEY = 'alifbo_backup_before_phase_b';
 export const GUEST_MIGRATION_STORAGE_KEY = 'alifbo_pending_guest_migration_v1';
 export const GUEST_MIGRATION_TTL_MS = 30 * 60 * 1000;
+export const PENDING_PIN_RESET_STORAGE_KEY = 'alifbo_pending_pin_reset_v1';
+export const PENDING_PIN_RESET_TTL_MS = 15 * 60 * 1000;
+export const MAX_IMPORT_JSON_BYTES = 512 * 1024;
+export const MAX_STARS_BOUND = 50_000;
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
 export function getLocalDateString(date: Date = new Date()): string {
   const year = date.getFullYear();
@@ -325,7 +330,22 @@ function normalizeLetterHintCounts(value: unknown): Record<string, number> {
 
 function normalizeSeenWordIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
-  return Array.from(new Set(value.filter((v): v is string => typeof v === 'string' && v.length > 0)));
+  return Array.from(
+    new Set(
+      value.filter(
+        (v): v is string => typeof v === 'string' && v.trim().length > 0 && v.length <= 64,
+      ),
+    ),
+  ).slice(0, 1000);
+}
+
+function normalizePracticeDates(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(value.filter((v): v is string => typeof v === 'string' && ISO_DATE_PATTERN.test(v))),
+  )
+    .sort()
+    .slice(-1095);
 }
 
 function isValidMasteryStatus(value: unknown): value is MasteryStatus {
@@ -469,13 +489,22 @@ function normalizeLoadedState(rawObj: Record<string, unknown>, parsed: AlifboSta
             (id): id is string => typeof id === 'string' && id.trim().length > 0,
           ),
         ),
-      )
+      ).slice(-200)
     : [];
 
   return {
     ...parsed,
     account: normalizedAccount,
     profile: parsed.profile ?? createDefaultProfile(),
+    totalStars:
+      typeof parsed.totalStars === 'number' && Number.isFinite(parsed.totalStars)
+        ? Math.min(MAX_STARS_BOUND, Math.max(0, Math.trunc(parsed.totalStars)))
+        : 0,
+    totalEffortStars:
+      typeof parsed.totalEffortStars === 'number' && Number.isFinite(parsed.totalEffortStars)
+        ? Math.min(MAX_STARS_BOUND, Math.max(0, Math.trunc(parsed.totalEffortStars)))
+        : 0,
+    practiceDates: normalizePracticeDates(rawObj.practiceDates),
     progressByItem: normalizeItemProgressMap(parsed.progressByItem),
     shownStageRewards: normalizeShownStageRewards(parsed.shownStageRewards),
     unverifiedCap: clampUnverifiedCap(
@@ -489,8 +518,10 @@ function normalizeLoadedState(rawObj: Record<string, unknown>, parsed: AlifboSta
     ),
     dailyPracticeDate: typeof rawObj.dailyPracticeDate === 'string' ? rawObj.dailyPracticeDate : '',
     todayPracticedSeconds:
-      typeof rawObj.todayPracticedSeconds === 'number' && rawObj.todayPracticedSeconds >= 0
-        ? Math.round(rawObj.todayPracticedSeconds)
+      typeof rawObj.todayPracticedSeconds === 'number' &&
+      Number.isFinite(rawObj.todayPracticedSeconds) &&
+      rawObj.todayPracticedSeconds >= 0
+        ? Math.min(86_400, Math.round(rawObj.todayPracticedSeconds))
         : 0,
     activeWorldId:
       typeof rawObj.activeWorldId === 'number' && rawObj.activeWorldId >= 1 && rawObj.activeWorldId <= 5
@@ -504,7 +535,7 @@ function normalizeLoadedState(rawObj: Record<string, unknown>, parsed: AlifboSta
       typeof rawObj.completedSessionsCount === 'number' &&
       Number.isFinite(rawObj.completedSessionsCount) &&
       rawObj.completedSessionsCount >= 0
-        ? Math.trunc(rawObj.completedSessionsCount)
+        ? Math.min(100_000, Math.trunc(rawObj.completedSessionsCount))
         : 0,
     bismillahAlhamdulillahEnabled:
       typeof rawObj.bismillahAlhamdulillahEnabled === 'boolean'
@@ -719,6 +750,10 @@ export function importProgressJson(
   jsonStr: string,
   todayStr: string = getLocalDateString(),
 ): ImportProgressResult {
+  if (new TextEncoder().encode(jsonStr).byteLength > MAX_IMPORT_JSON_BYTES) {
+    return { ok: false, errorUz: 'Zaxira fayli hajmi juda katta (maksimum 512 KB).' };
+  }
+
   let parsed: unknown;
   try {
     parsed = JSON.parse(jsonStr);
@@ -892,6 +927,55 @@ export function clearGuestMigrationSnapshot(): void {
     }
   } catch {
     // Ignore storage errors
+  }
+}
+
+/** Stage a pending PIN reset authorization for a registered account across OAuth redirects. */
+export function stagePendingPinReset(accountId: string, nowMs: number = Date.now()): void {
+  if (!accountId || accountId === GUEST_TRIAL_ACCOUNT_ID) return;
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.setItem(
+        PENDING_PIN_RESET_STORAGE_KEY,
+        JSON.stringify({ accountId, stagedAtMs: nowMs }),
+      );
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/** Clear any staged PIN reset marker from localStorage. */
+export function clearPendingPinReset(): void {
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      window.localStorage.removeItem(PENDING_PIN_RESET_STORAGE_KEY);
+    }
+  } catch {
+    // Ignore storage errors
+  }
+}
+
+/** Read and atomically consume a staged PIN reset marker ONLY if accountId matches and TTL is valid. */
+export function consumePendingPinReset(accountId: string, nowMs: number = Date.now()): boolean {
+  if (!accountId || accountId === GUEST_TRIAL_ACCOUNT_ID) return false;
+  try {
+    if (typeof window === 'undefined' || !window.localStorage) return false;
+    const raw = window.localStorage.getItem(PENDING_PIN_RESET_STORAGE_KEY);
+    window.localStorage.removeItem(PENDING_PIN_RESET_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw) as { accountId?: unknown; stagedAtMs?: unknown };
+    if (
+      parsed?.accountId !== accountId ||
+      typeof parsed?.stagedAtMs !== 'number' ||
+      nowMs - parsed.stagedAtMs > PENDING_PIN_RESET_TTL_MS
+    ) {
+      return false;
+    }
+    return true;
+  } catch {
+    clearPendingPinReset();
+    return false;
   }
 }
 

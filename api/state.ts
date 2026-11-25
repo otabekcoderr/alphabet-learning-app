@@ -1,4 +1,5 @@
 import { ensureSchema, getSql, isDbConfigured } from './_lib/db.js';
+import { handleHealthCheck } from './_lib/health.js';
 import { dbUnavailableResponse, getSessionUserId, jsonResponse } from './_lib/session.js';
 import { getTashkentDateString } from './_lib/telegramBot.js';
 
@@ -85,6 +86,12 @@ function extractUserActivityMeta(stateObj: Record<string, unknown>): {
 }
 
 export async function GET(request: Request): Promise<Response> {
+  const url = new URL(request.url);
+  const action = (url.searchParams.get('action') || '').trim().toLowerCase();
+  if (action === 'health' || url.pathname.endsWith('/health')) {
+    return handleHealthCheck();
+  }
+
   if (!isDbConfigured()) {
     return dbUnavailableResponse();
   }

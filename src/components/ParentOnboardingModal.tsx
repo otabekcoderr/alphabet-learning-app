@@ -4,7 +4,7 @@ import { playFeedbackChime } from '../utils/audioRecorder';
 import { ArrowLeft, ArrowRight, BookOpen, Check, CloseIcon, Lock } from './Icons';
 
 interface ParentOnboardingModalProps {
-  unverifiedCap: number;
+  unverifiedCap?: number;
   initialStep?: 1 | 2 | 3;
   isReplay?: boolean;
   onComplete: () => void;
@@ -12,7 +12,7 @@ interface ParentOnboardingModalProps {
 }
 
 export function ParentOnboardingModal({
-  unverifiedCap,
+  unverifiedCap: _unverifiedCap,
   initialStep = 1,
   isReplay = false,
   onComplete,
@@ -64,22 +64,20 @@ export function ParentOnboardingModal({
             <div className="onboarding-icon-circle" aria-hidden="true">
               <BookOpen size={30} color="#059669" />
             </div>
-            <h2 id="onboarding-modal-title">1. Ilova nima qiladi?</h2>
+            <h2 id="onboarding-modal-title">1. 5 ta o‘qish olami va 3 bosqichli usul</h2>
             <p className="onboarding-text">
-              Ilovada 139 ta so‘z va mashq 5 ta o‘qish olamiga taqsimlangan.
+              Ilovadagi 139 ta so‘z va qisqa gaplar 5 ta o‘qish olamiga taqsimlangan. Har bir so‘z 3
+              bosqichli zinapoyadan o‘tadi:
             </p>
             <ol className="onboarding-list">
               <li>
-                <strong>Tinglaydi:</strong> Harf yoki so‘zni ko‘radi va namuna ovozni eshitadi.
+                <strong>Qurish:</strong> Bo‘g‘in konstruktori, pufakchalar yoki poyezd bilan so‘zni yig‘adi.
               </li>
               <li>
-                <strong>Eshitib topadi:</strong> Eshitgan variantini karta ichidan tanlaydi.
+                <strong>Fonarcha:</strong> Bo‘g‘inlarni ketma-ket yoritib o‘qiydi va rasmga moslaydi.
               </li>
               <li>
-                <strong>Ulaydi:</strong> Bo‘g‘in kubiklari va slayder bilan so‘zlarni birlashtiradi.
-              </li>
-              <li>
-                <strong>Ovoz chiqarib aytadi:</strong> Mustaqil o‘qish imtihonidan o‘tadi.
+                <strong>Mustaqil imtihon:</strong> Rasmsiz mustaqil o‘qish (ovozli yoki 4 rasmli tekshiruv).
               </li>
             </ol>
           </div>
@@ -90,14 +88,15 @@ export function ParentOnboardingModal({
             <div className="onboarding-icon-circle" aria-hidden="true">
               <Check size={30} color="#059669" strokeWidth={3} />
             </div>
-            <h2 id="onboarding-modal-title">2. Ota-ona tasdig‘i qanday ishlaydi?</h2>
+            <h2 id="onboarding-modal-title">2. Ota-ona kuzatuvi va kunlik eslatma</h2>
             <p className="onboarding-text">
-              Bola <strong>{unverifiedCap} ta darsni</strong> mustaqil mashq qilgach, keyingi yangi darslarni
-              ochish uchun ota-ona tasdig‘i so‘raladi.
+              <strong>«Bugun»</strong> va <strong>«Diagnostika»</strong> bo‘limlarida farzandingiz
+              qiynalayotgan harflarni ko‘rasiz hamda rasmli rejimda o‘qilgan so‘zlarni bir tugmada
+              tasdiqlaysiz.
             </p>
             <p className="onboarding-text">
-              Siz <strong>«Tasdiqlash»</strong> bo‘limida bola o‘qib berganini tinglab,{' '}
-              <strong>«Ravon o‘qidi»</strong> yoki <strong>«Yana mashq»</strong> tugmasini bosasiz.
+              Shuningdek, <strong>@alifbo_uz_robot</strong> Telegram boti orqali kechki kunlik
+              mashq eslatmalarini yoqishingiz mumkin.
             </p>
           </div>
         )}
@@ -107,13 +106,14 @@ export function ParentOnboardingModal({
             <div className="onboarding-icon-circle" aria-hidden="true">
               <Lock size={28} color="#F97316" />
             </div>
-            <h2 id="onboarding-modal-title">3. PIN-kod va tiklash kodi</h2>
+            <h2 id="onboarding-modal-title">3. PIN-kod va hisob himoyasi</h2>
             <p className="onboarding-text">
-              Ota-ona bo‘limiga kirish uchun 4 xonali PIN-kod o‘rnatasiz (bu bolalar uchun oddiy cheklovdir).
+              Ota-ona bo‘limi 4 xonali PIN-kod bilan himoyalangan. PIN o‘rnatilganda 10 belgili
+              bir martalik tiklash kodi beriladi.
             </p>
             <p className="onboarding-text">
-              PIN-kod yaratilganda 10 belgili bir martalik tiklash kodi ko‘rsatiladi. PIN esdan chiqsa,
-              dars natijalarini yo‘qotmasdan qayta tiklash uchun uni albatta yozib oling.
+              Ro‘yxatdan o‘tgan hisoblarda PIN esdan chiqsa ham hisobingizni qayta tasdiqlab,
+              natijalarni yo‘qotmasdan yangi PIN o‘rnatishingiz mumkin.
             </p>
           </div>
         )}

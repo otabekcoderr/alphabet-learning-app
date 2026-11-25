@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { motion } from 'framer-motion';
 import {
   createInitialPin,
+  formatLockoutRemainingUz,
   getLockoutStatus,
   resetPinWithRecoveryCode,
   verifyPinWithLockout,
@@ -15,6 +16,9 @@ interface PinModalProps {
   existingPinHash: string | null;
   recoveryCodeHash: string | null;
   lockout: PinLockoutState;
+  isGuest?: boolean;
+  accountContact?: string;
+  onRequestAccountReauth?: () => void;
   onCreatePin: (payload: { salt: string; pinHash: string; recoveryCodeHash: string }) => void;
   onUpdatePinAfterRecovery: (newPinHash: string, lockout: PinLockoutState) => void;
   onUpdateLockout: (lockout: PinLockoutState) => void;
@@ -32,6 +36,9 @@ export function PinModal({
   existingPinHash,
   recoveryCodeHash,
   lockout,
+  isGuest = true,
+  accountContact,
+  onRequestAccountReauth,
   onCreatePin,
   onUpdatePinAfterRecovery,
   onUpdateLockout,
@@ -77,6 +84,7 @@ export function PinModal({
   };
 
   const startHoldToErase = () => {
+    if (!isGuest) return;
     stopHold();
     const start = Date.now();
     holdTimerRef.current = window.setInterval(() => {
@@ -365,7 +373,7 @@ export function PinModal({
               </label>
               {lockoutStatus.locked && (
                 <div className="feedback-banner feedback-gentle">
-                  Ko‘p xato urinish. {lockoutStatus.remainingSeconds} soniya kutib turing.
+                  Ko‘p xato urinish. {formatLockoutRemainingUz(lockoutStatus.remainingSeconds)} kutib turing.
                 </div>
               )}
               {error && !lockoutStatus.locked && (
@@ -475,25 +483,49 @@ export function PinModal({
               </div>
             </form>
 
-            <div className="erase-reset-box">
-              <p className="warning-note">
-                Agar PIN-kod ham, tiklash kodi ham yo‘qolgan bo‘lsa: quyidagi tugmani{' '}
-                <strong>2 soniya bosib turing</strong>. Barcha dars natijalari, yulduzchalar va PIN-kod
-                butunlay o‘chiriladi!
-              </p>
-              <button
-                type="button"
-                className="btn-hold-erase"
-                onPointerDown={startHoldToErase}
-                onPointerUp={stopHold}
-                onPointerLeave={stopHold}
-                onPointerCancel={stopHold}
-              >
-                {holdProgress > 0
-                  ? `O‘chirilmoqda... ${holdProgress}%`
-                  : 'Natijalarni o‘chirib qayta boshlash (bosib turing)'}
-              </button>
-            </div>
+            {isGuest ? (
+              <div className="erase-reset-box">
+                <p className="warning-note">
+                  Agar PIN-kod ham, tiklash kodi ham yo‘qolgan bo‘lsa: quyidagi tugmani{' '}
+                  <strong>2 soniya bosib turing</strong>. Barcha dars natijalari, yulduzchalar va PIN-kod
+                  butunlay o‘chiriladi!
+                </p>
+                <button
+                  type="button"
+                  className="btn-hold-erase"
+                  onPointerDown={startHoldToErase}
+                  onPointerUp={stopHold}
+                  onPointerLeave={stopHold}
+                  onPointerCancel={stopHold}
+                >
+                  {holdProgress > 0
+                    ? `O‘chirilmoqda... ${holdProgress}%`
+                    : 'Natijalarni o‘chirib qayta boshlash (bosib turing)'}
+                </button>
+              </div>
+            ) : (
+              onRequestAccountReauth && (
+                <div className="account-reauth-reset-box">
+                  <p className="account-reauth-note">
+                    Tiklash kodi yoningizda emasmi? Ro‘yxatdan o‘tgan hisobingizni (
+                    <strong>{accountContact || 'Telegram / Google / Parol'}</strong>) qayta
+                    tasdiqlab, barcha o‘quv natijalarini saqlagan holda yangi PIN-kod o‘rnatishingiz
+                    mumkin.
+                  </p>
+                  <button
+                    type="button"
+                    className="btn-3d-cream"
+                    style={{ width: '100%' }}
+                    onClick={() => {
+                      playFeedbackChime('pop');
+                      onRequestAccountReauth();
+                    }}
+                  >
+                    Hisobni tasdiqlab yangi PIN o‘rnatish
+                  </button>
+                </div>
+              )
+            )}
           </>
         )}
       </motion.div>

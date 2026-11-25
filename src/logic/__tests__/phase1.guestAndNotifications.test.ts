@@ -464,7 +464,7 @@ describe('Alifbo 2.3 Phase 1 — Guest Trial ID, CRDT Merge, Notifications & @al
 
     const endpointCount = countApiEndpoints(apiDir);
     expect(endpointCount).toBeLessThanOrEqual(12);
-    expect(endpointCount).toBe(10);
+    expect(endpointCount).toBe(8);
 
     const envExample = fs.readFileSync(path.join(projectRoot, '.env.example'), 'utf8');
     expect(envExample).not.toContain('VITE_TG_BOT_TOKEN');

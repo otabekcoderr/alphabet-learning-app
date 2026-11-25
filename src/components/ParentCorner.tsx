@@ -40,6 +40,7 @@ import {
   exportProgressJson,
   getLocalDateString,
   importProgressJson,
+  MAX_IMPORT_JSON_BYTES,
   type AlifboState,
   type ChildProfileData,
 } from '../storage/progressStorage';
@@ -298,6 +299,10 @@ export function ParentCorner({
     const file = e.target.files?.[0];
     e.target.value = '';
     if (!file) return;
+    if (file.size > MAX_IMPORT_JSON_BYTES) {
+      setBackupMsg({ ok: false, text: 'Zaxira fayli hajmi juda katta (maksimum 512 KB).' });
+      return;
+    }
     try {
       const text = await file.text();
       const result = importProgressJson(text, getLocalDateString());
@@ -425,7 +430,7 @@ export function ParentCorner({
         <div className="parent-topbar-actions">
           <button
             type="button"
-            className="btn-3d-cream btn-compact btn-with-icon nav-btn notif-bell-btn"
+            className="btn-3d-cream btn-compact btn-with-icon nav-btn notif-bell-btn parent-topbar-icon-btn"
             aria-label={`Bildirishnomalar${unreadNotifCount > 0 ? ` (${unreadNotifCount} ta yangi)` : ''}`}
             onClick={() => {
               playFeedbackChime('pop');
@@ -433,7 +438,7 @@ export function ParentCorner({
             }}
           >
             <Bell size={16} />
-            <span>Bildirishnomalar</span>
+            <span className="parent-topbar-action-label">Bildirishnomalar</span>
             {unreadNotifCount > 0 && (
               <span className="notif-unread-badge">{unreadNotifCount}</span>
             )}
@@ -441,14 +446,15 @@ export function ParentCorner({
 
           <button
             type="button"
-            className="btn-3d-cream btn-compact btn-with-icon nav-btn"
+            className="btn-3d-cream btn-compact btn-with-icon nav-btn parent-topbar-icon-btn"
+            aria-label="Fikr bildirish"
             onClick={() => {
               playFeedbackChime('pop');
               setFeedbackOpen(true);
             }}
           >
             <MessageCircle size={16} />
-            <span>Fikr bildirish</span>
+            <span className="parent-topbar-action-label">Fikr bildirish</span>
           </button>
 
           {onExitToChildHome && (

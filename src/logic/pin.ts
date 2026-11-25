@@ -9,6 +9,8 @@ export const RECOVERY_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const RECOVERY_CODE_LENGTH = 10;
 export const MAX_PIN_ATTEMPTS = 5;
 export const PIN_LOCKOUT_MS = 30_000;
+export const PIN_LOCKOUT_TIER2_MS = 120_000;
+export const PIN_LOCKOUT_TIER3_MS = 600_000;
 
 export interface PinLockoutState {
   failedAttempts: number;
@@ -165,19 +167,28 @@ export function getLockoutStatus(
   };
 }
 
-export function recordFailedPinAttempt(lockout: PinLockoutState, nowMs: number): PinLockoutState {
-  const baseFailures =
-    lockout.lockedUntilMs !== null && nowMs >= lockout.lockedUntilMs ? 0 : lockout.failedAttempts;
-  const nextFailures = baseFailures + 1;
-  if (nextFailures >= MAX_PIN_ATTEMPTS) {
-    return {
-      failedAttempts: nextFailures,
-      lockedUntilMs: nowMs + PIN_LOCKOUT_MS,
-    };
+export function getEscalatedLockoutMs(failedAttempts: number): number | null {
+  if (failedAttempts < MAX_PIN_ATTEMPTS) return null;
+  if (failedAttempts === MAX_PIN_ATTEMPTS) return PIN_LOCKOUT_MS;
+  if (failedAttempts < MAX_PIN_ATTEMPTS * 2) return null;
+  if (failedAttempts === MAX_PIN_ATTEMPTS * 2) return PIN_LOCKOUT_TIER2_MS;
+  if (failedAttempts < MAX_PIN_ATTEMPTS * 3) return null;
+  return PIN_LOCKOUT_TIER3_MS;
+}
+
+export function formatLockoutRemainingUz(remainingSeconds: number): string {
+  if (remainingSeconds >= 60) {
+    return `${Math.ceil(remainingSeconds / 60)} daqiqa (${remainingSeconds} soniya)`;
   }
+  return `${remainingSeconds} soniya`;
+}
+
+export function recordFailedPinAttempt(lockout: PinLockoutState, nowMs: number): PinLockoutState {
+  const nextFailures = Math.max(0, lockout.failedAttempts) + 1;
+  const lockDurationMs = getEscalatedLockoutMs(nextFailures);
   return {
     failedAttempts: nextFailures,
-    lockedUntilMs: null,
+    lockedUntilMs: lockDurationMs !== null ? nowMs + lockDurationMs : null,
   };
 }
 
@@ -228,7 +239,7 @@ export function verifyPinWithLockout(params: {
     return {
       ok: false,
       lockout: params.lockout,
-      errorUz: `Ko‘p xato urinish. ${status.remainingSeconds} soniyadan keyin qayta urinib ko‘ring.`,
+      errorUz: `Ko‘p xato urinish. ${formatLockoutRemainingUz(status.remainingSeconds)}dan keyin qayta urinib ko‘ring.`,
     };
   }
 
@@ -244,7 +255,7 @@ export function verifyPinWithLockout(params: {
     ok: false,
     lockout: nextLockout,
     errorUz: nextStatus.locked
-      ? `5 marta noto‘g‘ri kiritildi. ${nextStatus.remainingSeconds} soniya kutib turing.`
+      ? `Ko‘p noto‘g‘ri urinish. ${formatLockoutRemainingUz(nextStatus.remainingSeconds)} kutib turing.`
       : 'PIN-kod noto‘g‘ri. Qayta urinib ko‘ring.',
   };
 }
@@ -267,7 +278,7 @@ export function resetPinWithRecoveryCode(params: {
     return {
       ok: false,
       lockout: params.lockout,
-      errorUz: `Ko‘p xato urinish. ${status.remainingSeconds} soniya kutib turing.`,
+      errorUz: `Ko‘p xato urinish. ${formatLockoutRemainingUz(status.remainingSeconds)} kutib turing.`,
     };
   }
 
@@ -284,7 +295,7 @@ export function resetPinWithRecoveryCode(params: {
       ok: false,
       lockout: nextLockout,
       errorUz: nextStatus.locked
-        ? `5 marta noto‘g‘ri urinish. ${nextStatus.remainingSeconds} soniya kutib turing.`
+        ? `Ko‘p noto‘g‘ri urinish. ${formatLockoutRemainingUz(nextStatus.remainingSeconds)} kutib turing.`
         : 'Tiklash kodi noto‘g‘ri.',
     };
   }

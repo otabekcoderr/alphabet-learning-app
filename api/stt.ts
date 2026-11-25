@@ -1,4 +1,10 @@
-import { jsonResponse } from './_lib/session.js';
+import {
+  consumeDailyGlobalBudget,
+  consumeRateLimit,
+  getClientIp,
+  isAllowedAppOrigin,
+} from './_lib/rateLimit.js';
+import { getSessionUserId, jsonResponse } from './_lib/session.js';
 import {
   analyzeWavSilence,
   evaluateSttMatch,
@@ -8,7 +14,9 @@ import {
   type SttFailureReason,
 } from './_lib/stt.js';
 
-const MAX_AUDIO_BYTES = 5 * 1024 * 1024;
+export const MAX_AUDIO_BYTES = 1_572_864;
+export const MAX_STT_DURATION_MS = 15_000;
+const MAX_EXPECTED_LENGTH = 160;
 
 function mapSttFailureToHttp(reason: SttFailureReason): { status: number; error: string } {
   switch (reason) {
@@ -113,25 +121,47 @@ async function parseSttRequest(request: Request): Promise<ParsedAudioInput | Res
 
 export async function POST(request: Request): Promise<Response> {
   const startedAt = Date.now();
+  const contentLen = Number(request.headers.get('content-length') || '0');
+  if (Number.isFinite(contentLen) && contentLen > MAX_AUDIO_BYTES + 65_536) {
+    return jsonResponse({ ok: false, error: 'Audio hajmi 1.5 MB dan oshmasligi kerak.' }, 413);
+  }
+
+  if (!isAllowedAppOrigin(request)) {
+    return jsonResponse(
+      { ok: false, code: 'stt_forbidden_origin', error: 'Ruxsat etilmagan manba.' },
+      403,
+    );
+  }
+
   const parsed = await parseSttRequest(request);
   if (parsed instanceof Response) {
     return parsed;
   }
 
   const { audioBuf, contentType, expected, acceptRaw } = parsed;
+  if (expected.length > MAX_EXPECTED_LENGTH) {
+    return jsonResponse({ ok: false, error: 'Kutilayotgan matn juda uzun.' }, 400);
+  }
   if (audioBuf.length === 0) {
     return jsonResponse({ ok: false, error: "Bo'sh audio yuborildi." }, 400);
   }
   if (audioBuf.length > MAX_AUDIO_BYTES) {
-    return jsonResponse({ ok: false, error: 'Audio hajmi 5 MB dan oshmasligi kerak.' }, 413);
+    return jsonResponse({ ok: false, error: 'Audio hajmi 1.5 MB dan oshmasligi kerak.' }, 413);
   }
 
   const acceptAliases = acceptRaw
     .split('|')
-    .map((part) => part.trim())
-    .filter(Boolean);
+    .map((part) => part.trim().slice(0, MAX_EXPECTED_LENGTH))
+    .filter(Boolean)
+    .slice(0, 12);
 
   const wavInfo = analyzeWavSilence(audioBuf);
+  if (wavInfo.isWav && wavInfo.origMs > MAX_STT_DURATION_MS) {
+    return jsonResponse(
+      { ok: false, error: 'Audio davomiyligi 15 soniyadan oshmasligi kerak.' },
+      400,
+    );
+  }
   if (wavInfo.isWav && wavInfo.isSilence) {
     return jsonResponse({
       ok: true,
@@ -158,6 +188,48 @@ export async function POST(request: Request): Promise<Response> {
         error: 'Ovozli tekshiruv serveri sozlanmagan.',
       },
       503,
+    );
+  }
+
+  const clientIp = getClientIp(request);
+  const userId = getSessionUserId(request);
+  const minLimit = await consumeRateLimit({
+    scope: 'stt_min',
+    key: clientIp,
+    limit: 20,
+    windowSec: 60,
+  });
+  const dayLimit = minLimit.allowed
+    ? await consumeRateLimit({
+        scope: userId ? 'stt_day_user' : 'stt_day_guest',
+        key: userId ?? clientIp,
+        limit: userId ? 150 : 35,
+        windowSec: 86_400,
+      })
+    : minLimit;
+  const dailyCap = Math.max(50, Number(process.env.STT_DAILY_GLOBAL_CAP || '1500') || 1500);
+  const globalBudget =
+    minLimit.allowed && dayLimit.allowed
+      ? await consumeDailyGlobalBudget({ service: 'stt', dailyCap })
+      : { allowed: true, count: 0, triggeredAlert: false };
+
+  if (!minLimit.allowed || !dayLimit.allowed || !globalBudget.allowed) {
+    const retryAfterSec = !minLimit.allowed
+      ? minLimit.retryAfterSec
+      : !dayLimit.allowed
+        ? dayLimit.retryAfterSec
+        : 3600;
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'stt_rate_limited',
+        provider: getConfiguredSttProvider(),
+        reason: 'rate_limited',
+        upstreamStatus: null,
+        error: 'Ovozli tekshiruv so‘rovlari me’yordan oshdi. Biroz kutib urinib ko‘ring.',
+      },
+      429,
+      { 'Retry-After': String(retryAfterSec) },
     );
   }
 

@@ -4207,6 +4207,59 @@ h4,
   font-weight: 700;
 }
 
+.account-reauth-reset-box {
+  margin-top: 8px;
+  padding: 14px;
+  border-radius: 16px;
+  background: #F0FDF4;
+  border: 1.5px solid #A7F3D0;
+}
+
+.account-reauth-note {
+  margin: 0 0 10px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: var(--text-teal);
+}
+
+.screen-loading-fallback {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: var(--bg-cream);
+}
+
+.screen-loading-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1.5px solid var(--border-warm);
+  font-family: var(--font-display);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-teal);
+  box-shadow: 0 8px 20px rgba(19, 78, 74, 0.08);
+}
+
+.screen-loading-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 2.5px solid #D1FAE5;
+  border-top-color: var(--emerald);
+  animation: spin-smooth 0.8s linear infinite;
+}
+
+@keyframes spin-smooth {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .onboarding-topbar {
   display: flex;
   align-items: center;
@@ -4402,9 +4455,13 @@ h4,
 
   /* Phone 1: Compact horizontal Zukko welcome strip + sticky thumb-zone CTA */
   .home-desktop-cta,
-  .home-active-world-meta,
-  .daily-time-bar-wrap {
+  .home-active-world-meta {
     display: none;
+  }
+
+  .daily-time-bar-wrap {
+    margin-top: 2px;
+    width: 100%;
   }
 
   .home-mascot-card {
@@ -5163,6 +5220,8 @@ h4,
   .parent-topbar-actions {
     width: 100%;
     justify-content: flex-end;
+    flex-wrap: nowrap;
+    gap: 8px;
   }
 
   .parent-toggle-row {
@@ -5172,6 +5231,18 @@ h4,
 
   .parent-toggle-switch {
     align-self: flex-start;
+  }
+}
+
+@media (max-width: 640px) {
+  .parent-topbar-action-label {
+    display: none;
+  }
+
+  .parent-topbar-icon-btn {
+    min-width: 48px;
+    padding: 0 12px;
+    justify-content: center;
   }
 }
 

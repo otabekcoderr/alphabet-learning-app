@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { ALIFBE_LETTERS_29, DYNAMIC_WORD_POOL } from '../../data/curriculum';
 import {
-  CUSTOM_WORD_SVG_DATA_URIS,
   hasExplicitVisualMapping,
   resolveVisualRenderSrc,
   resolveVisualSrc,
@@ -99,8 +98,10 @@ describe('Complete Visual Asset Coverage (139 words, distractors, 8 avatars, Aâ€
     expect(anorSvg).toContain('#E11D48');
     expect(anorSvg).toContain('width="128"');
     expect(anorSvg).toContain('height="128"');
-    expect(CUSTOM_WORD_SVG_DATA_URIS['/images/words/anor.svg']).toMatch(/^data:image\/svg\+xml/);
-    expect(CUSTOM_WORD_SVG_DATA_URIS['/images/words/non.svg']).toMatch(/^data:image\/svg\+xml/);
+    expect(
+      resolveVisualRenderSrc({ emoji: letterA.exampleEmoji, letter: letterA.letter }),
+    ).toBe('/images/words/anor.svg');
+    expect(resolveVisualRenderSrc({ emoji: 'ðŸ¥–', wordId: 'non' })).toBe('/images/words/non.svg');
 
     const nonSvg = assertValidSvgAsset(fs, '/images/words/non.svg', 'word:non');
     expect(nonSvg).toContain('width="128"');

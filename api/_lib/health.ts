@@ -1,10 +1,10 @@
-import { jsonResponse } from './_lib/session.js';
+import { jsonResponse } from './session.js';
 import {
   getConfiguredSttProvider,
   getConfiguredSttProvidersSummary,
-} from './_lib/stt.js';
+} from './stt.js';
 
-export async function GET(): Promise<Response> {
+export async function handleHealthCheck(): Promise<Response> {
   const provider = getConfiguredSttProvider();
   const configuredProviders = getConfiguredSttProvidersSummary();
   const ttsReady = Boolean(process.env.VOICELAB_API_KEY?.trim());

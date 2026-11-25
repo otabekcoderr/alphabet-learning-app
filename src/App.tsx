@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DYNAMIC_WORD_POOL,
   READING_WORLDS,
@@ -31,7 +31,9 @@ import {
 } from './logic/wordPoolEngine';
 import {
   clearGuestMigrationSnapshot,
+  clearPendingPinReset,
   consumeGuestMigrationSnapshot,
+  consumePendingPinReset,
   createInitialState,
   getLocalDateString,
   hydrateAlifboState,
@@ -40,22 +42,50 @@ import {
   recordPracticeDate,
   saveAlifboState,
   stageGuestMigrationSnapshot,
+  stagePendingPinReset,
   type AlifboState,
   type ChildProfileData,
 } from './storage/progressStorage';
-import { AlphabetRecallDrawer } from './components/AlphabetRecallDrawer';
-import { AuthScreen } from './components/AuthScreen';
 import { BISMILLAH_AUDIO_PATH, BismillahStartCard } from './components/BismillahAlhamdulillah';
 import { ChildHome } from './components/ChildHome';
 import { Lock, Star } from './components/Icons';
-import { LessonPlayer, type WordAttemptReport } from './components/LessonPlayer';
-import { OnboardingSurveyPage } from './components/OnboardingSurveyPage';
-import { ParentCorner } from './components/ParentCorner';
-import { ParentOnboardingModal } from './components/ParentOnboardingModal';
-import { PinModal } from './components/PinModal';
+import type { WordAttemptReport } from './components/LessonPlayer';
 import { StorybookBackdrop } from './components/StorybookBackdrop';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { playFeedbackChime, startGestureAudioClip } from './utils/audioRecorder';
+
+const LazyAlphabetRecallDrawer = lazy(() =>
+  import('./components/AlphabetRecallDrawer').then((m) => ({ default: m.AlphabetRecallDrawer })),
+);
+const LazyAuthScreen = lazy(() =>
+  import('./components/AuthScreen').then((m) => ({ default: m.AuthScreen })),
+);
+const LazyLessonPlayer = lazy(() =>
+  import('./components/LessonPlayer').then((m) => ({ default: m.LessonPlayer })),
+);
+const LazyOnboardingSurveyPage = lazy(() =>
+  import('./components/OnboardingSurveyPage').then((m) => ({ default: m.OnboardingSurveyPage })),
+);
+const LazyParentCorner = lazy(() =>
+  import('./components/ParentCorner').then((m) => ({ default: m.ParentCorner })),
+);
+const LazyParentOnboardingModal = lazy(() =>
+  import('./components/ParentOnboardingModal').then((m) => ({ default: m.ParentOnboardingModal })),
+);
+const LazyPinModal = lazy(() =>
+  import('./components/PinModal').then((m) => ({ default: m.PinModal })),
+);
+
+function ScreenLoadingFallback() {
+  return (
+    <div className="screen-loading-fallback" role="status" aria-live="polite">
+      <div className="screen-loading-card">
+        <span className="screen-loading-spinner" aria-hidden="true" />
+        <span>Yuklanmoqda...</span>
+      </div>
+    </div>
+  );
+}
 
 type ViewTab = 'home' | 'alphabet' | 'lesson' | 'parent';
 type GateView = { screen: 'welcome' } | { screen: 'auth'; mode: 'signup' | 'login' };
@@ -109,6 +139,7 @@ export function App() {
   });
   const [parentUnlocked, setParentUnlocked] = useState<boolean>(false);
   const [upgradeAuthOpen, setUpgradeAuthOpen] = useState<boolean>(false);
+  const [pinResetAuthOpen, setPinResetAuthOpen] = useState<boolean>(false);
 
   useEffect(() => {
     saveAlifboState(state);
@@ -143,9 +174,11 @@ export function App() {
             : generateAccountPublicId(),
         };
         const stagedGuest = consumeGuestMigrationSnapshot();
+        const shouldResetPin = consumePendingPinReset(remoteSession.id);
         setRemoteSessionActive(true);
         setAuthUrlError(null);
         setUpgradeAuthOpen(false);
+        setPinResetAuthOpen(false);
         const hydrated = hydrateAlifboState(res.state);
 
         setState((prev) => {
@@ -161,13 +194,26 @@ export function App() {
             childName: res.childName,
             avatarId: res.avatarId,
           });
+          if (shouldResetPin) {
+            return {
+              ...merged.state,
+              pinSalt: null,
+              pinHash: null,
+              recoveryCodeHash: null,
+              pinLockout: clearPinLockout(),
+            };
+          }
           if (!merged.state.pendingRemoteSync) {
             skipNextRemoteSyncRef.current = true;
           }
           return merged.state;
         });
+        if (shouldResetPin) {
+          setPinModalOpen(true);
+        }
       } else {
         clearGuestMigrationSnapshot();
+        clearPendingPinReset();
       }
     });
 
@@ -435,12 +481,14 @@ export function App() {
     setOnboardingModal({ open: false, isReplay: false });
     setEditingSurvey(false);
     setUpgradeAuthOpen(false);
+    setPinResetAuthOpen(false);
     setRemoteSessionActive(false);
     setAuthUrlError(null);
     setBismillahPending(false);
     setTab('home');
     setGateView({ screen: 'welcome' });
     clearGuestMigrationSnapshot();
+    clearPendingPinReset();
     setState(createInitialState());
     if (wasPermanentRemote) {
       void saveRemoteState(snapshotToFlush).finally(() => {
@@ -569,71 +617,116 @@ export function App() {
     }
 
     return (
-      <AuthScreen
-        initialMode={gateView.mode}
-        initialError={authUrlError}
-        onBackToWelcome={() => {
-          setAuthUrlError(null);
-          setGateView({ screen: 'welcome' });
-        }}
-        onAuthenticated={handleAuthenticatedSuccess}
-      />
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        <LazyAuthScreen
+          initialMode={gateView.mode}
+          initialError={authUrlError}
+          onBackToWelcome={() => {
+            setAuthUrlError(null);
+            setGateView({ screen: 'welcome' });
+          }}
+          onAuthenticated={handleAuthenticatedSuccess}
+        />
+      </Suspense>
+    );
+  }
+
+  // Re-authentication flow for a registered account to reset forgotten PIN without losing progress
+  if (pinResetAuthOpen && !isGuest && state.account !== null) {
+    const currentAcc = state.account;
+    return (
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        <LazyAuthScreen
+          initialMode="login"
+          initialError={authUrlError}
+          backButtonLabelUz="Bolalar ekraniga qaytish"
+          onBeforeExternalRedirect={() => stagePendingPinReset(currentAcc.id)}
+          onBackToWelcome={() => {
+            clearPendingPinReset();
+            setAuthUrlError(null);
+            setPinResetAuthOpen(false);
+          }}
+          onAuthenticated={(payload) => {
+            if (payload.session.id !== currentAcc.id) {
+              setAuthUrlError(
+                `PIN-kodni tiklash uchun aynan joriy hisobingiz (${currentAcc.contact}) bilan kiring.`,
+              );
+              return;
+            }
+            clearPendingPinReset();
+            setPinResetAuthOpen(false);
+            handleAuthenticatedSuccess(payload);
+            setState((prev) => ({
+              ...prev,
+              pinSalt: null,
+              pinHash: null,
+              recoveryCodeHash: null,
+              pinLockout: clearPinLockout(),
+            }));
+            setPinModalOpen(true);
+          }}
+        />
+      </Suspense>
     );
   }
 
   // Upgrade modal/screen from Guest Trial -> Permanent Account without losing current progress
   if (upgradeAuthOpen && isGuest) {
     return (
-      <AuthScreen
-        initialMode="signup"
-        initialError={authUrlError}
-        isGuestUpgrade
-        defaultChildName={state.profile.name}
-        defaultAvatarId={state.profile.avatarId}
-        backButtonLabelUz="Sinov rejimiga qaytish"
-        onBeforeExternalRedirect={() => stageGuestMigrationSnapshot(state)}
-        onBackToWelcome={() => {
-          setAuthUrlError(null);
-          setUpgradeAuthOpen(false);
-        }}
-        onAuthenticated={handleAuthenticatedSuccess}
-      />
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        <LazyAuthScreen
+          initialMode="signup"
+          initialError={authUrlError}
+          isGuestUpgrade
+          defaultChildName={state.profile.name}
+          defaultAvatarId={state.profile.avatarId}
+          backButtonLabelUz="Sinov rejimiga qaytish"
+          onBeforeExternalRedirect={() => stageGuestMigrationSnapshot(state)}
+          onBackToWelcome={() => {
+            setAuthUrlError(null);
+            setUpgradeAuthOpen(false);
+          }}
+          onAuthenticated={handleAuthenticatedSuccess}
+        />
+      </Suspense>
     );
   }
 
   // Gate 2: Full-screen 4-step Onboarding before ChildHome renders
   if (state.surveyData === null || editingSurvey) {
     return (
-      <OnboardingSurveyPage
-        childName={state.profile.name}
-        avatarId={state.profile.avatarId}
-        publicId={displayPublicId}
-        isGuest={isGuest}
-        initialSurvey={editingSurvey ? state.surveyData : null}
-        onComplete={({ surveyData, recommendedWorldId }) => {
-          setEditingSurvey(false);
-          setRoundWorldId(recommendedWorldId);
-          setState((prev) => ({
-            ...prev,
-            surveyData,
-            dailyLimitMinutes: surveyData.dailyLimitMinutes,
-            activeWorldId: recommendedWorldId,
-          }));
-        }}
-        onCancelEdit={() => {
-          if (editingSurvey && state.surveyData !== null) {
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        <LazyOnboardingSurveyPage
+          childName={state.profile.name}
+          avatarId={state.profile.avatarId}
+          publicId={displayPublicId}
+          isGuest={isGuest}
+          initialSurvey={editingSurvey ? state.surveyData : null}
+          onComplete={({ surveyData, recommendedWorldId }) => {
             setEditingSurvey(false);
-            return;
-          }
-          if (state.account?.id === GUEST_TRIAL_ACCOUNT_ID) {
-            setGateView({ screen: 'welcome' });
-            setState((prev) => ({ ...prev, account: null, progressOwnerId: null }));
-            return;
-          }
-          handleSignOut();
-          setGateView({ screen: 'auth', mode: 'signup' });
-        }}
-      />
+            setRoundWorldId(recommendedWorldId);
+            setState((prev) => ({
+              ...prev,
+              surveyData,
+              dailyLimitMinutes: surveyData.dailyLimitMinutes,
+              activeWorldId: recommendedWorldId,
+            }));
+          }}
+          onCancelEdit={() => {
+            if (editingSurvey && state.surveyData !== null) {
+              setEditingSurvey(false);
+              return;
+            }
+            if (state.account?.id === GUEST_TRIAL_ACCOUNT_ID) {
+              setGateView({ screen: 'welcome' });
+              setState((prev) => ({ ...prev, account: null, progressOwnerId: null }));
+              return;
+            }
+            handleSignOut();
+            setGateView({ screen: 'auth', mode: 'signup' });
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -652,109 +745,115 @@ export function App() {
     }
 
     return (
-      <LessonPlayer
-        key={lessonSessionKey}
-        sessionItems={sessionItems}
-        wordProgressMap={state.wordProgress}
-        worldTitle={activeRoundWorld.titleUz}
-        avatarId={state.profile.avatarId}
-        aiOnline={aiOnline}
-        bismillahAlhamdulillahEnabled={state.bismillahAlhamdulillahEnabled}
-        completedSessionsCount={state.completedSessionsCount}
-        firstSessionFeedbackPrompted={state.firstSessionFeedbackPrompted}
-        childName={state.profile.name}
-        publicId={displayPublicId}
-        isGuest={isGuest}
-        onLetterHintTap={handleLetterHintTap}
-        onWordCompleted={handleWordCompleted}
-        onRoundFinished={handleRoundFinished}
-        onFirstSessionFeedbackPrompted={() =>
-          setState((prev) => ({ ...prev, firstSessionFeedbackPrompted: true }))
-        }
-        onPlayAnotherRound={() =>
-          startWorldRound(
-            roundWorldId,
-            sessionItems.map((entry) => entry.item.id),
-          )
-        }
-        onBack={goToChildHome}
-      />
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        <LazyLessonPlayer
+          key={lessonSessionKey}
+          sessionItems={sessionItems}
+          wordProgressMap={state.wordProgress}
+          worldTitle={activeRoundWorld.titleUz}
+          avatarId={state.profile.avatarId}
+          aiOnline={aiOnline}
+          bismillahAlhamdulillahEnabled={state.bismillahAlhamdulillahEnabled}
+          completedSessionsCount={state.completedSessionsCount}
+          firstSessionFeedbackPrompted={state.firstSessionFeedbackPrompted}
+          childName={state.profile.name}
+          publicId={displayPublicId}
+          isGuest={isGuest}
+          onLetterHintTap={handleLetterHintTap}
+          onWordCompleted={handleWordCompleted}
+          onRoundFinished={handleRoundFinished}
+          onFirstSessionFeedbackPrompted={() =>
+            setState((prev) => ({ ...prev, firstSessionFeedbackPrompted: true }))
+          }
+          onPlayAnotherRound={() =>
+            startWorldRound(
+              roundWorldId,
+              sessionItems.map((entry) => entry.item.id),
+            )
+          }
+          onBack={goToChildHome}
+        />
+      </Suspense>
     );
   }
 
   // Full-screen Uzbek Alphabet 29-letter chart & game view (Mockup 06)
   if (tab === 'alphabet') {
     return (
-      <AlphabetRecallDrawer
-        letterHintCounts={state.letterHintCounts}
-        letterMastery={state.letterMastery}
-        avatarId={state.profile.avatarId}
-        aiOnline={aiOnline}
-        totalStars={totalStarsAll}
-        onLetterHintTap={handleLetterHintTap}
-        onLetterReviewed={handleLetterReviewed}
-        onClose={() => setTab('home')}
-      />
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        <LazyAlphabetRecallDrawer
+          letterHintCounts={state.letterHintCounts}
+          letterMastery={state.letterMastery}
+          avatarId={state.profile.avatarId}
+          aiOnline={aiOnline}
+          totalStars={totalStarsAll}
+          onLetterHintTap={handleLetterHintTap}
+          onLetterReviewed={handleLetterReviewed}
+          onClose={() => setTab('home')}
+        />
+      </Suspense>
     );
   }
 
   // Full-screen Parent Corner view (Mockup 11)
   if (tab === 'parent' && parentUnlocked) {
     return (
-      <ParentCorner
-        state={state}
-        aiOnline={aiOnline}
-        screenTime={screenTime}
-        onExitToChildHome={exitParentAreaToChildHome}
-        onUpdateProfile={handleUpdateProfile}
-        onUpdateDailyLimit={(minutes) =>
-          setState((prev) => ({ ...prev, dailyLimitMinutes: clampDailyLimitMinutes(minutes) }))
-        }
-        onUpdateActiveWorld={(worldId) =>
-          setState((prev) => ({ ...prev, activeWorldId: worldId }))
-        }
-        onResetTodayTimer={() =>
-          setState((prev) => ({
-            ...prev,
-            dailyPracticeDate: getLocalDateString(),
-            todayPracticedSeconds: 0,
-          }))
-        }
-        onOpenSurvey={() => setEditingSurvey(true)}
-        onReplayOnboarding={() => setOnboardingModal({ open: true, isReplay: true })}
-        onUpdatePinHash={(newHash, lockout) =>
-          setState((prev) => ({ ...prev, pinHash: newHash, pinLockout: lockout }))
-        }
-        onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
-        onParentVerifyWord={handleParentVerifyWord}
-        onImportState={handleImportState}
-        onToggleBismillahAlhamdulillah={(enabled) =>
-          setState((prev) => ({ ...prev, bismillahAlhamdulillahEnabled: enabled }))
-        }
-        onResetProgress={() => {
-          setState((prev) => ({
-            ...createInitialState(),
-            account: prev.account,
-            profile: prev.profile,
-            pinSalt: prev.pinSalt,
-            pinHash: prev.pinHash,
-            recoveryCodeHash: prev.recoveryCodeHash,
-            dailyLimitMinutes: prev.dailyLimitMinutes,
-            surveyData: prev.surveyData,
-            parentOnboardingDone: prev.parentOnboardingDone,
-            bismillahAlhamdulillahEnabled: prev.bismillahAlhamdulillahEnabled,
-            firstSessionFeedbackPrompted: prev.firstSessionFeedbackPrompted,
-          }));
-        }}
-        onSignOut={handleSignOut}
-        onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
-        onMarkNotificationsRead={(ids) => {
-          setState((prev) => ({
-            ...prev,
-            readNotificationIds: Array.from(new Set([...prev.readNotificationIds, ...ids])),
-          }));
-        }}
-      />
+      <Suspense fallback={<ScreenLoadingFallback />}>
+        <LazyParentCorner
+          state={state}
+          aiOnline={aiOnline}
+          screenTime={screenTime}
+          onExitToChildHome={exitParentAreaToChildHome}
+          onUpdateProfile={handleUpdateProfile}
+          onUpdateDailyLimit={(minutes) =>
+            setState((prev) => ({ ...prev, dailyLimitMinutes: clampDailyLimitMinutes(minutes) }))
+          }
+          onUpdateActiveWorld={(worldId) =>
+            setState((prev) => ({ ...prev, activeWorldId: worldId }))
+          }
+          onResetTodayTimer={() =>
+            setState((prev) => ({
+              ...prev,
+              dailyPracticeDate: getLocalDateString(),
+              todayPracticedSeconds: 0,
+            }))
+          }
+          onOpenSurvey={() => setEditingSurvey(true)}
+          onReplayOnboarding={() => setOnboardingModal({ open: true, isReplay: true })}
+          onUpdatePinHash={(newHash, lockout) =>
+            setState((prev) => ({ ...prev, pinHash: newHash, pinLockout: lockout }))
+          }
+          onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
+          onParentVerifyWord={handleParentVerifyWord}
+          onImportState={handleImportState}
+          onToggleBismillahAlhamdulillah={(enabled) =>
+            setState((prev) => ({ ...prev, bismillahAlhamdulillahEnabled: enabled }))
+          }
+          onResetProgress={() => {
+            setState((prev) => ({
+              ...createInitialState(),
+              account: prev.account,
+              profile: prev.profile,
+              pinSalt: prev.pinSalt,
+              pinHash: prev.pinHash,
+              recoveryCodeHash: prev.recoveryCodeHash,
+              dailyLimitMinutes: prev.dailyLimitMinutes,
+              surveyData: prev.surveyData,
+              parentOnboardingDone: prev.parentOnboardingDone,
+              bismillahAlhamdulillahEnabled: prev.bismillahAlhamdulillahEnabled,
+              firstSessionFeedbackPrompted: prev.firstSessionFeedbackPrompted,
+            }));
+          }}
+          onSignOut={handleSignOut}
+          onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
+          onMarkNotificationsRead={(ids) => {
+            setState((prev) => ({
+              ...prev,
+              readNotificationIds: Array.from(new Set([...prev.readNotificationIds, ...ids])),
+            }));
+          }}
+        />
+      </Suspense>
     );
   }
 
@@ -822,55 +921,69 @@ export function App() {
       </main>
 
       {onboardingModal.open && (
-        <ParentOnboardingModal
-          unverifiedCap={state.unverifiedCap}
-          isReplay={onboardingModal.isReplay}
-          onComplete={() => {
-            const wasReplay = onboardingModal.isReplay;
-            setOnboardingModal({ open: false, isReplay: false });
-            if (!wasReplay) {
-              setState((prev) => ({ ...prev, parentOnboardingDone: true }));
-              setPinModalOpen(true);
-            }
-          }}
-          onClose={() => setOnboardingModal({ open: false, isReplay: false })}
-        />
+        <Suspense fallback={<ScreenLoadingFallback />}>
+          <LazyParentOnboardingModal
+            unverifiedCap={state.unverifiedCap}
+            isReplay={onboardingModal.isReplay}
+            onComplete={() => {
+              const wasReplay = onboardingModal.isReplay;
+              setOnboardingModal({ open: false, isReplay: false });
+              if (!wasReplay) {
+                setState((prev) => ({ ...prev, parentOnboardingDone: true }));
+                setPinModalOpen(true);
+              }
+            }}
+            onClose={() => setOnboardingModal({ open: false, isReplay: false })}
+          />
+        </Suspense>
       )}
 
       {pinModalOpen && (
-        <PinModal
-          pinSalt={state.pinSalt}
-          existingPinHash={state.pinHash}
-          recoveryCodeHash={state.recoveryCodeHash}
-          lockout={state.pinLockout}
-          onCreatePin={({ salt, pinHash, recoveryCodeHash }) =>
-            setState((prev) => ({
-              ...prev,
-              pinSalt: salt,
-              pinHash,
-              recoveryCodeHash,
-              pinLockout: clearPinLockout(),
-            }))
-          }
-          onUpdatePinAfterRecovery={(newPinHash, lockout) =>
-            setState((prev) => ({
-              ...prev,
-              pinHash: newPinHash,
-              pinLockout: lockout,
-            }))
-          }
-          onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
-          onEraseAllProgressAndResetPin={() => {
-            setParentUnlocked(false);
-            setState(createInitialState());
-          }}
-          onUnlocked={() => {
-            setPinModalOpen(false);
-            setParentUnlocked(true);
-            setTab('parent');
-          }}
-          onClose={() => setPinModalOpen(false)}
-        />
+        <Suspense fallback={<ScreenLoadingFallback />}>
+          <LazyPinModal
+            pinSalt={state.pinSalt}
+            existingPinHash={state.pinHash}
+            recoveryCodeHash={state.recoveryCodeHash}
+            lockout={state.pinLockout}
+            isGuest={isGuest}
+            accountContact={state.account?.contact}
+            onRequestAccountReauth={() => {
+              if (state.account && !isGuest) {
+                stagePendingPinReset(state.account.id);
+                setPinModalOpen(false);
+                setPinResetAuthOpen(true);
+              }
+            }}
+            onCreatePin={({ salt, pinHash, recoveryCodeHash }) =>
+              setState((prev) => ({
+                ...prev,
+                pinSalt: salt,
+                pinHash,
+                recoveryCodeHash,
+                pinLockout: clearPinLockout(),
+              }))
+            }
+            onUpdatePinAfterRecovery={(newPinHash, lockout) =>
+              setState((prev) => ({
+                ...prev,
+                pinHash: newPinHash,
+                pinLockout: lockout,
+              }))
+            }
+            onUpdateLockout={(lockout) => setState((prev) => ({ ...prev, pinLockout: lockout }))}
+            onEraseAllProgressAndResetPin={() => {
+              if (!isGuest) return;
+              setParentUnlocked(false);
+              setState(createInitialState());
+            }}
+            onUnlocked={() => {
+              setPinModalOpen(false);
+              setParentUnlocked(true);
+              setTab('parent');
+            }}
+            onClose={() => setPinModalOpen(false)}
+          />
+        </Suspense>
       )}
     </div>
   );

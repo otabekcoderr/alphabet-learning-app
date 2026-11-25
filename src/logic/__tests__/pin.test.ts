@@ -9,6 +9,8 @@ import {
   hashPin,
   MAX_PIN_ATTEMPTS,
   PIN_LOCKOUT_MS,
+  PIN_LOCKOUT_TIER2_MS,
+  PIN_LOCKOUT_TIER3_MS,
   RECOVERY_ALPHABET,
   RECOVERY_CODE_LENGTH,
   resetPinWithRecoveryCode,
@@ -170,5 +172,70 @@ describe('parent PIN, per-install salt, recovery code, and lockout logic', () =>
       nowMs: 2000,
     });
     expect(goodChange.ok).toBe(true);
+  });
+
+  it('escalates PIN lockout tiers (30s -> 2m -> 10m) across expired lockouts until right PIN resets it', () => {
+    const created = createInitialPin(null, '7391', '7391');
+    expect(created.ok).toBe(true);
+    if (!created.ok) return;
+
+    let lockout = clearPinLockout();
+    let now = 10_000_000;
+
+    // 5 failures -> 30s lockout
+    for (let i = 0; i < 5; i++) {
+      now += 1000;
+      lockout = verifyPinWithLockout({
+        salt: created.salt,
+        storedHash: created.pinHash,
+        candidatePin: '0000',
+        lockout,
+        nowMs: now,
+      }).lockout;
+    }
+    expect(lockout.failedAttempts).toBe(5);
+    expect(getLockoutStatus(lockout, now).remainingSeconds).toBe(PIN_LOCKOUT_MS / 1000);
+
+    // Wait past 30s, then 5 more failures (total 10) -> 2m (120s) lockout
+    now += PIN_LOCKOUT_MS + 1000;
+    for (let i = 0; i < 5; i++) {
+      now += 1000;
+      lockout = verifyPinWithLockout({
+        salt: created.salt,
+        storedHash: created.pinHash,
+        candidatePin: '0000',
+        lockout,
+        nowMs: now,
+      }).lockout;
+    }
+    expect(lockout.failedAttempts).toBe(10);
+    expect(getLockoutStatus(lockout, now).remainingSeconds).toBe(PIN_LOCKOUT_TIER2_MS / 1000);
+
+    // Wait past 2m, then 5 more failures (total 15) -> 10m (600s) lockout
+    now += PIN_LOCKOUT_TIER2_MS + 1000;
+    for (let i = 0; i < 5; i++) {
+      now += 1000;
+      lockout = verifyPinWithLockout({
+        salt: created.salt,
+        storedHash: created.pinHash,
+        candidatePin: '0000',
+        lockout,
+        nowMs: now,
+      }).lockout;
+    }
+    expect(lockout.failedAttempts).toBe(15);
+    expect(getLockoutStatus(lockout, now).remainingSeconds).toBe(PIN_LOCKOUT_TIER3_MS / 1000);
+
+    // Waiting 10m and entering the correct PIN resets failedAttempts back to 0
+    now += PIN_LOCKOUT_TIER3_MS + 1000;
+    const valid = verifyPinWithLockout({
+      salt: created.salt,
+      storedHash: created.pinHash,
+      candidatePin: '7391',
+      lockout,
+      nowMs: now,
+    });
+    expect(valid.ok).toBe(true);
+    expect(valid.lockout).toEqual({ failedAttempts: 0, lockedUntilMs: null });
   });
 });

@@ -21,6 +21,7 @@ import {
   getSessionUserId,
   jsonResponse,
 } from '../_lib/session.js';
+import { consumeRateLimit, getClientIp } from '../_lib/rateLimit.js';
 import { isTelegramAuthStoreConfigured } from '../_lib/telegramAuthStore.js';
 import {
   ensureTelegramWebhookRegistered,
@@ -137,6 +138,34 @@ async function handleLogin(request: Request): Promise<Response> {
     return jsonResponse({ ok: false, errorUz: 'Telefon/pochta va parolni kiriting.' }, 400);
   }
 
+  const clientIp = getClientIp(request);
+  const ipLimit = await consumeRateLimit({
+    scope: 'auth_login_ip',
+    key: clientIp,
+    limit: 10,
+    windowSec: 600,
+  });
+  const contactLimit = ipLimit.allowed
+    ? await consumeRateLimit({
+        scope: 'auth_login_contact',
+        key: contactKey,
+        limit: 6,
+        windowSec: 600,
+      })
+    : ipLimit;
+  if (!ipLimit.allowed || !contactLimit.allowed) {
+    const retryAfterSec = !ipLimit.allowed ? ipLimit.retryAfterSec : contactLimit.retryAfterSec;
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'rate_limited',
+        errorUz: 'Juda ko‘p xato urinish. 10 daqiqadan keyin qayta urinib ko‘ring.',
+      },
+      429,
+      { 'Retry-After': String(retryAfterSec) },
+    );
+  }
+
   try {
     await ensureSchema();
     const sql = getSql();
@@ -237,6 +266,25 @@ async function handleRegister(request: Request): Promise<Response> {
     return jsonResponse(
       { ok: false, errorUz: '8 ta qahramondan birini tanlang.' },
       400,
+    );
+  }
+
+  const clientIp = getClientIp(request);
+  const registerLimit = await consumeRateLimit({
+    scope: 'auth_register_ip',
+    key: clientIp,
+    limit: 6,
+    windowSec: 1800,
+  });
+  if (!registerLimit.allowed) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'rate_limited',
+        errorUz: 'Juda ko‘p ro‘yxatdan o‘tish urinishi. Birozdan so‘ng qayta urinib ko‘ring.',
+      },
+      429,
+      { 'Retry-After': String(registerLimit.retryAfterSec) },
     );
   }
 

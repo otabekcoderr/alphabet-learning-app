@@ -22,6 +22,14 @@
   ],
   "rewrites": [
     {
+      "source": "/api/health",
+      "destination": "/api/state?action=health"
+    },
+    {
+      "source": "/api/auth/google/callback",
+      "destination": "/api/auth/google?action=callback"
+    },
+    {
       "source": "/api/telegram/webhook",
       "destination": "/api/telegram-webhook"
     },

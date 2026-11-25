@@ -14,7 +14,8 @@ import {
   VoiceLabSttCreditsError,
 } from '../../../api/_lib/stt';
 import { POST as sttPost } from '../../../api/stt';
-import { GET as healthGet } from '../../../api/health';
+import { handleHealthCheck as healthGet } from '../../../api/_lib/health';
+import { resetMemoryRateLimits } from '../../../api/_lib/rateLimit';
 import {
   computeNextSttFailureCount,
   STT_FALLBACK_FAILURE_THRESHOLD,
@@ -84,6 +85,7 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
 
   afterEach(() => {
     resetMemoryTelegramAuthStore();
+    resetMemoryRateLimits();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     for (const [key, val] of Object.entries(originalEnv)) {
