@@ -29,7 +29,7 @@ import {
 import { triggerCelebrationBurst } from '../utils/soundEffects';
 import { AnimatedCharacter } from './AnimatedCharacter';
 import { GameVisual } from './GameVisual';
-import { ArrowLeft, BookOpen, Check, Gamepad2, Mic, RotateCcw, Square, Star, Volume2 } from './Icons';
+import { ArrowLeft, ArrowRight, BookOpen, Check, Gamepad2, Mic, RotateCcw, Square, Star, Volume2 } from './Icons';
 import { StorybookBackdrop } from './StorybookBackdrop';
 
 interface AlphabetRecallDrawerProps {
@@ -65,6 +65,22 @@ const CHART_ORDER = [
   "O'", "G'", 'SH', 'CH', 'NG', '’',
 ] as const;
 
+/** Order all 29 Uzbek letters + tutuq belgisi (’) into a uniform 30-tile sequence. */
+export function getOrderedAlphabetTiles(
+  catalog: readonly AlifbeLetterInfo[] = ALIFBE_LETTERS_29,
+): AlifbeLetterInfo[] {
+  const byLetter = new Map(catalog.map((item) => [item.letter, item]));
+  const ordered: AlifbeLetterInfo[] = [];
+  for (const code of CHART_ORDER) {
+    const found = byLetter.get(code);
+    if (found) ordered.push(found);
+  }
+  for (const item of catalog) {
+    if (!ordered.includes(item)) ordered.push(item);
+  }
+  return ordered;
+}
+
 const TILE_ACCENTS = [
   'tile-accent-coral',
   'tile-accent-gold',
@@ -75,7 +91,7 @@ const TILE_ACCENTS = [
 ] as const;
 
 /**
- * Full-screen Uzbek Alphabet page (29 letters + tutuq belgisi) matching Mockup 06
+ * Full-screen Uzbek Alphabet page (29 letters + tutuq belgisi = 30 tiles) matching Mockup 06
  * (`06_ozbek_alifbosi_29_harf.jpg`), paired with the 5-letter interactive review game.
  */
 export function AlphabetRecallDrawer({
@@ -88,18 +104,7 @@ export function AlphabetRecallDrawer({
   onLetterReviewed,
   onClose,
 }: AlphabetRecallDrawerProps) {
-  const orderedAlphabet = useMemo(() => {
-    const byLetter = new Map(ALIFBE_LETTERS_29.map((item) => [item.letter, item]));
-    const ordered: AlifbeLetterInfo[] = [];
-    for (const code of CHART_ORDER) {
-      const found = byLetter.get(code);
-      if (found) ordered.push(found);
-    }
-    for (const item of ALIFBE_LETTERS_29) {
-      if (!ordered.includes(item)) ordered.push(item);
-    }
-    return ordered;
-  }, []);
+  const orderedAlphabet = useMemo(() => getOrderedAlphabetTiles(ALIFBE_LETTERS_29), []);
 
   const [mode, setMode] = useState<DrawerMode>('chart');
   const [selected, setSelected] = useState<AlifbeLetterInfo | null>(orderedAlphabet[0] ?? null);
@@ -161,8 +166,6 @@ export function AlphabetRecallDrawer({
   });
 
   const avatar = getAvatarOption(avatarId);
-  const letters29 = orderedAlphabet.filter((entry) => entry.category !== 'mark');
-  const markEntries = orderedAlphabet.filter((entry) => entry.category === 'mark');
   const current = queue[idx] ?? null;
 
   const prepareStepChoices = (
@@ -326,6 +329,19 @@ export function AlphabetRecallDrawer({
     setSelected(entry);
     onLetterHintTap(entry.letter);
     void playLetterRecallAudio(entry.letter);
+  };
+
+  const stepSelectedLetter = (delta: -1 | 1) => {
+    if (orderedAlphabet.length === 0) return;
+    const currentIdx = selected
+      ? orderedAlphabet.findIndex((item) => item.letter === selected.letter)
+      : 0;
+    const baseIdx = currentIdx >= 0 ? currentIdx : 0;
+    const nextIdx = (baseIdx + delta + orderedAlphabet.length) % orderedAlphabet.length;
+    const nextEntry = orderedAlphabet[nextIdx];
+    if (nextEntry) {
+      handleChartTap(nextEntry);
+    }
   };
 
   const handlePickLetterChoice = (entry: AlifbeLetterInfo) => {
@@ -536,8 +552,9 @@ export function AlphabetRecallDrawer({
     const tapCount = letterHintCounts[entry.letter] ?? 0;
     const isSelected = selected?.letter === entry.letter;
     const isMastered = letterMastery[entry.letter]?.status === 'mastered';
+    const isMark = entry.category === 'mark';
     const accentClass = TILE_ACCENTS[idxInGrid % TILE_ACCENTS.length] ?? 'tile-accent-blue';
-    const shortLabel = entry.display.split(' ')[0] ?? entry.letter;
+    const shortLabel = isMark ? entry.letter : (entry.display.split(' ')[0] ?? entry.letter);
 
     return (
       <motion.button
@@ -547,8 +564,8 @@ export function AlphabetRecallDrawer({
         whileTap={{ y: 3, scale: 0.94 }}
         transition={{ type: 'spring', stiffness: 420, damping: 22 }}
         className={`alifbo-3d-tile ${accentClass} ${
-          isSelected ? 'alifbo-3d-tile-selected' : ''
-        }`}
+          isMark ? 'alifbo-3d-tile-mark' : ''
+        } ${isSelected ? 'alifbo-3d-tile-selected' : ''}`}
         onClick={() => handleChartTap(entry)}
         aria-label={`${entry.display} — ${entry.exampleWord}`}
       >
@@ -558,6 +575,7 @@ export function AlphabetRecallDrawer({
           </span>
         )}
         <strong className="alifbo-tile-glyph">{shortLabel}</strong>
+        {isMark && <span className="alifbo-tile-mark-sub">tutuq</span>}
         {tapCount > 0 && <span className="alphabet-mini-badge">{tapCount}</span>}
       </motion.button>
     );
@@ -594,29 +612,43 @@ export function AlphabetRecallDrawer({
 
           <button
             type="button"
-            className="btn-3d-cream btn-compact btn-with-icon nav-btn"
+            className="btn-3d-cream btn-compact btn-with-icon nav-btn alphabet-back-btn"
             onClick={handleClose}
+            aria-label="Bosh sahifaga qaytish"
           >
             <ArrowLeft size={16} strokeWidth={2.5} />
-            <span>Bosh sahifa</span>
+            <span className="alphabet-back-label">Bosh sahifa</span>
           </button>
         </div>
 
-        <h1 className="alphabet-page-title">O‘zbek Alifbosi</h1>
+        <div className="alphabet-header-center">
+          <h1 className="alphabet-page-title">O‘zbek Alifbosi</h1>
+          <div className="alphabet-segmented-tabs" role="tablist" aria-label="Alifbo bo‘limlari">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'chart'}
+              className={`alphabet-seg-tab ${mode === 'chart' ? 'alphabet-seg-tab-active' : ''}`}
+              onClick={() => handleSwitchMode('chart')}
+            >
+              <BookOpen size={15} />
+              <span>29 harf</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'game'}
+              className={`alphabet-seg-tab ${mode === 'game' ? 'alphabet-seg-tab-active' : ''}`}
+              onClick={() => handleSwitchMode('game')}
+            >
+              <Gamepad2 size={15} />
+              <span>Harf o‘yini</span>
+            </button>
+          </div>
+        </div>
 
         <div className="alphabet-header-right">
-          <button
-            type="button"
-            className={`btn-compact btn-with-icon nav-btn ${
-              mode === 'game' ? 'btn-3d-emerald' : 'btn-3d-cream'
-            }`}
-            onClick={() => handleSwitchMode(mode === 'chart' ? 'game' : 'chart')}
-          >
-            {mode === 'chart' ? <Gamepad2 size={16} /> : <BookOpen size={16} />}
-            <span>{mode === 'chart' ? 'Harf o‘yini' : '29 harf jadvali'}</span>
-          </button>
-
-          <span className="stars-pill-3d" aria-label="Jami yulduzlar">
+          <span className="stars-pill-3d alphabet-stars-pill" aria-label="Jami yulduzlar">
             <Star size={17} fill="#F59E0B" color="#B45309" />
             <span>{totalStars}</span>
           </span>
@@ -626,31 +658,14 @@ export function AlphabetRecallDrawer({
       <main className="alphabet-main-content">
         {mode === 'chart' ? (
           <div className="alphabet-chart-layout">
-            {/* Left 62%: 29 letters + tutuq belgisi grid */}
+            {/* Left 62%: Unified 30-tile grid (29 letters + tutuq belgisi) */}
             <section className="alphabet-tiles-panel" aria-label="O‘zbek alifbosi harflari">
               <div className="alphabet-grid-6col">
-                {letters29.map((entry, idxInGrid) => renderChartTile(entry, idxInGrid))}
+                {orderedAlphabet.map((entry, idxInGrid) => renderChartTile(entry, idxInGrid))}
               </div>
-              {markEntries.length > 0 && (
-                <div className="alphabet-tutuq-row">
-                  {markEntries.map((entry) => (
-                    <button
-                      key={entry.letter}
-                      type="button"
-                      className={`btn-3d-cream tutuq-pill-btn ${
-                        selected?.letter === entry.letter ? 'alifbo-3d-tile-selected' : ''
-                      }`}
-                      onClick={() => handleChartTap(entry)}
-                    >
-                      <strong>{entry.letter}</strong>
-                      <span>Tutuq belgisi ({entry.exampleWord})</span>
-                    </button>
-                  ))}
-                </div>
-              )}
             </section>
 
-            {/* Right 38%: Big Selected Letter Preview Card + peeking Zukko */}
+            {/* Right 38% (Desktop) / Sticky Compact Horizontal Card (Mobile) */}
             {selected && (
               <aside className="alphabet-preview-panel">
                 <motion.div
@@ -660,36 +675,60 @@ export function AlphabetRecallDrawer({
                   transition={{ type: 'spring', stiffness: 320, damping: 24 }}
                   className="alphabet-showcase-card"
                 >
-                  <div className="alphabet-pair-display" aria-label={selected.display}>
-                    <span className="pair-upper">{selectedUpper}</span>
-                    {selectedLower && !selectedLower.startsWith('(') && (
-                      <span className="pair-lower">{selectedLower}</span>
-                    )}
-                  </div>
+                  <div className="alphabet-showcase-main">
+                    <div className="alphabet-showcase-top">
+                      <div className="alphabet-pair-display" aria-label={selected.display}>
+                        <span className="pair-upper">{selectedUpper}</span>
+                        {selectedLower && !selectedLower.startsWith('(') && (
+                          <span className="pair-lower">{selectedLower}</span>
+                        )}
+                      </div>
 
-                  <div className="alphabet-showcase-visual">
-                    <GameVisual
-                      emoji={selected.exampleEmoji}
-                      letter={selected.letter}
-                      alt={selected.exampleWord}
-                      size={138}
-                    />
-                  </div>
+                      <div className="alphabet-showcase-visual">
+                        <GameVisual
+                          emoji={selected.exampleEmoji}
+                          letter={selected.letter}
+                          alt={selected.exampleWord}
+                          size={124}
+                        />
+                      </div>
 
-                  <div className="alphabet-showcase-word">{selected.exampleWord}</div>
-                  <div className="alphabet-showcase-sound">
-                    Tovushi: «{selected.soundTextUz}»
-                  </div>
+                      <div className="alphabet-showcase-meta">
+                        <div className="alphabet-showcase-word">{selected.exampleWord}</div>
+                        <div className="alphabet-showcase-sound">
+                          Tovushi: «{selected.soundTextUz}»
+                        </div>
+                      </div>
+                    </div>
 
-                  <motion.button
-                    type="button"
-                    whileTap={{ scale: 0.97 }}
-                    className="btn-3d-emerald alphabet-listen-btn btn-with-icon"
-                    onClick={() => void playLetterRecallAudio(selected.letter)}
-                  >
-                    <Volume2 size={20} strokeWidth={2.6} />
-                    <span>Eshitish</span>
-                  </motion.button>
+                    <div className="alphabet-showcase-controls">
+                      <button
+                        type="button"
+                        className="btn-3d-cream alphabet-step-btn"
+                        onClick={() => stepSelectedLetter(-1)}
+                        aria-label="Oldingi harf"
+                      >
+                        <ArrowLeft size={16} strokeWidth={2.6} />
+                      </button>
+                      <motion.button
+                        type="button"
+                        whileTap={{ scale: 0.97 }}
+                        className="btn-3d-emerald alphabet-listen-btn btn-with-icon"
+                        onClick={() => void playLetterRecallAudio(selected.letter)}
+                      >
+                        <Volume2 size={19} strokeWidth={2.6} />
+                        <span>Eshitish</span>
+                      </motion.button>
+                      <button
+                        type="button"
+                        className="btn-3d-cream alphabet-step-btn"
+                        onClick={() => stepSelectedLetter(1)}
+                        aria-label="Keyingi harf"
+                      >
+                        <ArrowRight size={16} strokeWidth={2.6} />
+                      </button>
+                    </div>
+                  </div>
 
                   <img
                     src="/images/zukko.webp"
@@ -707,50 +746,54 @@ export function AlphabetRecallDrawer({
             animate={{ opacity: 1, scale: 1 }}
             className="alphabet-game-card"
           >
-            <AnimatedCharacter
-              mood="celebrating"
-              size={128}
-              avatarId={avatar.id}
-              speechText={`Barakalla! ${queue.length} ta harfni takrorlab, ${roundStars} ta yulduzcha to‘plading!`}
-              onReplaySpeech={() => void playPraiseAudio('alphabet_complete')}
-            />
+            <div className="step-body">
+              <AnimatedCharacter
+                mood="celebrating"
+                size={128}
+                avatarId={avatar.id}
+                layout="stacked"
+                bubblePosition="top"
+                speechText={`Barakalla! ${queue.length} ta harfni takrorlab, ${roundStars} ta yulduzcha to‘plading!`}
+                onReplaySpeech={() => void playPraiseAudio('alphabet_complete')}
+              />
 
-            <div className="round-summary-words">
-              {roundResults.map(({ entry, perfect, usedVoiceAi }) => (
-                <span
-                  key={entry.letter}
-                  className={`round-word-pill ${
-                    perfect ? 'status-badge-mastered' : 'status-badge-syllable'
-                  }`}
+              <div className="round-summary-words">
+                {roundResults.map(({ entry, perfect, usedVoiceAi }) => (
+                  <span
+                    key={entry.letter}
+                    className={`round-word-pill ${
+                      perfect ? 'status-badge-mastered' : 'status-badge-syllable'
+                    }`}
+                  >
+                    <GameVisual
+                      emoji={entry.exampleEmoji}
+                      letter={entry.letter}
+                      alt={entry.exampleWord}
+                      size={22}
+                    />
+                    <span>{entry.display}</span>
+                    <span>{usedVoiceAi ? '🎤' : perfect ? '★' : '✓'}</span>
+                  </span>
+                ))}
+              </div>
+
+              <div className="step-actions">
+                <button
+                  type="button"
+                  className="btn-3d-emerald btn-with-icon"
+                  onClick={handleStartNewRound}
                 >
-                  <GameVisual
-                    emoji={entry.exampleEmoji}
-                    letter={entry.letter}
-                    alt={entry.exampleWord}
-                    size={22}
-                  />
-                  <span>{entry.display}</span>
-                  <span>{usedVoiceAi ? '🎤' : perfect ? '★' : '✓'}</span>
-                </span>
-              ))}
-            </div>
-
-            <div className="step-actions">
-              <button
-                type="button"
-                className="btn-3d-emerald btn-with-icon"
-                onClick={handleStartNewRound}
-              >
-                <RotateCcw size={18} />
-                <span>Yana 5 ta harf o‘ynash</span>
-              </button>
-              <button
-                type="button"
-                className="btn-3d-cream"
-                onClick={() => handleSwitchMode('chart')}
-              >
-                Barcha harflarni ko‘rish
-              </button>
+                  <RotateCcw size={18} />
+                  <span>Yana 5 ta harf o‘ynash</span>
+                </button>
+                <button
+                  type="button"
+                  className="btn-3d-cream"
+                  onClick={() => handleSwitchMode('chart')}
+                >
+                  Barcha harflarni ko‘rish
+                </button>
+              </div>
             </div>
           </motion.section>
         ) : current ? (
@@ -781,13 +824,15 @@ export function AlphabetRecallDrawer({
                   mood={wrongKey ? 'encouraging' : 'speaking'}
                   size={104}
                   avatarId={avatar.id}
+                  layout="stacked"
+                  bubblePosition="top"
                   speechText="Quloq sol! Qaysi harfning tovushi eshitildi?"
                   onReplaySpeech={() => void playInstructionAudio('instr_alpha_listen')}
                 />
 
                 <button
                   type="button"
-                  className="btn-3d-cream btn-compact btn-with-icon"
+                  className="btn-3d-cream btn-compact btn-with-icon alphabet-replay-btn"
                   onClick={() => void playLetterRecallAudio(current.letter)}
                 >
                   <Volume2 size={17} />
@@ -827,15 +872,17 @@ export function AlphabetRecallDrawer({
                   mood={wrongKey ? 'encouraging' : 'speaking'}
                   size={104}
                   avatarId={avatar.id}
+                  layout="stacked"
+                  bubblePosition="top"
                   speechText="Harfga mos rasmni top!"
                   onReplaySpeech={() => void playInstructionAudio('instr_alpha_picture')}
                 />
 
                 <div className="alphabet-target-badge">
-                  <strong className="pair-upper" style={{ fontSize: 44 }}>
+                  <strong className="pair-upper alphabet-target-glyph">
                     {current.display}
                   </strong>
-                  <span className="muted-text" style={{ fontSize: 15, fontWeight: 700 }}>
+                  <span className="muted-text alphabet-target-sound">
                     Tovushi: «{current.soundTextUz}»
                   </span>
                 </div>
@@ -881,17 +928,17 @@ export function AlphabetRecallDrawer({
                     alt={current.exampleWord}
                     size={76}
                   />
-                  <strong className="pair-upper" style={{ fontSize: 38 }}>
+                  <strong className="pair-upper alphabet-target-glyph">
                     {current.display}
                   </strong>
-                  <span className="alphabet-showcase-word" style={{ fontSize: 22 }}>
+                  <span className="alphabet-showcase-word alphabet-target-word">
                     {current.exampleWord}
                   </span>
                 </div>
 
                 <button
                   type="button"
-                  className="btn-3d-cream btn-compact btn-with-icon"
+                  className="btn-3d-cream btn-compact btn-with-icon alphabet-replay-btn"
                   onClick={() => void playLetterRecallAudio(current.letter)}
                 >
                   <Volume2 size={17} />
