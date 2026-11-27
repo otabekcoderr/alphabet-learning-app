@@ -29,8 +29,12 @@ import numpy as np
 import onnx_asr
 from aiohttp import web
 
-HOST = os.environ.get("ALIFBO_HOST", "127.0.0.1")
-PORT = int(os.environ.get("ALIFBO_PORT", "8765"))
+PORT = int(os.environ.get("PORT") or os.environ.get("ALIFBO_PORT") or "8765")
+HOST = os.environ.get("ALIFBO_HOST") or ("0.0.0.0" if os.environ.get("PORT") else "127.0.0.1")
+STT_MODEL_ID = (
+    os.environ.get("STT_MODEL_ID", "OpenVoiceOS/asr-uz-fastconformer-large-onnx").strip()
+    or "OpenVoiceOS/asr-uz-fastconformer-large-onnx"
+)
 SAMPLE_RATE = 16_000
 SILENCE_RMS_FLOOR = 0.008
 
@@ -295,11 +299,22 @@ async def cors_middleware(request: web.Request, handler):
 
 
 async def handle_health(request: web.Request) -> web.Response:
+    if not request.app.get("model_ready") or request.app.get("ts_adapter") is None:
+        return web.json_response(
+            {
+                "ok": False,
+                "status": "loading",
+                "model": "uzinfocom-rnnt",
+                "model_id": STT_MODEL_ID,
+            },
+            status=503,
+        )
     cfg = request.app["voicelab_config"]
     return web.json_response(
         {
             "ok": True,
             "model": "uzinfocom-rnnt",
+            "model_id": STT_MODEL_ID,
             "status": "ready",
             "tts_ready": bool(cfg.get("api_key")),
             "tts_provider": "voicelab",
@@ -563,21 +578,32 @@ async def handle_tts(request: web.Request) -> web.Response:
 
 
 def create_app() -> web.Application:
-    print("Loading Uzinfocom FastConformer RNNT model...", flush=True)
+    print(f"Loading Uzinfocom FastConformer RNNT model ({STT_MODEL_ID})...", flush=True)
     t0 = time.perf_counter()
-    adapter = onnx_asr.load_model("OpenVoiceOS/asr-uz-fastconformer-large-onnx")
+    adapter = onnx_asr.load_model(STT_MODEL_ID)
     ts_adapter = adapter.with_timestamps()
     _ = ts_adapter.recognize(np.zeros(8000, dtype=np.float32), sample_rate=SAMPLE_RATE)
     print(f"Uzinfocom RNNT ready in {time.perf_counter() - t0:.2f}s", flush=True)
 
     project_root = Path(__file__).resolve().parent.parent
+    custom_cache_dir = (os.environ.get("ALIFBO_TTS_CACHE_DIR") or "").strip()
+    if custom_cache_dir:
+        tts_cache_dir = Path(custom_cache_dir)
+    elif (project_root / "public").exists():
+        tts_cache_dir = project_root / "public" / "audio" / "cache"
+    else:
+        tts_cache_dir = Path(__file__).resolve().parent / "cache"
+
     app = web.Application(middlewares=[cors_middleware], client_max_size=10 * 1024 * 1024)
     app["ts_adapter"] = ts_adapter
+    app["model_ready"] = True
     app["stt_lock"] = asyncio.Lock()
     app["tts_lock"] = asyncio.Lock()
     app["voicelab_config"] = get_voicelab_config(project_root)
-    app["tts_cache_dir"] = project_root / "public" / "audio" / "cache"
+    app["tts_cache_dir"] = tts_cache_dir
 
+    app.router.add_get("/", handle_health)
+    app.router.add_get("/health", handle_health)
     app.router.add_get("/api/health", handle_health)
     app.router.add_post("/api/stt", handle_stt)
     app.router.add_get("/api/tts", handle_tts)

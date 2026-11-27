@@ -1106,6 +1106,7 @@ export class SttRequestError extends Error {
   readonly provider?: string;
   readonly reason?: SttErrorReason;
   readonly upstreamStatus?: number | null;
+  readonly retryAfterSec?: number | null;
 
   constructor(
     message: string,
@@ -1115,6 +1116,7 @@ export class SttRequestError extends Error {
       provider?: string;
       reason?: SttErrorReason;
       upstreamStatus?: number | null;
+      retryAfterSec?: number | null;
     },
   ) {
     super(message);
@@ -1124,7 +1126,20 @@ export class SttRequestError extends Error {
     this.provider = details.provider;
     this.reason = details.reason;
     this.upstreamStatus = details.upstreamStatus;
+    this.retryAfterSec = details.retryAfterSec;
   }
+}
+
+export function isSttTerminalOrLimitedError(err: unknown): boolean {
+  if (!(err instanceof SttRequestError)) return false;
+  if (err.status === 429 || err.status === 503) return true;
+  return (
+    err.reason === 'unauthorized' ||
+    err.reason === 'insufficient_credits' ||
+    err.reason === 'endpoint_not_found' ||
+    err.reason === 'unconfigured' ||
+    err.reason === 'rate_limited'
+  );
 }
 
 export interface MicRecordingResult {
@@ -1364,14 +1379,24 @@ export async function verifyAudioWithStt(
     body: audioData,
   });
 
+  const retryAfterRaw = Number(resp.headers.get('retry-after'));
+  const retryAfterSec =
+    Number.isFinite(retryAfterRaw) && retryAfterRaw > 0 ? retryAfterRaw : null;
+
   let json: SttApiResponse;
   try {
     json = (await resp.json()) as SttApiResponse;
   } catch {
     throw new SttRequestError(`Server xatosi: ${resp.status}`, {
       status: resp.status,
-      reason: resp.status === 504 ? 'timeout' : 'invalid_response',
+      reason:
+        resp.status === 504
+          ? 'timeout'
+          : resp.status === 429
+            ? 'rate_limited'
+            : 'invalid_response',
       upstreamStatus: null,
+      retryAfterSec,
     });
   }
 
@@ -1380,8 +1405,9 @@ export async function verifyAudioWithStt(
       status: resp.status,
       code: json.code,
       provider: json.provider,
-      reason: json.reason,
+      reason: json.reason ?? (resp.status === 429 ? 'rate_limited' : undefined),
       upstreamStatus: json.upstreamStatus ?? null,
+      retryAfterSec,
     });
   }
   return json;

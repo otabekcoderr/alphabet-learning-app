@@ -7,12 +7,14 @@ import {
   validateHabitUtterance,
 } from '../logic/sttValidator';
 import {
+  isSttTerminalOrLimitedError,
   playAudioClip,
   playAudioClipWithStatus,
   playFeedbackAudio,
   playFeedbackChime,
   startMicRecording,
   stopActiveAudio,
+  SttRequestError,
   verifyAudioWithStt,
   type AudioClipPlayStatus,
   type MicRecordingResult,
@@ -95,11 +97,13 @@ export function BismillahStartCard({
   const [micLevel, setMicLevel] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [micBlockedOrMissing, setMicBlockedOrMissing] = useState(false);
+  const [sttUnavailable, setSttUnavailable] = useState(false);
   const [verified, setVerified] = useState(false);
   const [feedbackText, setFeedbackText] = useState<string | null>(null);
 
   const micSupported = isVoicePlaybackRecordingSupported();
-  const canUseVoiceStt = aiOnline && browserOnline && micSupported && !micBlockedOrMissing;
+  const canUseVoiceStt =
+    aiOnline && browserOnline && micSupported && !micBlockedOrMissing && !sttUnavailable;
   const allowSoftSkip = !canUseVoiceStt || attempts >= HABIT_SOFT_FALLBACK_THRESHOLD;
 
   const doneRef = useRef(false);
@@ -256,10 +260,19 @@ export function BismillahStartCard({
         setFeedbackText('Yana bir bor aniqroq qilib «Bismillah» deb ayt!');
         void playFeedbackAudio('fb_louder_clearer');
       }
-    } catch {
+    } catch (err) {
       if (!mountedRef.current || doneRef.current) return;
-      setAttempts((prev) => prev + 1);
-      setFeedbackText('Ovoz serveri bilan aloqa bo‘lmadi — «Boshlash» tugmasi bilan davom eting.');
+      if (isSttTerminalOrLimitedError(err)) {
+        setSttUnavailable(true);
+        if (err instanceof SttRequestError && (err.status === 429 || err.reason === 'rate_limited')) {
+          setFeedbackText('Bugungi ovozli tekshiruv limiti tugadi — «Boshlash» tugmasi bilan davom eting.');
+        } else {
+          setFeedbackText('Ovozli tekshiruv vaqtincha ishlamayapti — «Boshlash» tugmasi bilan davom eting.');
+        }
+      } else {
+        setAttempts((prev) => prev + 1);
+        setFeedbackText('Ovoz serveri bilan aloqa bo‘lmadi — «Boshlash» tugmasi bilan davom eting.');
+      }
     } finally {
       if (mountedRef.current) {
         setIsChecking(false);
@@ -476,10 +489,12 @@ export function AlhamdulillahHabitBlock({
   const [micLevel, setMicLevel] = useState(0);
   const [attempts, setAttempts] = useState(0);
   const [micBlockedOrMissing, setMicBlockedOrMissing] = useState(false);
+  const [sttUnavailable, setSttUnavailable] = useState(false);
   const [micNote, setMicNote] = useState<string | null>(null);
 
   const micSupported = isVoicePlaybackRecordingSupported();
-  const canUseVoiceStt = aiOnline && browserOnline && micSupported && !micBlockedOrMissing;
+  const canUseVoiceStt =
+    aiOnline && browserOnline && micSupported && !micBlockedOrMissing && !sttUnavailable;
   const allowSoftSkip = !canUseVoiceStt || attempts >= HABIT_SOFT_FALLBACK_THRESHOLD;
 
   const mountedRef = useRef(true);
@@ -554,10 +569,19 @@ export function AlhamdulillahHabitBlock({
         setMicNote('Yana bir bor aniqroq qilib «Alhamdulillah» deb ayt!');
         void playFeedbackAudio('fb_louder_clearer');
       }
-    } catch {
+    } catch (err) {
       if (!mountedRef.current) return;
-      setAttempts((prev) => prev + 1);
-      setMicNote('Ovoz tekshiruvi vaqtincha ishlamadi — ovoz chiqarib aytib davom eting.');
+      if (isSttTerminalOrLimitedError(err)) {
+        setSttUnavailable(true);
+        if (err instanceof SttRequestError && (err.status === 429 || err.reason === 'rate_limited')) {
+          setMicNote('Bugungi ovozli tekshiruv limiti tugadi — ovoz chiqarib aytib, davom eting.');
+        } else {
+          setMicNote('Ovozli tekshiruv vaqtincha ishlamayapti — ovoz chiqarib aytib, davom eting.');
+        }
+      } else {
+        setAttempts((prev) => prev + 1);
+        setMicNote('Ovoz tekshiruvi vaqtincha ishlamadi — ovoz chiqarib aytib davom eting.');
+      }
     } finally {
       if (mountedRef.current) {
         setIsChecking(false);

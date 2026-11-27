@@ -31,7 +31,21 @@ export interface SttUpstreamErrorDetails {
 
 const DEFAULT_VOICELAB_STT_URL = 'https://api.voicelab.uz/v1/stt';
 const DEFAULT_UZBEKVOICE_STT_URL = 'https://uzbekvoice.ai/api/v1/stt';
+const DEFAULT_PROXY_STT_TIMEOUT_MS = 25_000;
 const RMS_FLOOR = 0.008;
+
+export function isCloudSttFallbackEnabled(): boolean {
+  const raw = (process.env.ENABLE_CLOUD_STT_FALLBACK || '').trim().toLowerCase();
+  return raw === '1' || raw === 'true';
+}
+
+function getProxySttTimeoutMs(): number {
+  const parsed = Number(process.env.STT_PROXY_TIMEOUT_MS || '');
+  if (Number.isFinite(parsed) && parsed >= 5_000) {
+    return Math.min(55_000, Math.round(parsed));
+  }
+  return DEFAULT_PROXY_STT_TIMEOUT_MS;
+}
 
 const UZBEK_APOSTROPHE_MAP: Record<string, string> = {
   '\u2018': "'",
@@ -765,7 +779,7 @@ export async function transcribeAudioBuffer(
             'Content-Type': options.contentType || fmt.mime,
           },
           body: new Uint8Array(audioBuf),
-          signal: AbortSignal.timeout(15_000),
+          signal: AbortSignal.timeout(getProxySttTimeoutMs()),
         });
       } catch (err) {
         throw wrapFetchError('proxy', err);
@@ -798,7 +812,7 @@ export async function transcribeAudioBuffer(
         reason: wrapped.reason,
         upstreamStatus: wrapped.upstreamStatus,
       });
-      if (!hasVoiceLab && !hasUzbekVoice) {
+      if (!isCloudSttFallbackEnabled() || (!hasVoiceLab && !hasUzbekVoice)) {
         throw wrapped;
       }
     }

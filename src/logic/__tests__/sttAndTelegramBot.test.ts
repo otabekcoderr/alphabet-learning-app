@@ -21,6 +21,7 @@ import {
   STT_FALLBACK_FAILURE_THRESHOLD,
 } from '../../components/LessonPlayer';
 import {
+  isSttTerminalOrLimitedError,
   startMicRecording,
   SttRequestError,
   verifyAudioWithStt,
@@ -81,6 +82,9 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
     VOICELAB_API_KEY: process.env.VOICELAB_API_KEY,
     UZBEKVOICE_API_KEY: process.env.UZBEKVOICE_API_KEY,
     STT_BACKEND_URL: process.env.STT_BACKEND_URL,
+    ENABLE_CLOUD_STT_FALLBACK: process.env.ENABLE_CLOUD_STT_FALLBACK,
+    STT_PROXY_TIMEOUT_MS: process.env.STT_PROXY_TIMEOUT_MS,
+    STT_HEALTH_TIMEOUT_MS: process.env.STT_HEALTH_TIMEOUT_MS,
   };
 
   afterEach(() => {
@@ -522,6 +526,90 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
     expect(fetchCredits402).toHaveBeenCalledTimes(1);
   });
 
+  it('locks STT and /api/health strictly to STT_BACKEND_URL unless ENABLE_CLOUD_STT_FALLBACK=1', async () => {
+    process.env.STT_BACKEND_URL = 'https://demo-alifbo-stt.hf.space';
+    process.env.UZBEKVOICE_API_KEY = 'uzv_test_key';
+    process.env.VOICELAB_API_KEY = 'vlk_test_key';
+    delete process.env.ENABLE_CLOUD_STT_FALLBACK;
+
+    const sampleWav = buildPcm16MonoWav(new Int16Array(1600).fill(500));
+
+    // 1. Proxy healthy -> 200 ready on proxy
+    const fetchHealthyProxy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      expect(url).toBe('https://demo-alifbo-stt.hf.space/api/health');
+      return new Response(JSON.stringify({ ok: true, status: 'ready' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    });
+    vi.stubGlobal('fetch', fetchHealthyProxy);
+    const okHealth = await healthGet();
+    expect(okHealth.status).toBe(200);
+    expect(await okHealth.json()).toMatchObject({
+      ok: true,
+      status: 'ready',
+      stt_provider: 'proxy',
+    });
+
+    // 2. Proxy failing + ENABLE_CLOUD_STT_FALLBACK unset -> never calls UzbekVoice/VoiceLab
+    const fetchBrokenProxy = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (!url.includes('hf.space')) {
+        throw new Error(`Unexpected fallback call to ${url}`);
+      }
+      return new Response('Service Unavailable', { status: 503 });
+    });
+    vi.stubGlobal('fetch', fetchBrokenProxy);
+
+    const offlineHealth = await healthGet();
+    expect(offlineHealth.status).toBe(503);
+    expect(await offlineHealth.json()).toMatchObject({
+      ok: false,
+      status: 'offline',
+      stt_provider: 'proxy',
+    });
+    expect(fetchBrokenProxy).toHaveBeenCalledTimes(1);
+
+    fetchBrokenProxy.mockClear();
+    await expect(
+      transcribeAudioBuffer(sampleWav, { contentType: 'audio/wav' }),
+    ).rejects.toMatchObject({
+      provider: 'proxy',
+      reason: 'upstream_error',
+      upstreamStatus: 503,
+    });
+    expect(fetchBrokenProxy).toHaveBeenCalledTimes(1);
+
+    // 3. Explicit ENABLE_CLOUD_STT_FALLBACK=1 allows fallback to UzbekVoice
+    process.env.ENABLE_CLOUD_STT_FALLBACK = '1';
+    const fetchWithFallback = vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === 'string' ? input : input.toString();
+      if (url.includes('hf.space')) {
+        return new Response('Service Unavailable', { status: 503 });
+      }
+      if (url.includes('uzbekvoice')) {
+        return new Response(JSON.stringify({ status: 'SUCCESS', result: { text: 'kitob' } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      throw new Error(`Unexpected URL ${url}`);
+    });
+    vi.stubGlobal('fetch', fetchWithFallback);
+
+    const fallbackHealth = await healthGet();
+    expect(fallbackHealth.status).toBe(200);
+    expect(await fallbackHealth.json()).toMatchObject({
+      ok: true,
+      status: 'ready',
+      stt_provider: 'uzbekvoice',
+    });
+
+    const fallbackResult = await transcribeAudioBuffer(sampleWav, { contentType: 'audio/wav' });
+    expect(fallbackResult).toEqual({ transcript: 'kitob', provider: 'uzbekvoice' });
+  });
+
   it('handles UzbekVoice synchronous 200 OK and async PENDING -> /api/v1/tasks?id=... polling in /api/stt', async () => {
     delete process.env.STT_BACKEND_URL;
     delete process.env.VOICELAB_API_KEY;
@@ -771,6 +859,38 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
     expect((caughtHtml as SttRequestError).status).toBe(502);
     expect((caughtHtml as SttRequestError).reason).toBe('invalid_response');
 
+    // 429 rate-limited response parses Retry-After and sets rate_limited reason
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(
+          JSON.stringify({
+            ok: false,
+            code: 'stt_rate_limited',
+            provider: 'uzbekvoice',
+            reason: 'rate_limited',
+            upstreamStatus: null,
+            error: 'Ovozli tekshiruv so‘rovlari me’yordan oshdi.',
+          }),
+          {
+            status: 429,
+            headers: { 'Content-Type': 'application/json', 'Retry-After': '120' },
+          },
+        ),
+      ),
+    );
+    let caught429: unknown = null;
+    try {
+      await verifyAudioWithStt(blob, 'KITOB', ['kitob'], '');
+    } catch (err) {
+      caught429 = err;
+    }
+    expect(caught429).toBeInstanceOf(SttRequestError);
+    const rateLimitedErr = caught429 as SttRequestError;
+    expect(rateLimitedErr.status).toBe(429);
+    expect(rateLimitedErr.reason).toBe('rate_limited');
+    expect(rateLimitedErr.retryAfterSec).toBe(120);
+
     // Consecutive failure threshold checks
     expect(STT_FALLBACK_FAILURE_THRESHOLD).toBe(2);
     const transientErr = new SttRequestError('network', {
@@ -778,13 +898,28 @@ describe('Cloud STT, Server Public IDs, and Telegram Bot Auth helpers', () => {
       reason: 'network_error',
       upstreamStatus: null,
     });
+    expect(isSttTerminalOrLimitedError(transientErr)).toBe(false);
+    expect(isSttTerminalOrLimitedError(new Error('generic'))).toBe(false);
+    expect(isSttTerminalOrLimitedError(typed)).toBe(true);
+    expect(isSttTerminalOrLimitedError(rateLimitedErr)).toBe(true);
+    expect(
+      isSttTerminalOrLimitedError(
+        new SttRequestError('credits', {
+          status: 503,
+          reason: 'insufficient_credits',
+          upstreamStatus: 402,
+        }),
+      ),
+    ).toBe(true);
+
     expect(computeNextSttFailureCount(0, transientErr)).toBe(1);
     expect(computeNextSttFailureCount(1, transientErr)).toBe(2);
     expect(computeNextSttFailureCount(0, new Error('generic'))).toBe(1);
     expect(computeNextSttFailureCount(1, new Error('generic'))).toBe(2);
 
-    // Permanent configuration errors jump straight to fallback threshold
+    // Permanent configuration errors and 429 rate limits jump straight to fallback threshold
     expect(computeNextSttFailureCount(0, typed)).toBe(2);
+    expect(computeNextSttFailureCount(0, rateLimitedErr)).toBe(2);
   });
 
   it('startMicRecording uses AudioWorkletNode when supported and falls back to ScriptProcessorNode if AudioWorklet fails', async () => {

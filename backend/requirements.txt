@@ -1,0 +1,4 @@
+aiohttp>=3.10.0,<4
+numpy>=1.26.0,<3
+# Installs onnxruntime (CPU, excluding broken releases) and huggingface-hub for auto-downloading OpenVoiceOS/asr-uz-fastconformer-large-onnx
+onnx-asr[cpu,hub]>=0.12.0

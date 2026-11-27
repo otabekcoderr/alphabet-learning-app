@@ -199,11 +199,13 @@ export async function POST(request: Request): Promise<Response> {
     limit: 20,
     windowSec: 60,
   });
+  const guestDailyLimit = Math.max(20, Number(process.env.STT_GUEST_DAILY_LIMIT || '80') || 80);
+  const userDailyLimit = Math.max(50, Number(process.env.STT_USER_DAILY_LIMIT || '200') || 200);
   const dayLimit = minLimit.allowed
     ? await consumeRateLimit({
         scope: userId ? 'stt_day_user' : 'stt_day_guest',
         key: userId ?? clientIp,
-        limit: userId ? 150 : 35,
+        limit: userId ? userDailyLimit : guestDailyLimit,
         windowSec: 86_400,
       })
     : minLimit;

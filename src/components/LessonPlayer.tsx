@@ -66,6 +66,7 @@ import {
   preloadLessonSessionAudio,
   startMicRecording,
   stopActiveAudio,
+  isSttTerminalOrLimitedError,
   SttRequestError,
   verifyAudioWithStt,
   type FeedbackAudioKey,
@@ -197,13 +198,7 @@ export function computeSessionProgress(params: {
 export const STT_FALLBACK_FAILURE_THRESHOLD = 2;
 
 export function computeNextSttFailureCount(currentFailures: number, err: unknown): number {
-  if (
-    err instanceof SttRequestError &&
-    (err.reason === 'unauthorized' ||
-      err.reason === 'insufficient_credits' ||
-      err.reason === 'endpoint_not_found' ||
-      err.reason === 'unconfigured')
-  ) {
+  if (isSttTerminalOrLimitedError(err)) {
     return Math.max(currentFailures + 1, STT_FALLBACK_FAILURE_THRESHOLD);
   }
   return currentFailures + 1;
@@ -865,9 +860,15 @@ export function LessonPlayer({
       consecutiveSttFailuresRef.current = nextFailures;
       setConsecutiveSttFailures(nextFailures);
       setHunterAttempts((prev) => prev + 1);
-      setHunterFeedback({
-        text: 'Ovoz serveri bilan aloqa bo‘lmadi — «Davom etish» tugmasini bosishingiz mumkin.',
-      });
+      if (err instanceof SttRequestError && (err.status === 429 || err.reason === 'rate_limited')) {
+        setHunterFeedback({
+          text: 'Bugungi ovozli tekshiruv limiti tugadi — «Davom etish» tugmasini bosing.',
+        });
+      } else {
+        setHunterFeedback({
+          text: 'Ovoz serveri bilan aloqa bo‘lmadi — «Davom etish» tugmasini bosishingiz mumkin.',
+        });
+      }
     } finally {
       if (bubbleGenRef.current === myGen) {
         setHunterMicChecking(false);
@@ -2361,36 +2362,38 @@ export function LessonPlayer({
                         ))}
                       </div>
 
-                      <div className="hunter-mic-actions">
-                        <button
-                          type="button"
-                          className={`mic-btn-big ${hunterMicRecording ? 'mic-btn-recording' : ''}`}
-                          style={
-                            hunterMicRecording
-                              ? { transform: `scale(${1 + Math.min(0.14, hunterMicLevel * 0.25)})` }
-                              : undefined
-                          }
-                          disabled={hunterMicChecking}
-                          onClick={() => void handleToggleWordHunterMic()}
-                        >
-                          {hunterMicRecording ? (
-                            <>
-                              <Square size={20} fill="currentColor" />
-                              <span>Tinglayapman...</span>
-                            </>
-                          ) : hunterMicChecking ? (
-                            <>
-                              <Sparkles size={20} />
-                              <span>Tekshiryapman...</span>
-                            </>
-                          ) : (
-                            <>
-                              <Mic size={22} />
-                              <span>Mikrofonga «{currentItem.text}» de</span>
-                            </>
-                          )}
-                        </button>
-                      </div>
+                      {!isOfflineFallbackActive && (
+                        <div className="hunter-mic-actions">
+                          <button
+                            type="button"
+                            className={`mic-btn-big ${hunterMicRecording ? 'mic-btn-recording' : ''}`}
+                            style={
+                              hunterMicRecording
+                                ? { transform: `scale(${1 + Math.min(0.14, hunterMicLevel * 0.25)})` }
+                                : undefined
+                            }
+                            disabled={hunterMicChecking}
+                            onClick={() => void handleToggleWordHunterMic()}
+                          >
+                            {hunterMicRecording ? (
+                              <>
+                                <Square size={20} fill="currentColor" />
+                                <span>Tinglayapman...</span>
+                              </>
+                            ) : hunterMicChecking ? (
+                              <>
+                                <Sparkles size={20} />
+                                <span>Tekshiryapman...</span>
+                              </>
+                            ) : (
+                              <>
+                                <Mic size={22} />
+                                <span>Mikrofonga «{currentItem.text}» de</span>
+                              </>
+                            )}
+                          </button>
+                        </div>
+                      )}
 
                       {hunterFeedback && (
                         <p className="gentle-feedback-banner" role="status">
@@ -2398,10 +2401,10 @@ export function LessonPlayer({
                         </p>
                       )}
 
-                      {hunterAttempts >= 2 && (
+                      {(hunterAttempts >= 2 || isOfflineFallbackActive) && (
                         <button
                           type="button"
-                          className="btn-3d-cream btn-compact btn-with-icon"
+                          className={`${isOfflineFallbackActive ? 'btn-3d-emerald' : 'btn-3d-cream'} btn-compact btn-with-icon`}
                           onClick={() => {
                             void playWordItemAudio(currentItem);
                             scheduleStage1Advance(650);
