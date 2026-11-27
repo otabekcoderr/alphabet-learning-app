@@ -93,7 +93,7 @@ describe('Alifbo 2.2 Live Test Fixes: Mascot, Visuals, Audio, Bubble Gate & Secu
     expect(new Set(AVATAR_OPTIONS.map((a) => a.mascotName)).size).toBe(8);
   });
 
-  it('audits all 139 words, distractors, 30 letters, 5 worlds & 8 avatars to valid local SVG files', async () => {
+  it('audits all 138 words, distractors, 30 letters, 5 worlds & 8 avatars to valid local SVG files', async () => {
     const fs = await getNodeFs();
 
     for (const item of DYNAMIC_WORD_POOL) {

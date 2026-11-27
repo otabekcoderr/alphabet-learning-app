@@ -746,6 +746,27 @@ export const READING_WORLDS: ReadingWorld[] = [
   },
 ];
 
+export interface ComingSoonIsland {
+  id: 'syllable_forest';
+  titleUz: string;
+  subtitleUz: string;
+  badgeUz: string;
+  descriptionUz: string;
+  infoTitleUz: string;
+  infoBodyUz: string;
+}
+
+export const COMING_SOON_SYLLABLE_FOREST: ComingSoonIsland = {
+  id: 'syllable_forest',
+  titleUz: 'Bo‘g‘inlashni o‘rgatish',
+  subtitleUz: 'Alohida o‘rmon · Tez kunda',
+  badgeUz: 'Tez kunda',
+  descriptionUz: 'Harflarni bo‘g‘inlarga qo‘shishni o‘rgatuvchi alohida o‘rmon.',
+  infoTitleUz: 'Bo‘g‘inlashni o‘rgatish o‘rmoni',
+  infoBodyUz:
+    'Tez kunda qo‘shiladi! Bu alohida o‘rmonda bolalar harflarni qo‘shib bo‘g‘in yasash va ravon o‘qish ko‘nikmasini maxsus o‘yinlar orqali o‘rganishadi.',
+};
+
 export type WordPoolKind = 'word' | 'sentence';
 export type ScriptMode = 'standard_latin' | 'reformed_latin';
 
@@ -1096,7 +1117,7 @@ function makeWordItem(
 }
 
 export const DYNAMIC_WORD_POOL: WordPoolItem[] = [
-  // World 1: Ilk bo'g'inlar va tanish harflar (O, A, N, I, M, T, L, B, K, R) — 26 items
+  // World 1: Ilk bo'g'inlar va tanish harflar (O, A, N, I, M, T, L, B, K, R) — 24 items
   makeWordItem('ona', 1, 'ONA', ['O', 'NA'], '👩', ['🚗', '🍎'], ['MA', 'LO']),
   makeWordItem('non', 1, 'NON', ['NO', 'N'], '🥖', ['🍌', '🐶'], ['LA', 'TO'], [], 'word', ['NON']),
   makeWordItem('lola', 1, 'LOLA', ['LO', 'LA'], '🌷', ['🌳', '📚'], ['MA', 'NO']),
@@ -1109,10 +1130,8 @@ export const DYNAMIC_WORD_POOL: WordPoolItem[] = [
   makeWordItem('arra', 1, 'ARRA', ['AR', 'RA'], '🪚', ['🌷', '🐝'], ['LA', 'MO'], ['ara']),
   makeWordItem('limon', 1, 'LIMON', ['LI', 'MON'], '🍋', ['🥖', '🐻'], ['NAR', 'BOL']),
   makeWordItem('oltin', 1, 'OLTIN', ['OL', 'TIN'], '🪙', ['🍎', '🐢'], ['MAN', 'LOR']),
-  makeWordItem('tola', 1, 'TOLA', ['TO', 'LA'], '🧵', ['🚗', '🍌'], ['MA', 'BO']),
   makeWordItem('nina', 1, 'NINA', ['NI', 'NA'], '🪡', ['🌷', '🍇'], ['LO', 'MA']),
   makeWordItem('bino', 1, 'BINO', ['BI', 'NO'], '🏢', ['🐶', '🍋'], ['LA', 'TA']),
-  makeWordItem('kran', 1, 'KRAN', ['K', 'RAN'], '🏗️', ['🍎', '🦋'], ['MON', 'TAR'], [], 'word', ['KRAN']),
   makeWordItem('olam', 1, 'OLAM', ['O', 'LAM'], '🌍', ['🥖', '🐈'], ['NOR', 'TAN']),
   makeWordItem('kalit', 1, 'KALIT', ['KA', 'LIT'], '🔑', ['🍌', '🚌'], ['MON', 'BOR']),
   makeWordItem('maral', 1, 'MARAL', ['MA', 'RAL'], '🦌', ['🌷', '🥖'], ['LON', 'TAN']),
@@ -1124,9 +1143,21 @@ export const DYNAMIC_WORD_POOL: WordPoolItem[] = [
   makeWordItem('robot', 1, 'ROBOT', ['RO', 'BOT'], '🤖', ['🍌', '🌳'], ['LAN', 'TOR']),
   makeWordItem('karam', 1, 'KARAM', ['KA', 'RAM'], '🥬', ['🚗', '🎈'], ['LON', 'MOT']),
 
-  // World 2: Yopiq bo'g'inlar va chaqqon so'zlar (U, S, D, E, Z + avvalgi) — 26 items
+  // World 2: Yopiq bo'g'inlar va chaqqon so'zlar (U, S, D, E, Z + avvalgi) — 27 items
   makeWordItem('kitob', 2, 'KITOB', ['KI', 'TOB'], '📗', ['🍎', '⚽'], ['MOL', 'NAR'], ['kitop']),
   makeWordItem('dada', 2, 'DADA', ['DA', 'DA'], '👨‍👦', ['🌳', '🚌'], ['BO', 'LA']),
+  makeWordItem(
+    'kran',
+    2,
+    'KRAN',
+    ['K', 'RAN'],
+    '🏗️',
+    ['🍎', '🦋'],
+    ['MON', 'TAR'],
+    ['kiran', 'keran', 'qran', 'gran', 'kron', 'kram', 'kan', 'karan', 'ka ran'],
+    'word',
+    ['KRAN'],
+  ),
   makeWordItem('asal', 2, 'ASAL', ['A', 'SAL'], '🍯', ['🥖', '🐸'], ['MON', 'LOR']),
   makeWordItem('uzuk', 2, 'UZUK', ['U', 'ZUK'], '💍', ['🔥', '🍎'], ['ZUM', 'TAR']),
   makeWordItem('uzum', 2, 'UZUM', ['U', 'ZUM'], '🍇', ['🥕', '🚌'], ['MON', 'TAR']),

@@ -1,5 +1,11 @@
 import { timingSafeEqual } from 'node:crypto';
 import { ensureSchema, getSql, isDbConfigured, type UserRow } from './_lib/db.js';
+import {
+  consumeRateLimit,
+  getClientIp,
+  isAllowedAppOrigin,
+  resetMemoryRateLimits,
+} from './_lib/rateLimit.js';
 import { dbUnavailableResponse, getSessionUserId, jsonResponse } from './_lib/session.js';
 import {
   createPendingTelegramLinkSession,
@@ -39,24 +45,23 @@ interface ReminderCandidateRow {
   last_reminded_date: string | null;
 }
 
-const ADMIN_ALERT_WINDOW_MS = 10 * 60 * 1000;
-const ADMIN_ALERT_MAX_PER_IP = 10;
-const adminAlertRateBuckets = new Map<string, number[]>();
-
 export function resetAdminAlertRateLimiter(): void {
-  adminAlertRateBuckets.clear();
+  resetMemoryRateLimits();
 }
 
-function isAdminAlertRateLimited(ipKey: string, nowMs: number = Date.now()): boolean {
-  const existing = adminAlertRateBuckets.get(ipKey) ?? [];
-  const recent = existing.filter((ts) => nowMs - ts < ADMIN_ALERT_WINDOW_MS);
-  if (recent.length >= ADMIN_ALERT_MAX_PER_IP) {
-    adminAlertRateBuckets.set(ipKey, recent);
-    return true;
+export function buildDailyReminderMessageText(): string {
+  return (
+    '🦊 Assalomu alaykum! Bugun farzandingiz bilan 10 daqiqa o‘qish mashqini bajaramizmi?\n\n' +
+    'Zukko tulki yangi harf va so‘zlar bilan kutmoqda!'
+  );
+}
+
+export function buildDailyReminderKeyboard(appOrigin: string): TelegramInlineButton[][] {
+  if (!isPublicHttpsOrigin(appOrigin)) {
+    return [];
   }
-  recent.push(nowMs);
-  adminAlertRateBuckets.set(ipKey, recent);
-  return false;
+  const cleanOrigin = appOrigin.replace(/\/+$/, '');
+  return [[{ text: '🦊 Mashqni boshlash', web_app: { url: `${cleanOrigin}/?source=tg_reminder` } }]];
 }
 
 function escapeHtml(raw: string): string {
@@ -171,6 +176,9 @@ async function handleList(request: Request): Promise<Response> {
 }
 
 async function handleSettings(request: Request): Promise<Response> {
+  if (!isAllowedAppOrigin(request)) {
+    return jsonResponse({ ok: false, code: 'forbidden_origin', errorUz: 'Ruxsat etilmagan manba.' }, 403);
+  }
   if (!isDbConfigured()) {
     return dbUnavailableResponse();
   }
@@ -178,6 +186,20 @@ async function handleSettings(request: Request): Promise<Response> {
   const userId = getSessionUserId(request);
   if (!userId) {
     return jsonResponse({ ok: false, errorUz: 'Avval tizimga kiring.' }, 401);
+  }
+
+  const rl = await consumeRateLimit({
+    scope: 'notif_settings_user',
+    key: userId,
+    limit: 20,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { ok: false, code: 'rate_limited', errorUz: "Juda ko'p so'rov yuborildi. Biroz kuting." },
+      429,
+      { 'Retry-After': String(rl.retryAfterSec) },
+    );
   }
 
   let body: Record<string, unknown>;
@@ -254,6 +276,9 @@ async function handleSettings(request: Request): Promise<Response> {
 }
 
 async function handleTelegramLink(request: Request): Promise<Response> {
+  if (!isAllowedAppOrigin(request)) {
+    return jsonResponse({ ok: false, code: 'forbidden_origin', errorUz: 'Ruxsat etilmagan manba.' }, 403);
+  }
   if (!isDbConfigured()) {
     return dbUnavailableResponse();
   }
@@ -261,6 +286,20 @@ async function handleTelegramLink(request: Request): Promise<Response> {
   const userId = getSessionUserId(request);
   if (!userId) {
     return jsonResponse({ ok: false, errorUz: 'Avval tizimga kiring.' }, 401);
+  }
+
+  const rl = await consumeRateLimit({
+    scope: 'tg_link_user',
+    key: userId,
+    limit: 6,
+    windowSec: 600,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { ok: false, code: 'rate_limited', errorUz: "Juda ko'p ulanish urinishi. Biroz kuting." },
+      429,
+      { 'Retry-After': String(rl.retryAfterSec) },
+    );
   }
 
   const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
@@ -324,6 +363,9 @@ async function handleTelegramLink(request: Request): Promise<Response> {
 }
 
 async function handleTelegramUnlink(request: Request): Promise<Response> {
+  if (!isAllowedAppOrigin(request)) {
+    return jsonResponse({ ok: false, code: 'forbidden_origin', errorUz: 'Ruxsat etilmagan manba.' }, 403);
+  }
   if (!isDbConfigured()) {
     return dbUnavailableResponse();
   }
@@ -354,15 +396,21 @@ async function handleTelegramUnlink(request: Request): Promise<Response> {
 }
 
 async function handleAdminAlert(request: Request): Promise<Response> {
-  const clientIp =
-    request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-    request.headers.get('x-real-ip')?.trim() ||
-    'unknown';
+  if (!isAllowedAppOrigin(request)) {
+    return jsonResponse({ ok: false, code: 'forbidden_origin', errorUz: 'Ruxsat etilmagan manba.' }, 403);
+  }
 
-  if (isAdminAlertRateLimited(clientIp)) {
+  const rl = await consumeRateLimit({
+    scope: 'admin_alert_ip',
+    key: getClientIp(request),
+    limit: 8,
+    windowSec: 600,
+  });
+  if (!rl.allowed) {
     return jsonResponse(
       { ok: false, code: 'rate_limited', errorUz: "Juda ko'p so'rov yuborildi. Biroz kuting." },
       429,
+      { 'Retry-After': String(rl.retryAfterSec) },
     );
   }
 
@@ -528,7 +576,12 @@ export async function handleCronDailyReminder(request: Request): Promise<Respons
               [{ text: '🔔 Eslatmani qayta yoqish', callback_data: 'rem_on' }],
             ];
             if (hasPublicUrl) {
-              pauseKeyboard.unshift([{ text: '▶️ Mashqni boshlash', url: appOrigin }]);
+              pauseKeyboard.unshift([
+                {
+                  text: '🦊 Mashqni boshlash',
+                  web_app: { url: `${appOrigin.replace(/\/+$/, '')}/?source=tg_reminder` },
+                },
+              ]);
             }
             const pauseRes = await sendTelegramMessageDetailed(
               botToken,
@@ -560,31 +613,8 @@ export async function handleCronDailyReminder(request: Request): Promise<Respons
             return;
           }
 
-          const streakLine =
-            user.current_streak_days >= 2
-              ? `\n🔥 Hozirgi faol seriya: <b>${user.current_streak_days} kun</b> — uni saqlab qolaylik!`
-              : '';
-          const masteryLine =
-            user.mastered_words_count > 0
-              ? `\n⭐ Mustaqil o‘qilgan so‘zlar: <b>${user.mastered_words_count} ta</b>`
-              : '';
-
-          const text = [
-            `🦊 Assalomu alaykum! Bugun <b>${childLabel}</b> bilan 10 daqiqa o‘qish mashqini bajaramizmi?`,
-            streakLine,
-            masteryLine,
-            '',
-            'Zukko tulki yangi harf va so‘zlar bilan kutmoqda!',
-          ]
-            .filter((line, idx, arr) => line !== '' || (idx > 0 && arr[idx - 1] !== ''))
-            .join('\n');
-
-          const keyboard: TelegramInlineButton[][] = [
-            [{ text: '🔕 Eslatmani o‘chirish', callback_data: 'rem_off' }],
-          ];
-          if (hasPublicUrl) {
-            keyboard.unshift([{ text: '▶️ Mashqni boshlash', url: appOrigin }]);
-          }
+          const text = buildDailyReminderMessageText();
+          const keyboard = buildDailyReminderKeyboard(appOrigin);
 
           const sendRes = await sendTelegramMessageDetailed(
             botToken,

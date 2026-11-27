@@ -2,6 +2,35 @@ import { randomBytes, randomInt, randomUUID, scryptSync, timingSafeEqual } from 
 
 export const ACCOUNT_PUBLIC_ID_REGEX = /^\d{8}$/;
 
+const RANDOM_CHILD_NICKNAMES = [
+  'Zukko',
+  'Yulduzcha',
+  'Kitobxon',
+  'Bilimdon',
+  'Chaqqon',
+  'Quvnoq',
+  'Quyoshcha',
+  'Bolajon',
+] as const;
+
+const RANDOM_AVATAR_IDS = [
+  'fox',
+  'lion',
+  'panda',
+  'rabbit',
+  'tiger',
+  'unicorn',
+  'astronaut',
+  'owl',
+] as const;
+
+/** Pick a random child-friendly Uzbek nickname and profile picture ID for new signups. */
+export function pickRandomChildProfileDefaults(): { childName: string; avatarId: string } {
+  const childName = RANDOM_CHILD_NICKNAMES[randomInt(0, RANDOM_CHILD_NICKNAMES.length)] ?? 'Zukko';
+  const avatarId = RANDOM_AVATAR_IDS[randomInt(0, RANDOM_AVATAR_IDS.length)] ?? 'fox';
+  return { childName, avatarId };
+}
+
 /** Generate a cryptographically random 8-digit numeric public ID (no leading zero). */
 export function generateAccountPublicId(): string {
   return String(randomInt(10_000_000, 100_000_000));

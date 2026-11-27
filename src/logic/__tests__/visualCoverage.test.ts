@@ -34,10 +34,10 @@ function assertValidSvgAsset(fs: NodeFsSubset, publicPath: string, contextLabel:
   return content;
 }
 
-describe('Complete Visual Asset Coverage (139 words, distractors, 8 avatars, A—ANOR, WebP sprites)', () => {
-  it('ensures every one of the 139 words, distractors, and 4 offline exam cards has an explicit, unique, valid SVG file', async () => {
+describe('Complete Visual Asset Coverage (138 words, distractors, 8 avatars, A—ANOR, WebP sprites)', () => {
+  it('ensures every one of the 138 words, distractors, and 4 offline exam cards has an explicit, unique, valid SVG file', async () => {
     const fs = await getNodeFs();
-    expect(DYNAMIC_WORD_POOL).toHaveLength(139);
+    expect(DYNAMIC_WORD_POOL).toHaveLength(138);
 
     for (const item of DYNAMIC_WORD_POOL) {
       expect(

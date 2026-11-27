@@ -1,3 +1,4 @@
+import type { CSSProperties } from 'react';
 import { motion } from 'framer-motion';
 import { resolveMascotPresentation } from '../logic/gamification';
 import { AvatarVisual } from './AvatarVisual';
@@ -97,12 +98,14 @@ export function AnimatedCharacter({
   ) : null;
 
   return (
-    <div className={`animated-char-wrap layout-${layout} bubble-${bubblePosition}`}>
+    <div
+      className={`animated-char-wrap layout-${layout} bubble-${bubblePosition}`}
+      style={{ '--char-size': `${size}px` } as CSSProperties}
+    >
       {bubblePosition === 'top' && bubbleNode}
 
       <div
         className={`animated-char-figure mood-${normalizedMood}`}
-        style={{ width: size, height: size }}
         aria-label={`${resolved.name} — ${normalizedMood}`}
       >
         {normalizedMood === 'listening' && (
@@ -146,10 +149,9 @@ export function AnimatedCharacter({
               height={size}
               draggable={false}
               className="zukko-hero-png"
-              style={{ width: size, height: size, objectFit: 'contain' }}
             />
           ) : (
-            <div className="avatar-companion-disc" style={{ width: size * 0.9, height: size * 0.9 }}>
+            <div className="avatar-companion-disc">
               <AvatarVisual avatarId={resolved.avatarId} size={Math.round(size * 0.72)} />
             </div>
           )}

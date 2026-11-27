@@ -3,11 +3,29 @@ import { getRequestOrigin } from './session.js';
 
 export const DEFAULT_TELEGRAM_BOT_USERNAME = 'alifbo_uz_robot';
 export const TELEGRAM_LOGIN_TOKEN_TTL_SEC = 300;
+export const TELEGRAM_WEBAPP_MAX_AGE_SEC = 24 * 60 * 60;
 
 export interface TelegramInlineButton {
   text: string;
   callback_data?: string;
   url?: string;
+  web_app?: { url: string };
+}
+
+export interface VerifiedTelegramWebAppData {
+  ok: true;
+  authDateSec: number;
+  user: {
+    id: string;
+    firstName: string;
+    lastName: string;
+    username: string | null;
+  };
+}
+
+export interface InvalidTelegramWebAppData {
+  ok: false;
+  reason: 'empty' | 'missing_hash' | 'invalid_hash' | 'expired' | 'invalid_user';
 }
 
 export interface TelegramSendDetailedResult {
@@ -139,6 +157,120 @@ export function hashTelegramAuthCode(code: string, botToken: string): string {
 
 export function generateSixDigitCode(): string {
   return String(randomInt(100_000, 1_000_000));
+}
+
+/**
+ * Verify Telegram Mini App `window.Telegram.WebApp.initData` cryptographically using
+ * HMAC-SHA256("WebAppData", botToken) and timing-safe digest comparison.
+ */
+export function verifyTelegramWebAppInitData(
+  rawInitData: string,
+  botToken: string,
+  nowSec: number = Math.floor(Date.now() / 1000),
+): VerifiedTelegramWebAppData | InvalidTelegramWebAppData {
+  const trimmed = (rawInitData || '').trim();
+  if (!trimmed || !botToken) {
+    return { ok: false, reason: 'empty' };
+  }
+
+  let params: URLSearchParams;
+  try {
+    params = new URLSearchParams(trimmed);
+  } catch {
+    return { ok: false, reason: 'empty' };
+  }
+
+  const receivedHash = (params.get('hash') || '').trim().toLowerCase();
+  if (!/^[a-f0-9]{64}$/.test(receivedHash)) {
+    return { ok: false, reason: 'missing_hash' };
+  }
+
+  const pairs: Array<[string, string]> = [];
+  for (const [key, value] of params.entries()) {
+    if (key === 'hash') continue;
+    pairs.push([key, value]);
+  }
+  pairs.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+  const dataCheckString = pairs.map(([k, v]) => `${k}=${v}`).join('\n');
+
+  const secretKey = createHmac('sha256', 'WebAppData').update(botToken).digest();
+  const expectedHash = createHmac('sha256', secretKey)
+    .update(dataCheckString)
+    .digest('hex')
+    .toLowerCase();
+
+  const receivedBuf = Buffer.from(receivedHash, 'hex');
+  const expectedBuf = Buffer.from(expectedHash, 'hex');
+  if (
+    receivedBuf.length !== expectedBuf.length ||
+    !timingSafeEqual(receivedBuf, expectedBuf)
+  ) {
+    return { ok: false, reason: 'invalid_hash' };
+  }
+
+  const authDateRaw = params.get('auth_date') || '';
+  const authDateSec = Number(authDateRaw);
+  if (
+    !Number.isInteger(authDateSec) ||
+    authDateSec <= 0 ||
+    authDateSec > nowSec + 300 ||
+    nowSec - authDateSec > TELEGRAM_WEBAPP_MAX_AGE_SEC
+  ) {
+    return { ok: false, reason: 'expired' };
+  }
+
+  const userJsonRaw = params.get('user');
+  if (!userJsonRaw) {
+    return { ok: false, reason: 'invalid_user' };
+  }
+
+  let parsedUser: unknown;
+  try {
+    parsedUser = JSON.parse(userJsonRaw);
+  } catch {
+    return { ok: false, reason: 'invalid_user' };
+  }
+
+  if (!parsedUser || typeof parsedUser !== 'object') {
+    return { ok: false, reason: 'invalid_user' };
+  }
+
+  const u = parsedUser as {
+    id?: unknown;
+    is_bot?: unknown;
+    first_name?: unknown;
+    last_name?: unknown;
+    username?: unknown;
+  };
+  if (u.is_bot === true) {
+    return { ok: false, reason: 'invalid_user' };
+  }
+
+  const idStr =
+    typeof u.id === 'number' && Number.isSafeInteger(u.id) && u.id > 0
+      ? String(u.id)
+      : typeof u.id === 'string' && /^\d+$/.test(u.id)
+        ? u.id
+        : '';
+  if (!idStr) {
+    return { ok: false, reason: 'invalid_user' };
+  }
+
+  const firstName = typeof u.first_name === 'string' ? u.first_name.trim() : '';
+  const lastName = typeof u.last_name === 'string' ? u.last_name.trim() : '';
+  const username =
+    typeof u.username === 'string' ? u.username.trim().replace(/^@+/, '') || null : null;
+
+  return {
+    ok: true,
+    authDateSec,
+    user: {
+      id: idStr,
+      firstName,
+      lastName,
+      username,
+    },
+  };
 }
 
 export function resolvePublicAppOrigin(request: Request): string {

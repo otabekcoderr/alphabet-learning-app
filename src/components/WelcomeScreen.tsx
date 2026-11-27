@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
+import { DYNAMIC_WORD_POOL } from '../data/curriculum';
 import { BookOpen, Compass, Mic, Sparkles, Volume2 } from './Icons';
 import { CloseIcon } from './Icons';
 import { StorybookBackdrop } from './StorybookBackdrop';
@@ -167,7 +168,7 @@ export function WelcomeScreen({
               <span className="feature-icon-badge badge-emerald">
                 <BookOpen size={16} />
               </span>
-              <span>139 ta so‘z</span>
+              <span>{DYNAMIC_WORD_POOL.length} ta so‘z</span>
             </span>
           </div>
         </motion.section>
@@ -290,7 +291,7 @@ export function WelcomeScreen({
                     <strong>Bo‘g‘in konstruktori va Pufakchalar:</strong> Bolalar bo‘g‘inlarni birlashtirib so‘z yasaydi.
                   </li>
                   <li>
-                    <strong>Bo‘g‘in poyezdi:</strong> Slayder yordamida tovushlarni ravon ulashni mashq qiladi.
+                    <strong>So‘z ovchisi:</strong> Rasmga mos bo‘g‘inli so‘zni topib, ovoz chiqarib o‘qiydi.
                   </li>
                   <li>
                     <strong>29 ta harf + tutuq belgisi:</strong> O‘zbek lotin alifbosini tovush va rasm bilan mustahkamlaydi.

@@ -1,4 +1,8 @@
-import { generateAccountPublicId, generateAccountUuid } from '../_lib/crypto.js';
+import {
+  generateAccountPublicId,
+  generateAccountUuid,
+  pickRandomChildProfileDefaults,
+} from '../_lib/crypto.js';
 import {
   ensureSchema,
   ensureUserPublicId,
@@ -13,7 +17,7 @@ import {
   dbUnavailableResponse,
   jsonResponse,
 } from '../_lib/session.js';
-import { consumeRateLimit, getClientIp } from '../_lib/rateLimit.js';
+import { consumeRateLimit, getClientIp, isAllowedAppOrigin } from '../_lib/rateLimit.js';
 import {
   consumeTelegramLoginSession,
   createPendingTelegramLoginSession,
@@ -29,6 +33,7 @@ import {
   resolveTelegramBotUsername,
   TELEGRAM_LOGIN_TOKEN_TTL_SEC,
   verifyTelegramLoginToken,
+  verifyTelegramWebAppInitData,
 } from '../_lib/telegramBot.js';
 
 interface ConsumedCodeRow {
@@ -93,8 +98,9 @@ async function upsertTelegramUserAndLoadState(
   } else {
     isNewSignup = true;
     const id = generateAccountUuid();
-    const childName = input.requestedChildName || firstName.slice(0, 20) || 'Bolajon';
-    const avatarId = input.requestedAvatarId || 'fox';
+    const randomDefaults = pickRandomChildProfileDefaults();
+    const childName = input.requestedChildName || randomDefaults.childName;
+    const avatarId = input.requestedAvatarId || randomDefaults.avatarId;
     const contactKey = `tg:${telegramId}`;
 
     for (let attempt = 0; attempt < 5; attempt++) {
@@ -502,6 +508,146 @@ async function handleTelegramCodeAuth(request: Request): Promise<Response> {
   }
 }
 
+async function handleTelegramWebAppAuth(request: Request): Promise<Response> {
+  if (!isAllowedAppOrigin(request)) {
+    return jsonResponse(
+      { ok: false, code: 'forbidden_origin', errorUz: 'Ruxsat etilmagan manba.' },
+      403,
+    );
+  }
+
+  const botToken = process.env.TELEGRAM_BOT_TOKEN?.trim() || '';
+  if (!botToken) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'telegram_not_configured',
+        errorUz: 'Telegram orqali kirish hali sozlanmagan (TELEGRAM_BOT_TOKEN kerak).',
+      },
+      503,
+    );
+  }
+
+  const webappIpLimit = await consumeRateLimit({
+    scope: 'auth_tg_webapp_ip',
+    key: getClientIp(request),
+    limit: 30,
+    windowSec: 600,
+  });
+  if (!webappIpLimit.allowed) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'rate_limited',
+        errorUz: 'Juda ko‘p urinish. Biroz kutib qayta bosing.',
+      },
+      429,
+      { 'Retry-After': String(webappIpLimit.retryAfterSec) },
+    );
+  }
+
+  let body: Record<string, unknown>;
+  try {
+    body = (await request.json()) as Record<string, unknown>;
+  } catch {
+    return jsonResponse({ ok: false, errorUz: "Noto'g'ri so'rov formati." }, 400);
+  }
+
+  const initData = typeof body.initData === 'string' ? body.initData : '';
+  const verified = verifyTelegramWebAppInitData(initData, botToken);
+  if (!verified.ok) {
+    return jsonResponse(
+      {
+        ok: false,
+        code: 'telegram_webapp_invalid',
+        errorUz: 'Telegram WebApp ma’lumotlari tasdiqlanmadi.',
+      },
+      401,
+    );
+  }
+
+  const requestedChildName =
+    typeof body.childName === 'string' ? body.childName.trim().slice(0, 20) : '';
+  const requestedAvatarId =
+    typeof body.avatarId === 'string' ? body.avatarId.trim().slice(0, 24) : '';
+  const { user: tgUser } = verified;
+  const fullName = `${tgUser.firstName} ${tgUser.lastName}`.trim();
+  const contactDisplay = tgUser.username
+    ? `@${tgUser.username}`
+    : fullName || `Telegram #${tgUser.id}`;
+
+  try {
+    if (!isDbConfigured()) {
+      const identity = deriveStatelessTelegramIdentity(tgUser.id, botToken);
+      const nowIso = new Date().toISOString();
+      const randomDefaults = pickRandomChildProfileDefaults();
+      const childName = requestedChildName || randomDefaults.childName;
+      const avatarId = requestedAvatarId || randomDefaults.avatarId;
+
+      return jsonResponse(
+        {
+          ok: true,
+          dbSynced: false,
+          session: {
+            id: identity.id,
+            publicId: identity.publicId,
+            contact: contactDisplay,
+            createdAt: nowIso,
+            signedInAt: nowIso,
+            provider: 'telegram' as const,
+          },
+          childName,
+          avatarId,
+          isNewSignup: false,
+          state: null,
+        },
+        200,
+        { 'Set-Cookie': createSessionCookie(identity.id, request) },
+      );
+    }
+
+    const result = await upsertTelegramUserAndLoadState({
+      telegramId: tgUser.id,
+      telegramUsername: tgUser.username,
+      firstName: tgUser.firstName,
+      lastName: tgUser.lastName,
+      requestedChildName,
+      requestedAvatarId,
+    });
+
+    if (!result) {
+      return jsonResponse(
+        {
+          ok: false,
+          code: 'telegram_db_failed',
+          errorUz: 'Hisobni saqlashda xatolik yuz berdi.',
+        },
+        500,
+      );
+    }
+
+    return jsonResponse(
+      {
+        ok: true,
+        dbSynced: true,
+        session: userRowToSession(result.user),
+        childName: result.user.child_name,
+        avatarId: result.user.avatar_id,
+        isNewSignup: result.isNewSignup,
+        state: result.state,
+      },
+      200,
+      { 'Set-Cookie': createSessionCookie(result.user.id, request) },
+    );
+  } catch (err) {
+    console.error('Telegram WebApp auth error:', err instanceof Error ? err.message : 'err');
+    return jsonResponse(
+      { ok: false, errorUz: 'Serverda xatolik yuz berdi. Keyinroq urinib ko‘ring.' },
+      500,
+    );
+  }
+}
+
 export async function GET(request: Request): Promise<Response> {
   const reqUrl = new URL(request.url);
   const action = (reqUrl.searchParams.get('action') || '').trim().toLowerCase();
@@ -525,6 +671,9 @@ export async function POST(request: Request): Promise<Response> {
 
   if (action === 'start') {
     return handleTelegramStart(request);
+  }
+  if (action === 'webapp') {
+    return handleTelegramWebAppAuth(request);
   }
   if (!action || action === 'code' || action === 'verify') {
     return handleTelegramCodeAuth(request);

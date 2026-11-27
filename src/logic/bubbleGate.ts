@@ -183,6 +183,21 @@ export function confirmOfflineBubblePicture(
   };
 }
 
+const BUBBLE_CHUNK_PHONETIC_ALIASES: Record<string, readonly string[]> = {
+  k: ['ka', 'ke', 'ki', 'ik', 'ak'],
+  s: ['es', 'sa', 'se', 'ss'],
+  r: ['er', 'ra', 'rr', 'ar'],
+  n: ['en', 'na', 'nn'],
+  m: ['em', 'ma', 'mm'],
+  l: ['el', 'la', 'll'],
+  t: ['te', 'ta'],
+  d: ['de', 'da'],
+  b: ['be', 'ba'],
+  v: ['ve', 'va', 'vi'],
+  ran: ['ron', 'ram', 'iran', 'eran', 'karan', 'kiran'],
+  tul: ['tol', 'til', 'stul'],
+};
+
 /** Build child-friendly Uzbek STT aliases for an individual syllable chunk. */
 export function buildSyllableAcceptAliases(syllable: string): string[] {
   const lower = (syllable || '').trim().toLowerCase();
@@ -190,7 +205,8 @@ export function buildSyllableAcceptAliases(syllable: string): string[] {
   const asciiApostrophe = lower.replace(/[‘’ʻʼ`´]/g, "'");
   const canonical = normalizeText(lower);
   const strippedApostrophe = asciiApostrophe.replace(/'/g, '');
-  const variants = [lower, asciiApostrophe, canonical];
+  const phoneticExtras = BUBBLE_CHUNK_PHONETIC_ALIASES[canonical] ?? [];
+  const variants = [lower, asciiApostrophe, canonical, ...phoneticExtras];
   if (strippedApostrophe.length >= 2 && strippedApostrophe !== asciiApostrophe) {
     variants.push(strippedApostrophe);
   }

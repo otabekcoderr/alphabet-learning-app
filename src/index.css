@@ -6659,3 +6659,184 @@ h4,
   font-size: 12.5px;
   color: #1E293B;
 }
+
+/* ==========================================================================
+   Alifbo 2.3.2 — Hybrid TG/PWA Bridge, Child Profile Pill, Syllable Forest & Guest Prompts
+   ========================================================================== */
+.tg-pwa-bridge-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 14px;
+  background: #EFF6FF;
+  border: 1.5px solid #BFDBFE;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: #1E3A8A;
+  flex-wrap: wrap;
+}
+
+.tg-pwa-bridge-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tg-pwa-bridge-btn {
+  flex-shrink: 0;
+}
+
+.child-profile-chip-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.child-profile-chip-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 4px 10px 4px 5px;
+  border-radius: 999px;
+  background: #FFFBEB;
+  border: 1.5px solid #FDE68A;
+  cursor: pointer;
+  transition: transform 0.14s ease, border-color 0.14s ease;
+}
+
+.child-profile-chip-btn:hover {
+  transform: translateY(-1px);
+  border-color: #F59E0B;
+}
+
+.child-profile-chip-avatar {
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  border: 1.5px solid transparent;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.child-profile-chip-name {
+  font-weight: 800;
+  font-size: 13px;
+  color: #134E4A;
+}
+
+.child-profile-chip-edit {
+  font-size: 11px;
+  font-weight: 700;
+  color: #059669;
+  background: #ECFDF5;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+
+.child-profile-modal {
+  max-width: 480px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.home-map-stack {
+  width: 100%;
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.syllable-forest-dock {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  padding-top: 2px;
+}
+
+.island-node-coming-soon {
+  position: relative;
+  border-radius: 20px;
+  padding: 8px 16px;
+  background: rgba(236, 253, 245, 0.85);
+  border: 2px dashed #34D399;
+}
+
+.island-art-forest {
+  position: relative;
+}
+
+.island-coming-soon-badge {
+  position: absolute;
+  bottom: 2px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: linear-gradient(180deg, #34D399 0%, #059669 100%);
+  border: 2px solid #065F46;
+  color: #FFFFFF;
+  font-size: 11px;
+  font-weight: 800;
+  white-space: nowrap;
+  box-shadow: 0 3px 8px rgba(5, 150, 105, 0.28);
+}
+
+.syllable-forest-modal-preview {
+  display: flex;
+  justify-content: center;
+  margin: 4px 0 6px;
+}
+
+.syllable-forest-modal-preview .world-island-svg {
+  width: 190px;
+  height: auto;
+}
+
+.syllable-forest-modal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+}
+
+.victory-guest-reminder {
+  width: 100%;
+  margin: 8px 0 4px;
+}
+
+.guest-return-modal {
+  max-width: 460px;
+  width: 100%;
+}
+
+.guest-return-stats {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: #FFFBEB;
+  border: 1.5px solid #FDE68A;
+  font-size: 13px;
+  font-weight: 800;
+  color: #92400E;
+  margin-bottom: 14px;
+}
+
+.guest-return-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}

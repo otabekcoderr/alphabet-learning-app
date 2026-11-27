@@ -2,6 +2,7 @@ import {
   generateAccountPublicId,
   generateAccountUuid,
   normalizeContactKey,
+  pickRandomChildProfileDefaults,
 } from '../_lib/crypto.js';
 import {
   ensureSchema,
@@ -171,9 +172,9 @@ async function handleGoogleCallback(request: Request): Promise<Response> {
       user = await ensureUserPublicId(updated[0] ?? user);
     } else {
       const id = generateAccountUuid();
-      const defaultChildName =
-        savedCookie.childName || profile.given_name?.trim().slice(0, 20) || 'Bolajon';
-      const defaultAvatarId = savedCookie.avatarId || 'fox';
+      const randomDefaults = pickRandomChildProfileDefaults();
+      const defaultChildName = savedCookie.childName || randomDefaults.childName;
+      const defaultAvatarId = savedCookie.avatarId || randomDefaults.avatarId;
 
       for (let attempt = 0; attempt < 5; attempt++) {
         const publicId = generateAccountPublicId();

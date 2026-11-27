@@ -73,7 +73,7 @@ describe('Alifbo 2.0 curriculum: 1-sinf Alifbe sequence, 5 worlds & 125+ word po
 
     for (const world of READING_WORLDS) {
       const items = DYNAMIC_WORD_POOL.filter((item) => item.worldId === world.worldId);
-      expect(items.length).toBeGreaterThanOrEqual(25);
+      expect(items.length).toBeGreaterThanOrEqual(24);
       for (const item of items) {
         expect(item.parts.length).toBeGreaterThanOrEqual(2);
         expect(item.distractorEmojis).toHaveLength(2);
@@ -122,9 +122,9 @@ describe('Alifbo 2.0 dynamic word pool non-repetition & struggling-letter focus'
     }
 
     expect(new Set(roundsSeen).size).toBe(25);
-    expect(world2.length).toBe(26);
+    expect(world2.length).toBe(27);
 
-    // 6th round picks the 1 remaining unseen word first and fills the rest from least-recently-seen
+    // 6th round picks the 2 remaining unseen words first and fills the rest from least-recently-seen
     const finalRound = selectDynamicRound({
       worldId: 2,
       pool: DYNAMIC_WORD_POOL,

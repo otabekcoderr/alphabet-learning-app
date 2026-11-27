@@ -1,13 +1,49 @@
 interface WorldIslandArtProps {
-  worldId: 1 | 2 | 3 | 4 | 5;
+  worldId: 1 | 2 | 3 | 4 | 5 | 'syllable_forest';
   className?: string;
 }
 
 /**
- * Five bespoke storybook floating island illustrations matching the Alifbo 2.2
- * 5-World Adventure Map (Mockups 04 & 12), rendered crisply at any scale.
+ * Storybook floating island illustrations for the 5 Reading Worlds plus the
+ * upcoming "Bo‘g‘inlashni o‘rgatish" forest island, rendered crisply at any scale.
  */
 export function WorldIslandArt({ worldId, className = '' }: WorldIslandArtProps) {
+  if (worldId === 'syllable_forest') {
+    // Bo'g'inlashni o'rgatish — Dedicated Mystic Syllable Forest (Tez kunda)
+    return (
+      <svg
+        viewBox="0 0 180 128"
+        fill="none"
+        xmlns="http://www.w3.org/2000/svg"
+        className={`world-island-svg ${className}`.trim()}
+        aria-hidden="true"
+      >
+        <ellipse cx="90" cy="112" rx="76" ry="12" fill="#BAE6FD" fillOpacity="0.85" />
+        <ellipse cx="90" cy="109" rx="64" ry="8" fill="#E0F2FE" />
+        <path d="M22 92C22 104 52 111 90 111C128 111 158 104 158 92V85H22V92Z" fill="#9A663B" stroke="#5C3A21" strokeWidth="2.5" />
+        <ellipse cx="90" cy="85" rx="68" ry="15" fill="#34D399" stroke="#065F46" strokeWidth="2.5" />
+        {/* Pine & storybook forest trees */}
+        <path d="M40 78L52 44L64 78H40Z" fill="#059669" stroke="#064E3B" strokeWidth="2.2" strokeLinejoin="round" />
+        <path d="M44 58L52 34L60 58H44Z" fill="#10B981" stroke="#064E3B" strokeWidth="2" strokeLinejoin="round" />
+        <path d="M116 78L128 44L140 78H116Z" fill="#059669" stroke="#064E3B" strokeWidth="2.2" strokeLinejoin="round" />
+        <path d="M120 58L128 34L136 58H120Z" fill="#10B981" stroke="#064E3B" strokeWidth="2" strokeLinejoin="round" />
+        {/* Two connecting syllable blocks in the forest clearing */}
+        <rect x="61" y="42" width="26" height="24" rx="7" fill="#38BDF8" stroke="#0369A1" strokeWidth="2.2" />
+        <text x="74" y="59" textAnchor="middle" fill="#FFFFFF" fontSize="12" fontWeight="800" fontFamily="Fredoka, Nunito, sans-serif">
+          BO
+        </text>
+        <rect x="93" y="42" width="26" height="24" rx="7" fill="#F59E0B" stroke="#B45309" strokeWidth="2.2" />
+        <text x="106" y="59" textAnchor="middle" fill="#FFFFFF" fontSize="12" fontWeight="800" fontFamily="Fredoka, Nunito, sans-serif">
+          LA
+        </text>
+        <path d="M87 54H93" stroke="#FEF08A" strokeWidth="3" strokeLinecap="round" />
+        <circle cx="90" cy="24" r="3" fill="#FDE047" />
+        <path d="M70 28L72 32L76 34L72 36L70 40L68 36L64 34L68 32Z" fill="#FDE047" />
+        <path d="M112 24L114 28L118 30L114 32L112 36L110 32L106 30L110 28Z" fill="#38BDF8" />
+      </svg>
+    );
+  }
+
   if (worldId === 1) {
     // 1-olam: Ilk bo'g'inlar o'rmoni — Lush Forest Island
     return (

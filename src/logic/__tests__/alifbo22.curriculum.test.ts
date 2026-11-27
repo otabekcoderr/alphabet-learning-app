@@ -10,17 +10,17 @@ import {
 } from '../../data/curriculum';
 
 describe('Alifbo 2.2 curriculum invariants, Stage Gate fixes, and Uzbek graphemes', () => {
-  it('contains 139 unique items across 5 worlds (26, 26, 35, 26, 26) with zero invariant violations', () => {
+  it('contains 138 unique items across 5 worlds (24, 27, 35, 26, 26) with zero invariant violations', () => {
     expect(READING_WORLDS).toHaveLength(5);
-    expect(DYNAMIC_WORD_POOL).toHaveLength(139);
+    expect(DYNAMIC_WORD_POOL).toHaveLength(138);
 
     const uniqueIds = new Set(DYNAMIC_WORD_POOL.map((item) => item.id));
-    expect(uniqueIds.size).toBe(139);
+    expect(uniqueIds.size).toBe(138);
 
     const worldCounts = [1, 2, 3, 4, 5].map(
       (w) => DYNAMIC_WORD_POOL.filter((item) => item.worldId === w).length,
     );
-    expect(worldCounts).toEqual([26, 26, 35, 26, 26]);
+    expect(worldCounts).toEqual([24, 27, 35, 26, 26]);
 
     const report = validateWordPoolInvariants(DYNAMIC_WORD_POOL);
     expect(report.violations).toEqual([]);

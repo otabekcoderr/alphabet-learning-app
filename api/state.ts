@@ -1,10 +1,98 @@
 import { ensureSchema, getSql, isDbConfigured } from './_lib/db.js';
 import { handleHealthCheck } from './_lib/health.js';
+import { consumeRateLimit, isAllowedAppOrigin } from './_lib/rateLimit.js';
 import { dbUnavailableResponse, getSessionUserId, jsonResponse } from './_lib/session.js';
 import { getTashkentDateString } from './_lib/telegramBot.js';
 
 const MAX_STATE_BYTES = 512 * 1024;
 const ISO_DATE_REGEX = /^\d{4}-\d{2}-\d{2}$/;
+export const MAX_SERVER_STARS = 50_000;
+export const MAX_SERVER_SESSIONS = 100_000;
+export const MAX_SERVER_DAILY_SECONDS = 86_400;
+export const MAX_SERVER_WORD_PROGRESS_KEYS = 500;
+export const MAX_SERVER_LETTER_MASTERY_KEYS = 40;
+
+function isPlainRecord(val: unknown): val is Record<string, unknown> {
+  return Boolean(val) && typeof val === 'object' && !Array.isArray(val);
+}
+
+/** Clamp numeric bounds and cap collection sizes before persisting user state to Postgres. */
+export function sanitizeServerStatePayload(
+  stateObj: Record<string, unknown>,
+  todayUz: string = getTashkentDateString(),
+): Record<string, unknown> {
+  const next: Record<string, unknown> = { ...stateObj };
+
+  if (typeof next.totalStars === 'number') {
+    next.totalStars = Number.isFinite(next.totalStars)
+      ? Math.min(MAX_SERVER_STARS, Math.max(0, Math.trunc(next.totalStars)))
+      : 0;
+  }
+  if (typeof next.totalEffortStars === 'number') {
+    next.totalEffortStars = Number.isFinite(next.totalEffortStars)
+      ? Math.min(MAX_SERVER_STARS, Math.max(0, Math.trunc(next.totalEffortStars)))
+      : 0;
+  }
+  if (typeof next.todayPracticedSeconds === 'number') {
+    next.todayPracticedSeconds = Number.isFinite(next.todayPracticedSeconds)
+      ? Math.min(MAX_SERVER_DAILY_SECONDS, Math.max(0, Math.round(next.todayPracticedSeconds)))
+      : 0;
+  }
+  if (typeof next.completedSessionsCount === 'number') {
+    next.completedSessionsCount = Number.isFinite(next.completedSessionsCount)
+      ? Math.min(MAX_SERVER_SESSIONS, Math.max(0, Math.trunc(next.completedSessionsCount)))
+      : 0;
+  }
+
+  if (Array.isArray(next.practiceDates)) {
+    const cleanDates = new Set<string>();
+    for (const d of next.practiceDates) {
+      if (typeof d === 'string' && ISO_DATE_REGEX.test(d)) {
+        cleanDates.add(d > todayUz ? todayUz : d);
+      }
+    }
+    next.practiceDates = Array.from(cleanDates).sort().slice(-1095);
+  }
+
+  if (isPlainRecord(next.wordProgress)) {
+    const cappedWordProgress: Record<string, unknown> = {};
+    let count = 0;
+    for (const [k, v] of Object.entries(next.wordProgress)) {
+      if (count >= MAX_SERVER_WORD_PROGRESS_KEYS) break;
+      if (isPlainRecord(v)) {
+        cappedWordProgress[k] = v;
+        count += 1;
+      }
+    }
+    next.wordProgress = cappedWordProgress;
+  }
+
+  if (isPlainRecord(next.letterMastery)) {
+    const cappedLetterMastery: Record<string, unknown> = {};
+    let count = 0;
+    for (const [k, v] of Object.entries(next.letterMastery)) {
+      if (count >= MAX_SERVER_LETTER_MASTERY_KEYS) break;
+      if (isPlainRecord(v)) {
+        cappedLetterMastery[k] = v;
+        count += 1;
+      }
+    }
+    next.letterMastery = cappedLetterMastery;
+  }
+
+  if (Array.isArray(next.seenWordIds)) {
+    const seen = new Set<string>();
+    for (const id of next.seenWordIds) {
+      if (typeof id === 'string' && id.trim().length > 0 && id.length <= 64) {
+        seen.add(id);
+        if (seen.size >= 1000) break;
+      }
+    }
+    next.seenWordIds = Array.from(seen);
+  }
+
+  return next;
+}
 
 function computeStreakDays(sortedUniqueDates: string[]): number {
   if (sortedUniqueDates.length === 0) return 0;
@@ -121,6 +209,12 @@ export async function GET(request: Request): Promise<Response> {
 }
 
 export async function PUT(request: Request): Promise<Response> {
+  if (!isAllowedAppOrigin(request)) {
+    return jsonResponse(
+      { ok: false, code: 'state_forbidden_origin', errorUz: 'Ruxsat etilmagan manba.' },
+      403,
+    );
+  }
   if (!isDbConfigured()) {
     return dbUnavailableResponse();
   }
@@ -128,6 +222,20 @@ export async function PUT(request: Request): Promise<Response> {
   const userId = getSessionUserId(request);
   if (!userId) {
     return jsonResponse({ ok: false, errorUz: 'Avval tizimga kiring.' }, 401);
+  }
+
+  const rl = await consumeRateLimit({
+    scope: 'state_put_user',
+    key: userId,
+    limit: 30,
+    windowSec: 60,
+  });
+  if (!rl.allowed) {
+    return jsonResponse(
+      { ok: false, code: 'rate_limited', errorUz: "Juda ko'p saqlash so'rovi yuborildi. Biroz kuting." },
+      429,
+      { 'Retry-After': String(rl.retryAfterSec) },
+    );
   }
 
   let body: Record<string, unknown>;
@@ -142,7 +250,8 @@ export async function PUT(request: Request): Promise<Response> {
     return jsonResponse({ ok: false, errorUz: "state obyekti noto'g'ri." }, 400);
   }
 
-  const serialized = JSON.stringify(stateObj);
+  const sanitizedState = sanitizeServerStatePayload(stateObj as Record<string, unknown>);
+  const serialized = JSON.stringify(sanitizedState);
   if (Buffer.byteLength(serialized, 'utf8') > MAX_STATE_BYTES) {
     return jsonResponse({ ok: false, errorUz: "Ma'lumot hajmi juda katta." }, 413);
   }
@@ -160,7 +269,7 @@ export async function PUT(request: Request): Promise<Response> {
         updated_at = NOW()
     `;
 
-    const meta = extractUserActivityMeta(stateObj as Record<string, unknown>);
+    const meta = extractUserActivityMeta(sanitizedState);
     const todayUz = getTashkentDateString();
     const practicedToday = meta.latestPracticeDate === todayUz;
 

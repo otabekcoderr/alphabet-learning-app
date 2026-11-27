@@ -1,26 +1,19 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  authenticateParentAccount,
-  authenticateParentAccountRemote,
-  authenticateWithTelegramCode,
-  buildTelegramBotDeepLink,
+  authenticateWithTelegramWebApp,
   DEFAULT_TELEGRAM_BOT_USERNAME,
   fetchAuthProviders,
   hasRegisteredParentAccounts,
-  normalizeTelegramAuthCode,
   pollTelegramAuthStatus,
-  registerParentAccount,
-  registerParentAccountRemote,
   sanitizeTelegramBotUsername,
   startTelegramDeepLinkAuth,
   type AuthProvidersStatus,
   type ParentAccountSession,
 } from '../logic/auth';
-import { AVATAR_OPTIONS, NICKNAME_PRESETS } from '../logic/gamification';
 import { playFeedbackChime } from '../utils/audioRecorder';
-import { AvatarVisual } from './AvatarVisual';
-import { ArrowLeft, ArrowRight } from './Icons';
+import { getTelegramWebAppInitData, isTelegramWebAppContext } from '../utils/telegramWebApp';
+import { ArrowLeft } from './Icons';
 import { StorybookBackdrop } from './StorybookBackdrop';
 
 interface AuthScreenProps {
@@ -79,7 +72,7 @@ function TelegramIcon() {
 }
 
 /**
- * Full-screen Sign Up / Sign In gate rendered in the Alifbo storybook aesthetic.
+ * Full-screen Sign Up / Sign In gate offering frictionless Telegram & Google auth only.
  */
 export function AuthScreen({
   initialMode,
@@ -95,22 +88,13 @@ export function AuthScreen({
   const [mode, setMode] = useState<AuthMode>(() =>
     initialMode ?? (hasRegisteredParentAccounts() ? 'login' : 'signup'),
   );
-  const [contact, setContact] = useState('');
-  const [password, setPassword] = useState('');
-  const [childName, setChildName] = useState(() => defaultChildName.trim());
-  const [selectedAvatarId, setSelectedAvatarId] = useState<string | null>(() =>
-    defaultAvatarId.trim() ? defaultAvatarId.trim() : null,
-  );
   const [error, setError] = useState<string | null>(initialError);
-  const [submitting, setSubmitting] = useState(false);
   const [providers, setProviders] = useState<AuthProvidersStatus | null>(null);
   const [tgBotOpen, setTgBotOpen] = useState(false);
   const [tgStarting, setTgStarting] = useState(false);
   const [tgToken, setTgToken] = useState<string | null>(null);
   const [tgDeepLink, setTgDeepLink] = useState<string | null>(null);
   const [tgStatus, setTgStatus] = useState<'idle' | 'waiting' | 'expired'>('idle');
-  const [tgCode, setTgCode] = useState('');
-  const [tgSubmitting, setTgSubmitting] = useState(false);
   const tgPollBusyRef = useRef(false);
   const onAuthenticatedRef = useRef(onAuthenticated);
   onAuthenticatedRef.current = onAuthenticated;
@@ -206,14 +190,6 @@ export function AuthScreen({
     };
   }, [tgBotOpen, tgToken, tgStatus]);
 
-  const canSubmitSignup =
-    contact.trim().length >= 4 &&
-    password.length >= 6 &&
-    childName.trim().length >= 1 &&
-    selectedAvatarId !== null;
-
-  const canSubmitLogin = contact.trim().length >= 1 && password.length >= 1;
-
   const switchMode = (nextMode: AuthMode) => {
     playFeedbackChime('pop');
     setMode(nextMode);
@@ -222,7 +198,7 @@ export function AuthScreen({
   };
 
   const handleGoogleClick = () => {
-    if (submitting || tgSubmitting || tgStarting) return;
+    if (tgStarting) return;
     setError(null);
 
     if (!providers?.dbConfigured) {
@@ -244,9 +220,9 @@ export function AuthScreen({
     playFeedbackChime('pop');
     onBeforeExternalRedirect?.();
     const params = new URLSearchParams();
-    const effectiveChildName = childName.trim() || defaultChildName.trim();
-    const effectiveAvatarId = selectedAvatarId || defaultAvatarId.trim();
-    if (mode === 'signup' || isGuestUpgrade) {
+    const effectiveChildName = defaultChildName.trim();
+    const effectiveAvatarId = defaultAvatarId.trim();
+    if (isGuestUpgrade) {
       if (effectiveChildName) params.set('childName', effectiveChildName);
       if (effectiveAvatarId) params.set('avatarId', effectiveAvatarId);
     }
@@ -255,8 +231,39 @@ export function AuthScreen({
   };
 
   const startDeepLinkFlow = async () => {
-    if (submitting || tgSubmitting || tgStarting) return;
+    if (tgStarting) return;
     setError(null);
+
+    const effectiveChildName = defaultChildName.trim();
+    const effectiveAvatarId = defaultAvatarId.trim();
+
+    // Zero-click WebApp auth when running inside Telegram Mini App
+    const webAppInitData = isTelegramWebAppContext() ? getTelegramWebAppInitData() : '';
+    if (webAppInitData) {
+      playFeedbackChime('pop');
+      setTgStarting(true);
+      const res = await authenticateWithTelegramWebApp({
+        initData: webAppInitData,
+        childName: isGuestUpgrade && effectiveChildName ? effectiveChildName : undefined,
+        avatarId: isGuestUpgrade && effectiveAvatarId ? effectiveAvatarId : undefined,
+      });
+      setTgStarting(false);
+      if (res.ok) {
+        playFeedbackChime('chime');
+        onAuthenticated({
+          session: res.session,
+          childName: res.childName,
+          avatarId: res.avatarId,
+          isNewSignup: res.isNewSignup,
+          remoteState: res.state,
+          isRemote: res.dbSynced ?? true,
+        });
+        return;
+      }
+      playFeedbackChime('soft-bonk');
+      setError(res.errorUz);
+      return;
+    }
 
     if (providers === null) {
       return;
@@ -286,12 +293,10 @@ export function AuthScreen({
     setTgToken(null);
     setTgDeepLink(null);
 
-    const effectiveChildName = childName.trim() || defaultChildName.trim();
-    const effectiveAvatarId = selectedAvatarId || defaultAvatarId.trim();
     const res = await startTelegramDeepLinkAuth({
       mode,
-      childName: (mode === 'signup' || isGuestUpgrade) && effectiveChildName ? effectiveChildName : undefined,
-      avatarId: (mode === 'signup' || isGuestUpgrade) && effectiveAvatarId ? effectiveAvatarId : undefined,
+      childName: isGuestUpgrade && effectiveChildName ? effectiveChildName : undefined,
+      avatarId: isGuestUpgrade && effectiveAvatarId ? effectiveAvatarId : undefined,
     });
     setTgStarting(false);
 
@@ -306,147 +311,6 @@ export function AuthScreen({
     setTgStatus('waiting');
 
     window.open(res.deepLink, '_blank', 'noopener,noreferrer');
-  };
-
-  const handleTelegramCodeSubmit = async () => {
-    if (tgSubmitting || submitting || tgStarting) return;
-    setError(null);
-
-    const cleanCode = normalizeTelegramAuthCode(tgCode);
-    if (cleanCode.length !== 6) {
-      playFeedbackChime('soft-bonk');
-      setError('Telegram bot yuborgan 6 xonali kodni kiriting.');
-      return;
-    }
-
-    setTgSubmitting(true);
-    const effectiveChildName = childName.trim() || defaultChildName.trim();
-    const effectiveAvatarId = selectedAvatarId || defaultAvatarId.trim();
-    const res = await authenticateWithTelegramCode({
-      code: cleanCode,
-      childName: (mode === 'signup' || isGuestUpgrade) && effectiveChildName ? effectiveChildName : undefined,
-      avatarId: (mode === 'signup' || isGuestUpgrade) && effectiveAvatarId ? effectiveAvatarId : undefined,
-    });
-    setTgSubmitting(false);
-
-    if (!res.ok) {
-      playFeedbackChime('soft-bonk');
-      setError(res.errorUz);
-      return;
-    }
-
-    resetTelegramFlow(true);
-    playFeedbackChime('chime');
-    onAuthenticated({
-      session: res.session,
-      childName: res.childName,
-      avatarId: res.avatarId,
-      isNewSignup: res.isNewSignup,
-      remoteState: res.state,
-      isRemote: true,
-    });
-  };
-
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (submitting || tgSubmitting || tgStarting) return;
-    resetTelegramFlow(true);
-    setError(null);
-
-    const resolvedProviders = providers ?? (await fetchAuthProviders());
-    if (!providers) {
-      setProviders(resolvedProviders);
-    }
-
-    if (mode === 'signup') {
-      if (!selectedAvatarId) {
-        playFeedbackChime('soft-bonk');
-        setError('8 ta qahramondan birini tanlang.');
-        return;
-      }
-
-      if (resolvedProviders.dbConfigured) {
-        setSubmitting(true);
-        const res = await registerParentAccountRemote({
-          contact,
-          password,
-          childName,
-          avatarId: selectedAvatarId,
-        });
-        setSubmitting(false);
-        if (!res.ok) {
-          playFeedbackChime('soft-bonk');
-          setError(res.errorUz);
-          return;
-        }
-        playFeedbackChime('chime');
-        onAuthenticated({
-          session: res.session,
-          childName: res.childName,
-          avatarId: res.avatarId,
-          isNewSignup: true,
-          remoteState: res.state,
-          isRemote: true,
-        });
-        return;
-      }
-
-      const res = registerParentAccount({
-        contact,
-        password,
-        childName,
-        avatarId: selectedAvatarId,
-      });
-      if (!res.ok) {
-        playFeedbackChime('soft-bonk');
-        setError(res.errorUz);
-        return;
-      }
-      playFeedbackChime('chime');
-      onAuthenticated({
-        session: res.session,
-        childName: res.profile.name,
-        avatarId: res.profile.avatarId,
-        isNewSignup: true,
-      });
-      return;
-    }
-
-    if (resolvedProviders.dbConfigured) {
-      setSubmitting(true);
-      const res = await authenticateParentAccountRemote({ contact, password });
-      setSubmitting(false);
-      if (!res.ok) {
-        playFeedbackChime('soft-bonk');
-        setError(res.errorUz);
-        return;
-      }
-      playFeedbackChime('chime');
-      onAuthenticated({
-        session: res.session,
-        childName: res.childName,
-        avatarId: res.avatarId,
-        isNewSignup: false,
-        remoteState: res.state,
-        isRemote: true,
-      });
-      return;
-    }
-
-    const res = authenticateParentAccount({ contact, password });
-    if (!res.ok) {
-      playFeedbackChime('soft-bonk');
-      setError(res.errorUz);
-      return;
-    }
-    resetTelegramFlow(true);
-    playFeedbackChime('chime');
-    onAuthenticated({
-      session: res.session,
-      childName: res.childName,
-      avatarId: res.avatarId,
-      isNewSignup: false,
-    });
   };
 
   return (
@@ -481,7 +345,7 @@ export function AuthScreen({
       >
         {isGuestUpgrade && (
           <div className="feedback-banner feedback-success" style={{ marginBottom: 12 }}>
-            Sinov rejimidagi barcha yulduzlar va o‘qilgan so‘zlar yangi hisobingizga avtomatik
+            Sinov rejimidagi barcha yulduzlar va o‘qilgan so‘zlar hisobingizga avtomatik
             ko‘chiriladi hamda doimiy 8 xonali ID beriladi.
           </div>
         )}
@@ -507,31 +371,21 @@ export function AuthScreen({
         </div>
 
         <h1 id="auth-screen-title" className="fullscreen-flow-title">
-          {mode === 'signup' ? 'Yangi hisob va bola profili' : 'Hisobga kirish'}
+          {mode === 'signup' ? 'Tezkor ro‘yxatdan o‘tish' : 'Hisobga kirish'}
         </h1>
         <p className="onboarding-text">
           {mode === 'signup'
-            ? 'Google, Telegram bot yoki telefon/pochta orqali hisob yarating va farzandingiz uchun qahramonni tanlang.'
-            : 'Google, Telegram bot yoki avval ro‘yxatdan o‘tgan telefon/pochta orqali kiring.'}
+            ? 'Telegram yoki Google orqali bir zumda hisob oching — parol va ortiqcha ma’lumot kiritish shart emas.'
+            : 'Telegram yoki Google orqali hisobingizga kiring.'}
         </p>
 
         <div className="auth-social-section">
           <div className="auth-social-grid">
             <button
               type="button"
-              className="auth-social-btn auth-social-btn-google"
-              onClick={handleGoogleClick}
-              disabled={submitting || tgSubmitting || tgStarting}
-            >
-              <GoogleIcon />
-              <span>Google orqali {mode === 'signup' ? 'ro‘yxatdan o‘tish' : 'kirish'}</span>
-            </button>
-
-            <button
-              type="button"
               className="auth-social-btn auth-social-btn-telegram"
               onClick={() => void startDeepLinkFlow()}
-              disabled={providers === null || submitting || tgSubmitting || tgStarting}
+              disabled={providers === null || tgStarting}
               aria-expanded={tgBotOpen}
             >
               <TelegramIcon />
@@ -539,9 +393,19 @@ export function AuthScreen({
                 {providers === null
                   ? 'Telegram tekshirilmoqda...'
                   : tgStarting
-                    ? 'Telegram havolasi tayyorlanmoqda...'
+                    ? 'Telegram ulanmoqda...'
                     : `Telegram orqali ${mode === 'signup' ? 'ro‘yxatdan o‘tish' : 'kirish'}`}
               </span>
+            </button>
+
+            <button
+              type="button"
+              className="auth-social-btn auth-social-btn-google"
+              onClick={handleGoogleClick}
+              disabled={tgStarting}
+            >
+              <GoogleIcon />
+              <span>Google orqali {mode === 'signup' ? 'ro‘yxatdan o‘tish' : 'kirish'}</span>
             </button>
 
             {tgBotOpen && providers?.telegram && (
@@ -613,55 +477,6 @@ export function AuthScreen({
                   </div>
                 )}
 
-                {providers.dbConfigured && (
-                  <details className="telegram-code-fallback">
-                    <summary>Havola ochilmasa: 6 xonali kod orqali kirish</summary>
-                    <div className="telegram-code-fallback-body">
-                      <p className="telegram-bot-step">
-                        Botga{' '}
-                        <a
-                          href={buildTelegramBotDeepLink(resolvedBotUsername, mode)}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                        >
-                          @{resolvedBotUsername}
-                        </a>{' '}
-                        ga kirib <code>/kod</code> yuboring va olingan 6 xonali kodni kiriting:
-                      </p>
-                      <div className="telegram-otp-row">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          autoComplete="one-time-code"
-                          maxLength={6}
-                          value={tgCode}
-                          onChange={(e) => {
-                            setTgCode(normalizeTelegramAuthCode(e.target.value));
-                            if (error) setError(null);
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                              e.preventDefault();
-                              void handleTelegramCodeSubmit();
-                            }
-                          }}
-                          placeholder="123456"
-                          className="parent-text-input telegram-otp-input"
-                          aria-label="Telegram 6 xonali tasdiqlash kodi"
-                        />
-                        <button
-                          type="button"
-                          className="btn-3d-emerald btn-compact"
-                          disabled={tgSubmitting || submitting || tgCode.length !== 6}
-                          onClick={() => void handleTelegramCodeSubmit()}
-                        >
-                          {tgSubmitting ? 'Tekshirilmoqda...' : 'Kodni tasdiqlash'}
-                        </button>
-                      </div>
-                    </div>
-                  </details>
-                )}
-
                 {error && (
                   <motion.div
                     initial={{ x: -6 }}
@@ -675,135 +490,24 @@ export function AuthScreen({
               </div>
             )}
           </div>
-
-          <div className="auth-or-divider">
-            <span>yoki telefon/pochta bilan</span>
-          </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="pin-form">
-          <label className="pin-label">
-            Telefon raqami yoki elektron pochta
-            <input
-              type="text"
-              autoComplete="username"
-              value={contact}
-              onChange={(e) => setContact(e.target.value)}
-              placeholder="+998 90 123 45 67 yoki email@example.uz"
-              className="parent-text-input auth-full-input"
-            />
-          </label>
-
-          <label className="pin-label">
-            {mode === 'signup' ? 'Parol (kamida 6 ta belgi)' : 'Parol'}
-            <input
-              type="password"
-              autoComplete={mode === 'signup' ? 'new-password' : 'current-password'}
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••"
-              className="parent-text-input auth-full-input"
-            />
-          </label>
-
-          {mode === 'signup' && (
-            <div className="auth-profile-section">
-              <div className="auth-divider" />
-              <h2 className="auth-section-heading">Bola profili</h2>
-
-              <label className="pin-label">
-                Bolaning ismi yoki taxallusi
-                <input
-                  type="text"
-                  maxLength={20}
-                  value={childName}
-                  onChange={(e) => setChildName(e.target.value)}
-                  placeholder="Masalan: Zukko"
-                  className="parent-text-input auth-full-input"
-                />
-              </label>
-
-              <div className="nickname-presets-row" aria-label="Tayyor taxalluslar">
-                {NICKNAME_PRESETS.map((preset) => (
-                  <button
-                    key={preset}
-                    type="button"
-                    className={`btn-3d-cream btn-compact ${childName === preset ? 'preset-active' : ''}`}
-                    onClick={() => {
-                      playFeedbackChime('pop');
-                      setChildName(preset);
-                    }}
-                  >
-                    {preset}
-                  </button>
-                ))}
-              </div>
-
-              <div className="pin-label" style={{ marginTop: 6 }}>
-                <span>Qahramonni tanlang (8 ta)</span>
-                <div className="avatar-picker-grid" role="radiogroup" aria-label="Qahramon tanlash">
-                  {AVATAR_OPTIONS.map((av) => {
-                    const selected = av.id === selectedAvatarId;
-                    return (
-                      <motion.button
-                        key={av.id}
-                        type="button"
-                        role="radio"
-                        aria-checked={selected}
-                        whileTap={{ scale: 0.94 }}
-                        className={`avatar-choice-btn ${selected ? 'avatar-choice-selected' : ''}`}
-                        style={{
-                          backgroundColor: av.bg,
-                          borderColor: selected ? '#059669' : av.border,
-                        }}
-                        onClick={() => {
-                          playFeedbackChime('pop');
-                          setSelectedAvatarId(av.id);
-                        }}
-                      >
-                        <span className="avatar-choice-emoji avatar-visual-wrap" aria-hidden="true">
-                          <AvatarVisual avatarId={av.id} size={36} />
-                        </span>
-                        <span className="avatar-choice-label">{av.label}</span>
-                      </motion.button>
-                    );
-                  })}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {error && !tgBotOpen && (
-            <motion.div
-              initial={{ x: -6 }}
-              animate={{ x: [0, -6, 6, -4, 4, 0] }}
-              transition={{ duration: 0.35 }}
-              className="feedback-banner feedback-gentle"
-            >
-              {error}
-            </motion.div>
-          )}
-
-          <button
-            type="submit"
-            className="btn-3d-emerald auth-submit-btn btn-with-icon"
-            disabled={
-              submitting ||
-              tgSubmitting ||
-              tgStarting ||
-              (mode === 'signup' ? !canSubmitSignup : !canSubmitLogin)
-            }
+        {error && !tgBotOpen && (
+          <motion.div
+            initial={{ x: -6 }}
+            animate={{ x: [0, -6, 6, -4, 4, 0] }}
+            transition={{ duration: 0.35 }}
+            className="feedback-banner feedback-gentle"
+            style={{ marginTop: 12 }}
           >
-            <span>
-              {submitting
-                ? 'Tekshirilmoqda...'
-                : mode === 'signup'
-                  ? 'Ro‘yxatdan o‘tish va davom etish'
-                  : 'Kirish'}
-            </span>
-            <ArrowRight size={18} />
-          </button>
-        </form>
+            {error}
+          </motion.div>
+        )}
+
+        <p className="muted-text" style={{ marginTop: 14, marginBottom: 0, fontSize: 13 }}>
+          Qahramoningiz — <strong>Zukko Tulki</strong>! O‘yin ichida bolaning taxallusi va rasmini
+          istalgan payt tasodifiy belgilashingiz yoki o‘zgartirishingiz mumkin.
+        </p>
       </motion.section>
     </div>
   );

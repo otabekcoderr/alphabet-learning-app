@@ -15,12 +15,75 @@ export interface ParentAccountSession {
 }
 
 export const GUEST_TRIAL_ACCOUNT_ID = 'guest_trial';
+export const GUEST_VISIT_COUNT_KEY = 'alifbo_guest_visit_count_v1';
+export const GUEST_SESSION_ACTIVE_KEY = 'alifbo_guest_session_active_v1';
 
 /** Return true when the active session is a temporary device-only guest trial. */
 export function isGuestAccount(account: ParentAccountSession | null | undefined): boolean {
   return Boolean(
     account && (account.id === GUEST_TRIAL_ACCOUNT_ID || account.isGuest === true),
   );
+}
+
+/** Record/check Guest Trial visits across separate browser sessions to prompt registration on 2nd+ return. */
+export function registerGuestAppVisit(params: {
+  isGuest: boolean;
+  hasCompletedOnboarding: boolean;
+  localStore?: Storage | null;
+  sessionStore?: Storage | null;
+}): {
+  visitCount: number;
+  isNewBrowserSession: boolean;
+  shouldPromptReturnSignup: boolean;
+} {
+  const ls =
+    params.localStore !== undefined
+      ? params.localStore
+      : typeof window !== 'undefined'
+        ? window.localStorage
+        : null;
+  const ss =
+    params.sessionStore !== undefined
+      ? params.sessionStore
+      : typeof window !== 'undefined'
+        ? window.sessionStorage
+        : null;
+
+  if (!params.isGuest) {
+    try {
+      ls?.removeItem(GUEST_VISIT_COUNT_KEY);
+      ss?.removeItem(GUEST_SESSION_ACTIVE_KEY);
+    } catch {
+      // Ignore storage errors
+    }
+    return { visitCount: 0, isNewBrowserSession: false, shouldPromptReturnSignup: false };
+  }
+
+  let prevCount = 0;
+  let alreadyActiveInSession = false;
+  try {
+    const rawCount = Number(ls?.getItem(GUEST_VISIT_COUNT_KEY) ?? '0');
+    prevCount = Number.isFinite(rawCount) && rawCount > 0 ? Math.trunc(rawCount) : 0;
+    alreadyActiveInSession = ss?.getItem(GUEST_SESSION_ACTIVE_KEY) === '1';
+  } catch {
+    prevCount = 0;
+  }
+
+  const isNewBrowserSession = !alreadyActiveInSession;
+  const visitCount = isNewBrowserSession ? prevCount + 1 : Math.max(1, prevCount);
+
+  try {
+    ls?.setItem(GUEST_VISIT_COUNT_KEY, String(visitCount));
+    ss?.setItem(GUEST_SESSION_ACTIVE_KEY, '1');
+  } catch {
+    // Ignore storage errors
+  }
+
+  return {
+    visitCount,
+    isNewBrowserSession,
+    shouldPromptReturnSignup: params.hasCompletedOnboarding && visitCount >= 2,
+  };
 }
 
 /** Return the permanent 8-digit public ID only for registered accounts (never for Guest Trial). */
@@ -539,6 +602,57 @@ export async function authenticateParentAccountRemote(params: {
     return {
       ok: false,
       errorUz: 'Server bilan bog‘lanib bo‘lmadi. Internetni tekshiring.',
+    };
+  }
+}
+
+export async function authenticateWithTelegramWebApp(payload: {
+  initData: string;
+  childName?: string;
+  avatarId?: string;
+}): Promise<RemoteAuthResult & { dbSynced?: boolean }> {
+  try {
+    const res = await fetch('/api/auth/telegram?action=webapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({
+        initData: payload.initData,
+        childName: payload.childName,
+        avatarId: payload.avatarId,
+      }),
+    });
+    const data = (await res.json()) as {
+      ok?: boolean;
+      code?: string;
+      errorUz?: string;
+      dbSynced?: boolean;
+      session?: ParentAccountSession;
+      childName?: string;
+      avatarId?: string;
+      isNewSignup?: boolean;
+      state?: unknown;
+    };
+    if (!res.ok || !data.ok || !data.session) {
+      return {
+        ok: false,
+        code: data.code,
+        errorUz: data.errorUz || 'Telegram WebApp orqali kirishda xatolik yuz berdi.',
+      };
+    }
+    return {
+      ok: true,
+      dbSynced: Boolean(data.dbSynced),
+      session: data.session,
+      childName: data.childName || 'Bolajon',
+      avatarId: data.avatarId || 'fox',
+      isNewSignup: Boolean(data.isNewSignup),
+      state: data.state ?? null,
+    };
+  } catch {
+    return {
+      ok: false,
+      errorUz: 'Telegram WebApp serveri bilan bog‘lanib bo‘lmadi.',
     };
   }
 }

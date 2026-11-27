@@ -21,6 +21,7 @@ import {
 import {
   AVATAR_OPTIONS,
   buildWeekStreakDays,
+  createRandomChildProfile,
   getAvatarOption,
   NICKNAME_PRESETS,
 } from '../logic/gamification';
@@ -1084,9 +1085,25 @@ export function ParentCorner({
             <section className="parent-card">
               <h3 className="parent-card-h3-icon">
                 <MascotSvg size={26} />
-                <span>Bola taxallusi va qahramoni</span>
+                <span>Bola taxallusi va rasmi</span>
               </h3>
               <div className="nickname-presets-row">
+                <button
+                  type="button"
+                  className="btn-3d-gold btn-compact btn-with-icon"
+                  onClick={() => {
+                    playFeedbackChime('marimba');
+                    const next = createRandomChildProfile(Math.random, state.profile);
+                    onUpdateProfile({
+                      ...state.profile,
+                      name: next.name,
+                      avatarId: next.avatarId,
+                    });
+                  }}
+                >
+                  <RotateCcw size={14} />
+                  <span>Tasodifiy belgilash</span>
+                </button>
                 {NICKNAME_PRESETS.map((preset) => (
                   <button
                     key={preset}

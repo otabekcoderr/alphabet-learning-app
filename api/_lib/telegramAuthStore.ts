@@ -483,6 +483,19 @@ export async function consumeTelegramLinkSessionOnWebhook(params: {
     ) {
       return { ok: false, reason: 'expired_or_invalid' };
     }
+    const claimKey = `tg_link_claimed:${params.tokenHash}`;
+    const remainingSec = Math.max(10, Math.ceil((record.expiresAtMs - Date.now()) / 1000));
+    const lockRes = await runKvCommand<string | null>([
+      'SET',
+      claimKey,
+      '1',
+      'NX',
+      'EX',
+      String(remainingSec),
+    ]);
+    if (lockRes !== 'OK') {
+      return { ok: false, reason: 'expired_or_invalid' };
+    }
     await runKvCommand(['DEL', key]);
     return { ok: true, userId: record.linkUserId };
   }

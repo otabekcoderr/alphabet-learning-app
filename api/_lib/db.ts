@@ -47,150 +47,202 @@ export function getSql() {
   return _sql;
 }
 
-export async function ensureSchema(): Promise<void> {
+export function resetSchemaCache(): void {
+  _schemaPromise = null;
+}
+
+async function runSchemaProbeAndEnsure(sql: ReturnType<typeof neon>): Promise<void> {
+  try {
+    const probe = (await sql`
+      SELECT
+        to_regclass('public.users') AS users_tbl,
+        to_regclass('public.user_states') AS states_tbl,
+        to_regclass('public.telegram_auth_codes') AS tg_codes_tbl,
+        to_regclass('public.telegram_login_sessions') AS tg_login_tbl,
+        to_regclass('public.parent_notifications') AS notifs_tbl,
+        to_regclass('public.api_rate_limits') AS limits_tbl,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'users' AND column_name = 'current_streak_days'
+        ) AS has_users_v23,
+        EXISTS (
+          SELECT 1 FROM information_schema.columns
+          WHERE table_schema = 'public' AND table_name = 'telegram_login_sessions' AND column_name = 'link_user_id'
+        ) AS has_tg_link_col
+    `) as Array<{
+      users_tbl: string | null;
+      states_tbl: string | null;
+      tg_codes_tbl: string | null;
+      tg_login_tbl: string | null;
+      notifs_tbl: string | null;
+      limits_tbl: string | null;
+      has_users_v23: boolean;
+      has_tg_link_col: boolean;
+    }>;
+    const ready = probe[0];
+    if (
+      ready?.users_tbl &&
+      ready?.states_tbl &&
+      ready?.tg_codes_tbl &&
+      ready?.tg_login_tbl &&
+      ready?.notifs_tbl &&
+      ready?.limits_tbl &&
+      ready?.has_users_v23 &&
+      ready?.has_tg_link_col
+    ) {
+      return;
+    }
+  } catch {
+    // Fall through to idempotent DDL setup if probe fails
+  }
+
+  await sql`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      public_id TEXT UNIQUE,
+      provider TEXT NOT NULL DEFAULT 'password',
+      contact_key TEXT UNIQUE,
+      contact_display TEXT NOT NULL,
+      password_salt TEXT,
+      password_hash TEXT,
+      google_id TEXT UNIQUE,
+      telegram_id TEXT UNIQUE,
+      telegram_username TEXT,
+      display_name TEXT,
+      avatar_url TEXT,
+      child_name TEXT NOT NULL DEFAULT 'Bolajon',
+      avatar_id TEXT NOT NULL DEFAULT 'fox',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS public_id TEXT
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_reminder_enabled BOOLEAN NOT NULL DEFAULT TRUE
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_reminder_hour SMALLINT NOT NULL DEFAULT 19
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_bot_blocked BOOLEAN NOT NULL DEFAULT FALSE
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_practice_date TEXT
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminded_date TEXT
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS consecutive_missed_reminders SMALLINT NOT NULL DEFAULT 0
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS mastered_words_count INTEGER NOT NULL DEFAULT 0
+  `;
+  await sql`
+    ALTER TABLE users ADD COLUMN IF NOT EXISTS current_streak_days INTEGER NOT NULL DEFAULT 0
+  `;
+  await sql`
+    UPDATE users
+    SET telegram_chat_id = telegram_id
+    WHERE telegram_chat_id IS NULL AND telegram_id IS NOT NULL
+  `;
+  await sql`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_users_public_id
+    ON users (public_id)
+    WHERE public_id IS NOT NULL
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_users_tg_reminders
+    ON users (tg_reminder_hour, last_reminded_date)
+    WHERE tg_reminder_enabled = TRUE AND tg_bot_blocked = FALSE AND telegram_chat_id IS NOT NULL
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS user_states (
+      user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+      state_json JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS telegram_auth_codes (
+      code_hash TEXT PRIMARY KEY,
+      telegram_id TEXT NOT NULL,
+      telegram_username TEXT,
+      first_name TEXT NOT NULL DEFAULT '',
+      last_name TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      used_at TIMESTAMPTZ
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_tg_auth_codes_tg_id
+    ON telegram_auth_codes (telegram_id, created_at DESC)
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS telegram_login_sessions (
+      token_hash TEXT PRIMARY KEY,
+      status TEXT NOT NULL DEFAULT 'pending',
+      link_user_id TEXT,
+      child_name TEXT,
+      avatar_id TEXT,
+      telegram_id TEXT,
+      telegram_username TEXT,
+      first_name TEXT NOT NULL DEFAULT '',
+      last_name TEXT NOT NULL DEFAULT '',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      expires_at TIMESTAMPTZ NOT NULL,
+      approved_at TIMESTAMPTZ,
+      consumed_at TIMESTAMPTZ
+    )
+  `;
+  await sql`
+    ALTER TABLE telegram_login_sessions ADD COLUMN IF NOT EXISTS link_user_id TEXT
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_tg_login_sessions_expires
+    ON telegram_login_sessions (expires_at)
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS parent_notifications (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      title_uz TEXT NOT NULL,
+      body_uz TEXT NOT NULL,
+      read_at TIMESTAMPTZ,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_parent_notifications_user
+    ON parent_notifications (user_id, created_at DESC)
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS api_rate_limits (
+      bucket_key TEXT PRIMARY KEY,
+      hit_count INTEGER NOT NULL DEFAULT 1,
+      reset_at TIMESTAMPTZ NOT NULL,
+      alerted BOOLEAN NOT NULL DEFAULT FALSE
+    )
+  `;
+  await sql`
+    CREATE INDEX IF NOT EXISTS idx_api_rate_limits_reset
+    ON api_rate_limits (reset_at)
+  `;
+}
+
+export async function ensureSchema(sqlOverride?: ReturnType<typeof neon>): Promise<void> {
+  if (sqlOverride) {
+    return runSchemaProbeAndEnsure(sqlOverride);
+  }
   if (!_schemaPromise) {
-    _schemaPromise = (async () => {
-      const sql = getSql();
-      await sql`
-        CREATE TABLE IF NOT EXISTS users (
-          id TEXT PRIMARY KEY,
-          public_id TEXT UNIQUE,
-          provider TEXT NOT NULL DEFAULT 'password',
-          contact_key TEXT UNIQUE,
-          contact_display TEXT NOT NULL,
-          password_salt TEXT,
-          password_hash TEXT,
-          google_id TEXT UNIQUE,
-          telegram_id TEXT UNIQUE,
-          telegram_username TEXT,
-          display_name TEXT,
-          avatar_url TEXT,
-          child_name TEXT NOT NULL DEFAULT 'Bolajon',
-          avatar_id TEXT NOT NULL DEFAULT 'fox',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS public_id TEXT
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS telegram_chat_id TEXT
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_reminder_enabled BOOLEAN NOT NULL DEFAULT TRUE
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_reminder_hour SMALLINT NOT NULL DEFAULT 19
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS tg_bot_blocked BOOLEAN NOT NULL DEFAULT FALSE
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_practice_date TEXT
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminded_date TEXT
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS consecutive_missed_reminders SMALLINT NOT NULL DEFAULT 0
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS mastered_words_count INTEGER NOT NULL DEFAULT 0
-      `;
-      await sql`
-        ALTER TABLE users ADD COLUMN IF NOT EXISTS current_streak_days INTEGER NOT NULL DEFAULT 0
-      `;
-      await sql`
-        UPDATE users
-        SET telegram_chat_id = telegram_id
-        WHERE telegram_chat_id IS NULL AND telegram_id IS NOT NULL
-      `;
-      await sql`
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_public_id
-        ON users (public_id)
-        WHERE public_id IS NOT NULL
-      `;
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_users_tg_reminders
-        ON users (tg_reminder_hour, last_reminded_date)
-        WHERE tg_reminder_enabled = TRUE AND tg_bot_blocked = FALSE AND telegram_chat_id IS NOT NULL
-      `;
-      await sql`
-        CREATE TABLE IF NOT EXISTS user_states (
-          user_id TEXT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-          state_json JSONB NOT NULL,
-          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `;
-      await sql`
-        CREATE TABLE IF NOT EXISTS telegram_auth_codes (
-          code_hash TEXT PRIMARY KEY,
-          telegram_id TEXT NOT NULL,
-          telegram_username TEXT,
-          first_name TEXT NOT NULL DEFAULT '',
-          last_name TEXT NOT NULL DEFAULT '',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          expires_at TIMESTAMPTZ NOT NULL,
-          used_at TIMESTAMPTZ
-        )
-      `;
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_tg_auth_codes_tg_id
-        ON telegram_auth_codes (telegram_id, created_at DESC)
-      `;
-      await sql`
-        CREATE TABLE IF NOT EXISTS telegram_login_sessions (
-          token_hash TEXT PRIMARY KEY,
-          status TEXT NOT NULL DEFAULT 'pending',
-          link_user_id TEXT,
-          child_name TEXT,
-          avatar_id TEXT,
-          telegram_id TEXT,
-          telegram_username TEXT,
-          first_name TEXT NOT NULL DEFAULT '',
-          last_name TEXT NOT NULL DEFAULT '',
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-          expires_at TIMESTAMPTZ NOT NULL,
-          approved_at TIMESTAMPTZ,
-          consumed_at TIMESTAMPTZ
-        )
-      `;
-      await sql`
-        ALTER TABLE telegram_login_sessions ADD COLUMN IF NOT EXISTS link_user_id TEXT
-      `;
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_tg_login_sessions_expires
-        ON telegram_login_sessions (expires_at)
-      `;
-      await sql`
-        CREATE TABLE IF NOT EXISTS parent_notifications (
-          id TEXT PRIMARY KEY,
-          user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-          kind TEXT NOT NULL,
-          title_uz TEXT NOT NULL,
-          body_uz TEXT NOT NULL,
-          read_at TIMESTAMPTZ,
-          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )
-      `;
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_parent_notifications_user
-        ON parent_notifications (user_id, created_at DESC)
-      `;
-      await sql`
-        CREATE TABLE IF NOT EXISTS api_rate_limits (
-          bucket_key TEXT PRIMARY KEY,
-          hit_count INTEGER NOT NULL DEFAULT 1,
-          reset_at TIMESTAMPTZ NOT NULL,
-          alerted BOOLEAN NOT NULL DEFAULT FALSE
-        )
-      `;
-      await sql`
-        CREATE INDEX IF NOT EXISTS idx_api_rate_limits_reset
-        ON api_rate_limits (reset_at)
-      `;
-    })().catch((err) => {
+    _schemaPromise = runSchemaProbeAndEnsure(getSql()).catch((err) => {
       _schemaPromise = null;
       throw err;
     });

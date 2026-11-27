@@ -6,6 +6,7 @@ import {
 import { applyLetterReviewResult } from './logic/alphabetReview';
 import { startAsrHealthPolling } from './logic/asrHealth';
 import {
+  authenticateWithTelegramWebApp,
   fetchCurrentSession,
   generateAccountPublicId,
   getDisplayablePublicId,
@@ -13,8 +14,10 @@ import {
   isGuestAccount,
   isValidAccountPublicId,
   logoutRemoteSession,
+  registerGuestAppVisit,
   saveRemoteState,
 } from './logic/auth';
+import { createRandomChildProfile } from './logic/gamification';
 import { flushPendingTelegramMessages } from './services/telegramService';
 import {
   applyParentWordVerification,
@@ -48,12 +51,14 @@ import {
 } from './storage/progressStorage';
 import { BISMILLAH_AUDIO_PATH, BismillahStartCard } from './components/BismillahAlhamdulillah';
 import { ChildHome } from './components/ChildHome';
-import { Lock, Star } from './components/Icons';
+import { CloseIcon, Cloud, Lock, Star } from './components/Icons';
 import type { WordAttemptReport } from './components/LessonPlayer';
+import { MascotSvg } from './components/MascotSvg';
 import { StorybookBackdrop } from './components/StorybookBackdrop';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { playFeedbackChime, preloadLessonSessionAudio, startGestureAudioClip } from './utils/audioRecorder';
 import { setPwaReloadDeferral } from './utils/pwa';
+import { getTelegramWebAppInitData, initTelegramWebAppViewport } from './utils/telegramWebApp';
 
 const LazyAlphabetRecallDrawer = lazy(() =>
   import('./components/AlphabetRecallDrawer').then((m) => ({ default: m.AlphabetRecallDrawer })),
@@ -141,14 +146,19 @@ export function App() {
   const [parentUnlocked, setParentUnlocked] = useState<boolean>(false);
   const [upgradeAuthOpen, setUpgradeAuthOpen] = useState<boolean>(false);
   const [pinResetAuthOpen, setPinResetAuthOpen] = useState<boolean>(false);
+  const [sessionRestoreDone, setSessionRestoreDone] = useState<boolean>(false);
+  const [guestReturnPromptOpen, setGuestReturnPromptOpen] = useState<boolean>(false);
+  const guestPromptCheckedRef = useRef<boolean>(false);
 
   useEffect(() => {
     saveAlifboState(state);
   }, [state]);
 
-  // Restore remote session from HttpOnly cookie + handle OAuth redirect callbacks & Guest migration
+  // Restore remote session from HttpOnly cookie, auto-login via Telegram WebApp initData, & handle Guest migration
   useEffect(() => {
     let active = true;
+    initTelegramWebAppViewport();
+    const tgInitData = getTelegramWebAppInitData();
     void flushPendingTelegramMessages();
 
     const params = new URLSearchParams(window.location.search);
@@ -164,59 +174,100 @@ export function App() {
       setGateView({ screen: 'auth', mode: 'login' });
     }
 
-    void fetchCurrentSession().then((res) => {
-      if (!active) return;
-      if (res.authenticated && res.session) {
-        const remoteSession = {
-          ...res.session,
-          isGuest: false,
-          publicId: isValidAccountPublicId(res.session.publicId)
-            ? res.session.publicId
-            : generateAccountPublicId(),
-        };
-        const stagedGuest = consumeGuestMigrationSnapshot();
-        const shouldResetPin = consumePendingPinReset(remoteSession.id);
-        setRemoteSessionActive(true);
-        setAuthUrlError(null);
-        setUpgradeAuthOpen(false);
-        setPinResetAuthOpen(false);
-        const hydrated = hydrateAlifboState(res.state);
+    const applyAuthenticatedSession = (payload: {
+      session: NonNullable<AlifboState['account']>;
+      childName?: string;
+      avatarId?: string;
+      state?: unknown | null;
+      dbSynced?: boolean;
+    }) => {
+      const remoteSession = {
+        ...payload.session,
+        isGuest: false,
+        publicId: isValidAccountPublicId(payload.session.publicId)
+          ? payload.session.publicId
+          : generateAccountPublicId(),
+      };
+      const stagedGuest = consumeGuestMigrationSnapshot();
+      const shouldResetPin = consumePendingPinReset(remoteSession.id);
+      setRemoteSessionActive(payload.dbSynced !== false);
+      setAuthUrlError(null);
+      setUpgradeAuthOpen(false);
+      setPinResetAuthOpen(false);
+      setGuestReturnPromptOpen(false);
+      registerGuestAppVisit({ isGuest: false, hasCompletedOnboarding: true });
+      const hydrated = hydrateAlifboState(payload.state);
 
-        setState((prev) => {
-          const guestSource =
-            stagedGuest ??
-            (isGuestAccount(prev.account) || prev.progressOwnerId === GUEST_TRIAL_ACCOUNT_ID
-              ? prev
-              : null);
-          const merged = mergeAlifboStates({
-            remoteState: hydrated,
-            guestState: guestSource,
-            session: remoteSession,
-            childName: res.childName,
-            avatarId: res.avatarId,
-          });
-          if (shouldResetPin) {
-            return {
-              ...merged.state,
-              pinSalt: null,
-              pinHash: null,
-              recoveryCodeHash: null,
-              pinLockout: clearPinLockout(),
-            };
-          }
-          if (!merged.state.pendingRemoteSync) {
-            skipNextRemoteSyncRef.current = true;
-          }
-          return merged.state;
+      setState((prev) => {
+        const guestSource =
+          stagedGuest ??
+          (isGuestAccount(prev.account) || prev.progressOwnerId === GUEST_TRIAL_ACCOUNT_ID
+            ? prev
+            : null);
+        const merged = mergeAlifboStates({
+          remoteState: hydrated,
+          guestState: guestSource,
+          session: remoteSession,
+          childName: payload.childName,
+          avatarId: payload.avatarId,
         });
         if (shouldResetPin) {
-          setPinModalOpen(true);
+          return {
+            ...merged.state,
+            pinSalt: null,
+            pinHash: null,
+            recoveryCodeHash: null,
+            pinLockout: clearPinLockout(),
+          };
         }
-      } else {
+        if (!merged.state.pendingRemoteSync) {
+          skipNextRemoteSyncRef.current = true;
+        }
+        return merged.state;
+      });
+      if (shouldResetPin) {
+        setPinModalOpen(true);
+      }
+    };
+
+    void (async () => {
+      try {
+        const res = await fetchCurrentSession();
+        if (!active) return;
+        if (res.authenticated && res.session) {
+          applyAuthenticatedSession({
+            session: res.session,
+            childName: res.childName,
+            avatarId: res.avatarId,
+            state: res.state,
+            dbSynced: true,
+          });
+          return;
+        }
+
+        if (tgInitData) {
+          const tgRes = await authenticateWithTelegramWebApp({ initData: tgInitData });
+          if (!active) return;
+          if (tgRes.ok) {
+            applyAuthenticatedSession({
+              session: tgRes.session,
+              childName: tgRes.childName,
+              avatarId: tgRes.avatarId,
+              state: tgRes.state,
+              dbSynced: tgRes.dbSynced ?? true,
+            });
+            return;
+          }
+        }
+
         clearGuestMigrationSnapshot();
         clearPendingPinReset();
+      } finally {
+        if (active) {
+          setSessionRestoreDone(true);
+        }
       }
-    });
+    })();
 
     return () => {
       active = false;
@@ -492,6 +543,9 @@ export function App() {
     setEditingSurvey(false);
     setUpgradeAuthOpen(false);
     setPinResetAuthOpen(false);
+    setGuestReturnPromptOpen(false);
+    guestPromptCheckedRef.current = false;
+    registerGuestAppVisit({ isGuest: false, hasCompletedOnboarding: false });
     setRemoteSessionActive(false);
     setAuthUrlError(null);
     setBismillahPending(false);
@@ -512,26 +566,41 @@ export function App() {
   const handleStartGuestTrial = useCallback(() => {
     const nowIso = new Date().toISOString();
     setUpgradeAuthOpen(false);
-    setState((prev) => ({
-      ...prev,
-      account: {
-        id: GUEST_TRIAL_ACCOUNT_ID,
-        isGuest: true,
-        publicId: undefined,
-        contact: 'Sinov rejimi',
-        createdAt: nowIso,
-        signedInAt: nowIso,
-      },
-      progressOwnerId: GUEST_TRIAL_ACCOUNT_ID,
-      pendingRemoteSync: false,
-      profile: {
-        ...prev.profile,
-        name: prev.profile.name || 'Bolajon',
-        avatarId: prev.profile.avatarId || 'fox',
-      },
-    }));
+    const visitInfo = registerGuestAppVisit({
+      isGuest: true,
+      hasCompletedOnboarding: state.surveyData !== null,
+    });
+    if (visitInfo.shouldPromptReturnSignup) {
+      guestPromptCheckedRef.current = true;
+      setGuestReturnPromptOpen(true);
+    }
+    setState((prev) => {
+      const shouldRandomize =
+        prev.profile.name === 'Bolajon' &&
+        prev.profile.avatarId === 'fox' &&
+        prev.seenWordIds.length === 0;
+      const randomProfile = shouldRandomize ? createRandomChildProfile() : null;
+      return {
+        ...prev,
+        account: {
+          id: GUEST_TRIAL_ACCOUNT_ID,
+          isGuest: true,
+          publicId: undefined,
+          contact: 'Sinov rejimi',
+          createdAt: nowIso,
+          signedInAt: nowIso,
+        },
+        progressOwnerId: GUEST_TRIAL_ACCOUNT_ID,
+        pendingRemoteSync: false,
+        profile: {
+          ...prev.profile,
+          name: randomProfile?.name ?? (prev.profile.name || 'Bolajon'),
+          avatarId: randomProfile?.avatarId ?? (prev.profile.avatarId || 'fox'),
+        },
+      };
+    });
     setTab('home');
-  }, []);
+  }, [state.surveyData]);
 
   const handleAuthenticatedSuccess = useCallback(
     (payload: {
@@ -602,6 +671,27 @@ export function App() {
 
   const isGuest = isGuestAccount(state.account);
   const displayPublicId = getDisplayablePublicId(state.account);
+
+  useEffect(() => {
+    if (!sessionRestoreDone || state.account === null) return;
+    if (!isGuest) {
+      registerGuestAppVisit({ isGuest: false, hasCompletedOnboarding: true });
+      setGuestReturnPromptOpen(false);
+      guestPromptCheckedRef.current = false;
+      return;
+    }
+    if (guestPromptCheckedRef.current || state.surveyData === null) {
+      return;
+    }
+    guestPromptCheckedRef.current = true;
+    const visitInfo = registerGuestAppVisit({
+      isGuest: true,
+      hasCompletedOnboarding: true,
+    });
+    if (visitInfo.shouldPromptReturnSignup) {
+      setGuestReturnPromptOpen(true);
+    }
+  }, [sessionRestoreDone, state.account, isGuest, state.surveyData]);
 
   const totalStarsAll = state.totalStars + state.totalEffortStars;
   const masteredWordsCount = useMemo(
@@ -708,7 +798,7 @@ export function App() {
       <Suspense fallback={<ScreenLoadingFallback />}>
         <LazyOnboardingSurveyPage
           childName={state.profile.name}
-          avatarId={state.profile.avatarId}
+          avatarId="fox"
           publicId={displayPublicId}
           isGuest={isGuest}
           initialSurvey={editingSurvey ? state.surveyData : null}
@@ -746,7 +836,7 @@ export function App() {
       return (
         <BismillahStartCard
           key={`bismillah-${lessonSessionKey}`}
-          avatarId={state.profile.avatarId}
+          avatarId="fox"
           worldTitle={activeRoundWorld.titleUz}
           aiOnline={aiOnline}
           onContinue={() => setBismillahPending(false)}
@@ -762,7 +852,7 @@ export function App() {
           sessionItems={sessionItems}
           wordProgressMap={state.wordProgress}
           worldTitle={activeRoundWorld.titleUz}
-          avatarId={state.profile.avatarId}
+          avatarId="fox"
           aiOnline={aiOnline}
           bismillahAlhamdulillahEnabled={state.bismillahAlhamdulillahEnabled}
           completedSessionsCount={state.completedSessionsCount}
@@ -776,6 +866,7 @@ export function App() {
           onFirstSessionFeedbackPrompted={() =>
             setState((prev) => ({ ...prev, firstSessionFeedbackPrompted: true }))
           }
+          onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
           onPlayAnotherRound={() =>
             startWorldRound(
               roundWorldId,
@@ -795,7 +886,7 @@ export function App() {
         <LazyAlphabetRecallDrawer
           letterHintCounts={state.letterHintCounts}
           letterMastery={state.letterMastery}
-          avatarId={state.profile.avatarId}
+          avatarId="fox"
           aiOnline={aiOnline}
           totalStars={totalStarsAll}
           onLetterHintTap={handleLetterHintTap}
@@ -904,7 +995,7 @@ export function App() {
           className="btn-3d-cream btn-compact btn-with-icon nav-btn"
           onClick={handleOpenParentButton}
         >
-          <span>Ota-onalar</span>
+          <span>Ota-ona</span>
           <Lock size={15} color="#D97706" />
         </button>
       </header>
@@ -922,6 +1013,16 @@ export function App() {
           publicId={displayPublicId}
           isGuest={isGuest}
           onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
+          onUpdateChildProfile={(patch) =>
+            setState((prev) => ({
+              ...prev,
+              profile: {
+                ...prev.profile,
+                name: patch.name,
+                avatarId: patch.avatarId,
+              },
+            }))
+          }
           seenWordIds={state.seenWordIds}
           masteredWordsCount={masteredWordsCount}
           activeWorldId={state.activeWorldId}
@@ -930,6 +1031,84 @@ export function App() {
           onOpenAlphabetRecall={() => setTab('alphabet')}
         />
       </main>
+
+      {guestReturnPromptOpen && isGuest && !upgradeAuthOpen && (
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="guest-return-modal-title"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              playFeedbackChime('pop');
+              setGuestReturnPromptOpen(false);
+            }
+          }}
+        >
+          <div className="modal-card guest-return-modal">
+            <div className="modal-header-row">
+              <div className="modal-title-with-icon">
+                <span className="modal-icon-badge" aria-hidden="true">
+                  <MascotSvg size={28} />
+                </span>
+                <h2 id="guest-return-modal-title" className="modal-title">
+                  Qaytganingizdan xursandmiz!
+                </h2>
+              </div>
+              <button
+                type="button"
+                className="btn-circle-close"
+                onClick={() => {
+                  playFeedbackChime('pop');
+                  setGuestReturnPromptOpen(false);
+                }}
+                aria-label="Yopish"
+              >
+                <CloseIcon size={18} />
+              </button>
+            </div>
+
+            <p className="onboarding-text" style={{ marginTop: 8 }}>
+              Siz hozir <strong>Sinov rejimida</strong>siz. Natijalaringiz faqat shu brauzerda
+              saqlanmoqda. Telegram yoki Google orqali 10 soniyada ro‘yxatdan o‘tsangiz, barcha
+              yulduzlar va o‘qilgan so‘zlar bulutda saqlanadi hamda kundalik eslatmalar yoqiladi!
+            </p>
+
+            {(state.seenWordIds.length > 0 || totalStarsAll > 0) && (
+              <div className="guest-return-stats">
+                <span>{state.seenWordIds.length} ta ko‘rilgan so‘z</span>
+                <span>·</span>
+                <span>{totalStarsAll} ta yulduzcha</span>
+              </div>
+            )}
+
+            <div className="guest-return-actions">
+              <button
+                type="button"
+                className="btn-3d-emerald btn-with-icon"
+                onClick={() => {
+                  playFeedbackChime('pop');
+                  setGuestReturnPromptOpen(false);
+                  setUpgradeAuthOpen(true);
+                }}
+              >
+                <Cloud size={18} aria-hidden="true" />
+                <span>Telegram / Google bilan ro‘yxatdan o‘tish</span>
+              </button>
+              <button
+                type="button"
+                className="btn-3d-cream"
+                onClick={() => {
+                  playFeedbackChime('pop');
+                  setGuestReturnPromptOpen(false);
+                }}
+              >
+                Keyinroq (Sinovda davom etish)
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {onboardingModal.open && (
         <Suspense fallback={<ScreenLoadingFallback />}>

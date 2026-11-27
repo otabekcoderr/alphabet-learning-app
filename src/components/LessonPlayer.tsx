@@ -82,6 +82,7 @@ import {
   shouldShowResultFeedbackButton,
 } from './FeedbackModal';
 import { GameVisual } from './GameVisual';
+import { GuestSaveBanner } from './GuestSaveBanner';
 import { ArrowRight, Check, CloseIcon, Home, MessageCircle, Mic, Sparkles, Square, Star, Volume2 } from './Icons';
 import { LetterBlock, tokenizeUzbekLettersOrdered } from './LetterBlock';
 import { StorybookBackdrop } from './StorybookBackdrop';
@@ -112,6 +113,7 @@ interface LessonPlayerProps {
   onWordCompleted: (report: WordAttemptReport) => void;
   onRoundFinished?: () => void;
   onFirstSessionFeedbackPrompted?: () => void;
+  onOpenGuestUpgrade?: () => void;
   onPlayAnotherRound: () => void;
   onBack: () => void;
 }
@@ -199,7 +201,7 @@ export function LessonPlayer({
   sessionItems,
   wordProgressMap,
   worldTitle,
-  avatarId,
+  avatarId: _avatarId,
   aiOnline,
   bismillahAlhamdulillahEnabled = true,
   completedSessionsCount = 0,
@@ -211,6 +213,7 @@ export function LessonPlayer({
   onWordCompleted,
   onRoundFinished,
   onFirstSessionFeedbackPrompted,
+  onOpenGuestUpgrade,
   onPlayAnotherRound,
   onBack,
 }: LessonPlayerProps) {
@@ -344,7 +347,7 @@ export function LessonPlayer({
   const prevSpotlightCorrectIdxRef = useRef<number | null>(null);
   const prevOfflineCorrectIdxRef = useRef<number | null>(null);
 
-  const avatar = getAvatarOption(avatarId);
+  const avatar = getAvatarOption('fox');
 
   const isOfflineFallbackActive =
     !aiOnline ||
@@ -1775,6 +1778,17 @@ export function LessonPlayer({
                 aiOnline={aiOnline}
                 onAcknowledge={() => setAlhamdulillahDone(true)}
               />
+            )}
+
+            {isGuest && onOpenGuestUpgrade && (
+              <div className="victory-guest-reminder">
+                <GuestSaveBanner
+                  variant="compact"
+                  practicedCount={completedWordsCount}
+                  totalStars={roundStars}
+                  onSaveAccount={onOpenGuestUpgrade}
+                />
+              </div>
             )}
 
             {(!bismillahAlhamdulillahEnabled || alhamdulillahDone) && (

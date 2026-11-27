@@ -295,6 +295,69 @@ export default defineConfig(({ mode }) => {
         '/api': {
           target: 'http://127.0.0.1:8765',
           changeOrigin: true,
+          configure(proxy) {
+            proxy.on('error', (_err, req, res) => {
+              if (!res || !('writeHead' in res) || res.headersSent) return;
+              const reqUrl = new URL(req.url || '/', 'http://127.0.0.1');
+              const pathname = reqUrl.pathname;
+              const action = (reqUrl.searchParams.get('action') || '').trim().toLowerCase();
+
+              res.setHeader('Content-Type', 'application/json');
+              if (pathname === '/api/health' || (pathname === '/api/state' && action === 'health')) {
+                res.statusCode = 200;
+                res.end(
+                  JSON.stringify({
+                    ok: false,
+                    sttReady: false,
+                    provider: 'offline_dev',
+                    dbConfigured: false,
+                  }),
+                );
+                return;
+              }
+              if (pathname === '/api/auth/session' && action === 'me') {
+                res.statusCode = 200;
+                res.end(JSON.stringify({ ok: true, authenticated: false, dbConfigured: false }));
+                return;
+              }
+              if (pathname === '/api/auth/session' && action === 'providers') {
+                res.statusCode = 200;
+                res.end(
+                  JSON.stringify({
+                    ok: true,
+                    dbConfigured: false,
+                    google: false,
+                    telegram: false,
+                    telegramStoreConfigured: false,
+                    telegramAuthMode: 'bot_deeplink',
+                    telegramBotUsername: null,
+                    telegramBotId: null,
+                  }),
+                );
+                return;
+              }
+              if (pathname.startsWith('/api/notifications') && (req.method || 'GET').toUpperCase() === 'GET') {
+                res.statusCode = 200;
+                res.end(
+                  JSON.stringify({
+                    ok: true,
+                    dbConfigured: false,
+                    notifications: [],
+                    settings: null,
+                  }),
+                );
+                return;
+              }
+              res.statusCode = 503;
+              res.end(
+                JSON.stringify({
+                  ok: false,
+                  code: 'dev_backend_offline',
+                  error: 'Lokal backend ishlamayapti (npm run dev:all).',
+                }),
+              );
+            });
+          },
         },
       },
     },

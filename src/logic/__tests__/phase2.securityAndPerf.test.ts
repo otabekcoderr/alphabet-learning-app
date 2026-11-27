@@ -1,15 +1,26 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { GET as stateGet } from '../../../api/state';
+import {
+  GET as stateGet,
+  MAX_SERVER_STARS,
+  MAX_SERVER_WORD_PROGRESS_KEYS,
+  PUT as statePut,
+  sanitizeServerStatePayload,
+} from '../../../api/state';
+import { POST as notificationsPost } from '../../../api/notifications';
 import { GET as googleAuthGet } from '../../../api/auth/google';
 import { POST as authSessionPost } from '../../../api/auth/session';
 import { POST as telegramAuthPost } from '../../../api/auth/telegram';
 import { MAX_AUDIO_BYTES, POST as sttPost } from '../../../api/stt';
 import { GET as ttsGet, MAX_TTS_TEXT_LENGTH, POST as ttsPost } from '../../../api/tts';
+import { ensureSchema, resetSchemaCache } from '../../../api/_lib/db';
 import { handleHealthCheck } from '../../../api/_lib/health';
 import {
   consumeDailyGlobalBudget,
   resetMemoryRateLimits,
 } from '../../../api/_lib/rateLimit';
+import { consumeTelegramLinkSessionOnWebhook } from '../../../api/_lib/telegramAuthStore';
+import { getOrderedAlphabetTiles } from '../../components/AlphabetRecallDrawer';
+import { resolveHomeBannerMode } from '../../components/ChildHome';
 import {
   clearPendingPinReset,
   consumePendingPinReset,
@@ -78,11 +89,14 @@ describe('Alifbo 2.3 Phase 2 — Security Shield, Cost Guardrails, 8/12 Consolid
     STT_BACKEND_URL: process.env.STT_BACKEND_URL,
     STT_DAILY_GLOBAL_CAP: process.env.STT_DAILY_GLOBAL_CAP,
     TTS_DAILY_GLOBAL_CAP: process.env.TTS_DAILY_GLOBAL_CAP,
+    KV_REST_API_URL: process.env.KV_REST_API_URL,
+    KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN,
     VERCEL: process.env.VERCEL,
   };
 
   afterEach(() => {
     resetMemoryRateLimits();
+    resetSchemaCache();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     for (const [key, val] of Object.entries(originalEnv)) {
@@ -442,5 +456,232 @@ describe('Alifbo 2.3 Phase 2 — Security Shield, Cost Guardrails, 8/12 Consolid
     const hydrated = hydrateAlifboState(inflated);
     expect(hydrated?.totalStars).toBe(MAX_STARS_BOUND);
     expect(hydrated?.todayPracticedSeconds).toBe(86_400);
+  });
+
+  it('hardens api/notifications and api/state against cross-origin CSRF, burst spam, and inflated state payloads', async () => {
+    delete process.env.DATABASE_URL;
+    process.env.TELEGRAM_BOT_TOKEN = '9100660571:sample_bot_token';
+    process.env.TELEGRAM_ADMIN_CHAT_ID = '-100123456';
+
+    for (const action of ['admin-alert', 'settings', 'telegram-link', 'telegram-unlink']) {
+      const evilRes = await notificationsPost(
+        new Request(`https://alifbo-eight.vercel.app/api/notifications?action=${action}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'https://evil.example',
+          },
+          body: JSON.stringify({ text: 'ALIFBO — Cross-origin probe' }),
+        }),
+      );
+      expect(evilRes.status).toBe(403);
+    }
+
+    const evilStatePut = await statePut(
+      new Request('https://alifbo-eight.vercel.app/api/state', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://evil.example',
+        },
+        body: JSON.stringify({ state: { totalStars: 99 } }),
+      }),
+    );
+    expect(evilStatePut.status).toBe(403);
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        new Response(JSON.stringify({ ok: true, result: { message_id: 1 } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      ),
+    );
+
+    for (let i = 0; i < 8; i++) {
+      const okRes = await notificationsPost(
+        new Request('https://alifbo-eight.vercel.app/api/notifications?action=admin-alert', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: 'https://alifbo-eight.vercel.app',
+            'x-forwarded-for': '203.0.113.55',
+          },
+          body: JSON.stringify({ text: `ALIFBO — Valid alert ${i}` }),
+        }),
+      );
+      expect(okRes.status).toBe(200);
+    }
+
+    const blockedAlert = await notificationsPost(
+      new Request('https://alifbo-eight.vercel.app/api/notifications?action=admin-alert', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Origin: 'https://alifbo-eight.vercel.app',
+          'x-forwarded-for': '203.0.113.55',
+        },
+        body: JSON.stringify({ text: 'ALIFBO — Burst alert 9' }),
+      }),
+    );
+    expect(blockedAlert.status).toBe(429);
+    expect(blockedAlert.headers.get('retry-after')).toBeTruthy();
+
+    const oversizedWordProgress: Record<string, { status: string }> = {};
+    for (let i = 0; i < MAX_SERVER_WORD_PROGRESS_KEYS + 50; i++) {
+      oversizedWordProgress[`w_${i}`] = { status: 'mastered' };
+    }
+    const sanitized = sanitizeServerStatePayload(
+      {
+        totalStars: 999_999,
+        totalEffortStars: -15,
+        todayPracticedSeconds: 500_000,
+        completedSessionsCount: 999_999,
+        practiceDates: ['2026-11-25', '2099-01-01', '2026-11-25'],
+        wordProgress: oversizedWordProgress,
+      },
+      '2026-11-26',
+    );
+    expect(sanitized.totalStars).toBe(MAX_SERVER_STARS);
+    expect(sanitized.totalEffortStars).toBe(0);
+    expect(sanitized.todayPracticedSeconds).toBe(86_400);
+    expect(sanitized.completedSessionsCount).toBe(100_000);
+    expect(sanitized.practiceDates).toEqual(['2026-11-25', '2026-11-26']);
+    expect(Object.keys(sanitized.wordProgress as Record<string, unknown>)).toHaveLength(
+      MAX_SERVER_WORD_PROGRESS_KEYS,
+    );
+  });
+
+  it('uses NX atomic lock for KV tg_link consumption and fast-paths ensureSchema() in 1 query', async () => {
+    delete process.env.DATABASE_URL;
+    process.env.KV_REST_API_URL = 'https://kv.example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'kv-secret';
+
+    const linkPayload = JSON.stringify({
+      status: 'pending_link',
+      linkUserId: 'user-77',
+      childName: null,
+      avatarId: null,
+      telegramId: null,
+      telegramUsername: null,
+      firstName: '',
+      lastName: '',
+      expiresAtMs: Date.now() + 60_000,
+      consumedAtMs: null,
+    });
+    const kvCommands: string[][] = [];
+    let nxClaimed = false;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const cmd = JSON.parse(String(init?.body ?? '[]')) as string[];
+        kvCommands.push(cmd);
+        if (cmd[0] === 'GET') {
+          return new Response(JSON.stringify({ result: linkPayload }), { status: 200 });
+        }
+        if (cmd[0] === 'SET' && cmd.includes('NX')) {
+          if (nxClaimed) {
+            return new Response(JSON.stringify({ result: null }), { status: 200 });
+          }
+          nxClaimed = true;
+          return new Response(JSON.stringify({ result: 'OK' }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ result: 1 }), { status: 200 });
+      }),
+    );
+
+    const firstConsume = await consumeTelegramLinkSessionOnWebhook({ tokenHash: 'hash_abc' });
+    const secondConsume = await consumeTelegramLinkSessionOnWebhook({ tokenHash: 'hash_abc' });
+    expect(firstConsume).toEqual({ ok: true, userId: 'user-77' });
+    expect(secondConsume).toEqual({ ok: false, reason: 'expired_or_invalid' });
+    expect(kvCommands.some((c) => c[0] === 'SET' && c[1] === 'tg_link_claimed:hash_abc' && c[3] === 'NX')).toBe(
+      true,
+    );
+
+    const fastSql = vi.fn(async () => [
+      {
+        users_tbl: 'users',
+        states_tbl: 'user_states',
+        tg_codes_tbl: 'telegram_auth_codes',
+        tg_login_tbl: 'telegram_login_sessions',
+        notifs_tbl: 'parent_notifications',
+        limits_tbl: 'api_rate_limits',
+        has_users_v23: true,
+        has_tg_link_col: true,
+      },
+    ]);
+    await ensureSchema(fastSql as unknown as Parameters<typeof ensureSchema>[0]);
+    expect(fastSql).toHaveBeenCalledTimes(1);
+
+    const coldSql = vi
+      .fn()
+      .mockResolvedValueOnce([{ users_tbl: 'users', states_tbl: null }])
+      .mockResolvedValue([]);
+    await ensureSchema(coldSql as unknown as Parameters<typeof ensureSchema>[0]);
+    expect(coldSql.mock.calls.length).toBeGreaterThan(10);
+  });
+
+  it('builds a 30-tile mobile-friendly alphabet grid, non-stacking home banners, and clean sticky CSS', async () => {
+    const tiles = getOrderedAlphabetTiles();
+    expect(tiles).toHaveLength(30);
+    expect(tiles[29]?.letter).toBe('’');
+    expect(tiles[29]?.category).toBe('mark');
+
+    expect(
+      resolveHomeBannerMode({
+        isGuest: true,
+        hasGuestUpgrade: true,
+        seenWordsCount: 0,
+        masteredWordsCount: 0,
+      }),
+    ).toBe('pwa');
+    expect(
+      resolveHomeBannerMode({
+        isGuest: true,
+        hasGuestUpgrade: true,
+        seenWordsCount: 1,
+        masteredWordsCount: 0,
+      }),
+    ).toBe('guest');
+    expect(
+      resolveHomeBannerMode({
+        isGuest: false,
+        hasGuestUpgrade: true,
+        seenWordsCount: 5,
+        masteredWordsCount: 2,
+      }),
+    ).toBe('pwa');
+
+    const fsMod = 'node:fs';
+    const pathMod = 'node:path';
+    const fs = (await import(/* @vite-ignore */ fsMod)) as {
+      readFileSync(path: string, enc: string): string;
+    };
+    const path = (await import(/* @vite-ignore */ pathMod)) as {
+      join(...parts: string[]): string;
+      resolve(...parts: string[]): string;
+    };
+    const projectRoot = path.resolve(__dirname, '../../../');
+    const cssText = fs.readFileSync(path.join(projectRoot, 'src/index.css'), 'utf8');
+    expect(cssText).toContain('overflow-x: clip;');
+    expect(cssText).toContain('.alphabet-segmented-tabs');
+    expect(cssText).toContain('.mic-btn-big');
+    expect(cssText).toContain('.home-mascot-top-grid');
+    expect(cssText).toContain('.alphabet-main-content');
+    expect(cssText).toContain('grid-auto-rows');
+
+    const animatedCharSrc = fs.readFileSync(
+      path.join(projectRoot, 'src/components/AnimatedCharacter.tsx'),
+      'utf8',
+    );
+    expect(animatedCharSrc).toContain('--char-size');
+    expect(animatedCharSrc).not.toContain('size * 0.9');
+
+    const welcomeSrc = fs.readFileSync(
+      path.join(projectRoot, 'src/components/WelcomeScreen.tsx'),
+      'utf8',
+    );
+    expect(welcomeSrc).not.toContain('Slayder');
   });
 });

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
+import { DYNAMIC_WORD_POOL } from '../data/curriculum';
 import { playFeedbackChime } from '../utils/audioRecorder';
 import { ArrowLeft, ArrowRight, BookOpen, Check, CloseIcon, Lock } from './Icons';
 
@@ -66,7 +67,7 @@ export function ParentOnboardingModal({
             </div>
             <h2 id="onboarding-modal-title">1. 5 ta o‘qish olami va 3 bosqichli usul</h2>
             <p className="onboarding-text">
-              Ilovadagi 139 ta so‘z va qisqa gaplar 5 ta o‘qish olamiga taqsimlangan. Har bir so‘z 3
+              Ilovadagi {DYNAMIC_WORD_POOL.length} ta so‘z va qisqa gaplar 5 ta o‘qish olamiga taqsimlangan. Har bir so‘z 3
               bosqichli zinapoyadan o‘tadi:
             </p>
             <ol className="onboarding-list">

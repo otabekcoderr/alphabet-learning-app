@@ -56,6 +56,36 @@ export const DAILY_GOAL_OPTIONS = [30, 60, 100] as const;
 
 export const NICKNAME_PRESETS = ['Bolajon', 'Yulduzcha', 'Zukko', 'Kitobxon'] as const;
 
+export const RANDOM_NICKNAME_POOL = [
+  'Bolajon',
+  'Yulduzcha',
+  'Zukko',
+  'Kitobxon',
+  'Bilimdon',
+  'Chaqqon',
+  'Quvnoq',
+  'Quyoshcha',
+] as const;
+
+/** Pick a random child nickname and profile picture, avoiding repeating the current pair when possible. */
+export function createRandomChildProfile(
+  rng: () => number = Math.random,
+  current?: { name?: string; avatarId?: string },
+): { name: string; avatarId: string } {
+  const namePool = RANDOM_NICKNAME_POOL.filter((n) => n !== current?.name);
+  const names = namePool.length > 0 ? namePool : RANDOM_NICKNAME_POOL;
+  const avatarPool = AVATAR_OPTIONS.filter((a) => a.id !== current?.avatarId);
+  const avatars = avatarPool.length > 0 ? avatarPool : AVATAR_OPTIONS;
+
+  const nameIdx = Math.min(names.length - 1, Math.max(0, Math.floor(rng() * names.length)));
+  const avatarIdx = Math.min(avatars.length - 1, Math.max(0, Math.floor(rng() * avatars.length)));
+
+  return {
+    name: names[nameIdx] ?? 'Zukko',
+    avatarId: avatars[avatarIdx]?.id ?? 'fox',
+  };
+}
+
 export interface ParentAchievementsSummary {
   totalLessons: number;
   effortCompletedCount: number;
