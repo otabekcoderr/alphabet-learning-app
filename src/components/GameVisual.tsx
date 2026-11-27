@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import { getVisualAltUz, resolveVisualRenderSrc, resolveVisualSrc } from '../data/wordVisuals';
 
 interface GameVisualProps {
@@ -51,7 +51,7 @@ export function GameVisual({
         role="img"
         aria-label={label}
         className={`game-visual-emoji-fallback ${className}`.trim()}
-        style={{ width: size, height: size, fontSize: Math.round(size * 0.72) }}
+        style={{ '--visual-default-size': `${size}px` } as CSSProperties}
       >
         {emoji || '🖼️'}
       </span>
@@ -67,7 +67,7 @@ export function GameVisual({
       alt={label}
       width={size}
       height={size}
-      style={{ width: size, height: size }}
+      style={{ '--visual-default-size': `${size}px` } as CSSProperties}
       loading="eager"
       decoding="sync"
       className={`game-visual-img ${className}`.trim()}

@@ -100,12 +100,13 @@ export function AnimatedCharacter({
   return (
     <div
       className={`animated-char-wrap layout-${layout} bubble-${bubblePosition}`}
-      style={{ '--char-size': `${size}px` } as CSSProperties}
+      style={{ '--char-default-size': `${size}px` } as CSSProperties}
     >
       {bubblePosition === 'top' && bubbleNode}
 
       <div
         className={`animated-char-figure mood-${normalizedMood}`}
+        style={{ width: `var(--char-size, var(--char-default-size, ${size}px))` } as CSSProperties}
         aria-label={`${resolved.name} — ${normalizedMood}`}
       >
         {normalizedMood === 'listening' && (
