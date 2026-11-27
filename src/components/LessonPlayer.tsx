@@ -57,7 +57,6 @@ import {
   INSTRUCTION_FALLBACK_TEXT,
   playFeedbackAudio,
   playFeedbackChime,
-  playFeedbackThenWord,
   playInstructionAudio,
   playLetterRecallAudio,
   playPraiseAudio,
@@ -350,7 +349,6 @@ export function LessonPlayer({
   const recordedIdsRef = useRef<Set<string>>(new Set());
   const prevSessionItemsRef = useRef(sessionItems);
   const scaffoldingRef = useRef<ScaffoldingTimerState>(createScaffoldingState(0));
-  const audioHintPlayedRef = useRef<boolean>(false);
   const lowConfRetriesRef = useRef<number>(0);
   const examRenderStartRef = useRef<number>(0);
   const isCheckingRef = useRef<boolean>(false);
@@ -576,7 +574,6 @@ export function LessonPlayer({
     setExamRevealed(false);
     setOfflineWrongEmojis([]);
     lowConfRetriesRef.current = 0;
-    audioHintPlayedRef.current = false;
     suppressNextAutoInstrRef.current = false;
 
     if (micRef.current) {
@@ -691,7 +688,7 @@ export function LessonPlayer({
     }
   }, [roundFinished, stepIdx, currentItem, wordPhase, buildGameMode, isOfflineFallbackActive]);
 
-  // Stage 3 Exam: Progressive Scaffolding Timer (4.5s split, 8.0s audio hint)
+  // Stage 3 Exam: Progressive Visual Scaffolding Timer (4.5s syllable split, no automatic word audio)
   useEffect(() => {
     if (
       !shouldRunExamScaffoldingTimer({
@@ -707,7 +704,6 @@ export function LessonPlayer({
     const now = performance.now();
     examRenderStartRef.current = now;
     scaffoldingRef.current = createScaffoldingState(now);
-    audioHintPlayedRef.current = false;
     setShowVisualSplit(false);
     setShowAudioHint(false);
 
@@ -720,10 +716,6 @@ export function LessonPlayer({
       }
       if (next.usedAudioHint) {
         setShowAudioHint(true);
-        if (!audioHintPlayedRef.current) {
-          audioHintPlayedRef.current = true;
-          void playWordItemAudio(currentItem);
-        }
       }
     }, 150);
 
@@ -773,7 +765,6 @@ export function LessonPlayer({
       hunterMicRef.current = null;
     }
     examRevealedRef.current = true;
-    audioHintPlayedRef.current = true;
     stopActiveAudio();
     setShowingWordDone(false);
     setRoundPraiseDone(bismillahAlhamdulillahEnabled);
@@ -1400,13 +1391,12 @@ export function LessonPlayer({
         scaffoldingRef.current = markScaffoldingAudioHint(scaffoldingRef.current);
         setShowVisualSplit(true);
         setShowAudioHint(true);
-        audioHintPlayedRef.current = true;
         setExamFeedback({
           kind: 'gentle',
           text: 'Ovoz yaxshi eshitilmadi — eshitib ko‘r, keyin yana o‘qib ber yoki «Birga aytamiz»ni bos.',
           audioKey: 'fb_listen_then_try',
         });
-        void playFeedbackThenWord('fb_listen_then_try', currentItem);
+        void playFeedbackAudio('fb_listen_then_try');
         return;
       }
 
@@ -1414,13 +1404,12 @@ export function LessonPlayer({
         scaffoldingRef.current = markScaffoldingAudioHint(scaffoldingRef.current);
         setShowVisualSplit(true);
         setShowAudioHint(true);
-        audioHintPlayedRef.current = true;
         setExamFeedback({
           kind: 'gentle',
           text: `«${resp.transcript}» boshqa so‘zga o‘xshadi. Harflarga diqqat bilan qarab yana bir bor o‘qi!`,
           audioKey: 'fb_other_word',
         });
-        void playFeedbackThenWord('fb_other_word', currentItem);
+        void playFeedbackAudio('fb_other_word');
         return;
       }
 
@@ -1428,13 +1417,12 @@ export function LessonPlayer({
         scaffoldingRef.current = markScaffoldingAudioHint(scaffoldingRef.current);
         setShowVisualSplit(true);
         setShowAudioHint(true);
-        audioHintPlayedRef.current = true;
         setExamFeedback({
           kind: 'gentle',
           text: 'Yaxshi harakat! Quloq solib, bo‘g‘inlarga qarab yana bir marta o‘qib ko‘r.',
           audioKey: 'fb_try_syllables',
         });
-        void playFeedbackThenWord('fb_try_syllables', currentItem);
+        void playFeedbackAudio('fb_try_syllables');
         return;
       }
 
@@ -1551,12 +1539,7 @@ export function LessonPlayer({
           text: 'Keling, so‘zni birga eshitib o‘qiymiz!',
           audioKey: 'fb_listen_together',
         });
-        if (currentItem && !audioHintPlayedRef.current) {
-          audioHintPlayedRef.current = true;
-          void playFeedbackThenWord('fb_listen_together', currentItem);
-        } else {
-          void playFeedbackAudio('fb_listen_together');
-        }
+        void playFeedbackAudio('fb_listen_together');
       }
       return;
     }
@@ -1612,7 +1595,6 @@ export function LessonPlayer({
     scaffoldingRef.current = markScaffoldingAudioHint(scaffoldingRef.current);
     setShowVisualSplit(true);
     setShowAudioHint(true);
-    audioHintPlayedRef.current = true;
     void playWordItemAudio(currentItem);
 
     const syllableCount =

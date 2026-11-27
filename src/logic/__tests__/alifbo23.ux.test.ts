@@ -476,6 +476,13 @@ describe('Vazifa 1.1 — Zinapoya (Interleaved) Queue & Bubbles Instruction', ()
     expect(lessonPlayerSrc).toContain('if (roundFinished || wordPhase === \'word_done\') return;');
     expect(lessonPlayerSrc).toContain('shouldRunExamScaffoldingTimer({');
     expect(lessonPlayerSrc).toContain('examRevealedRef.current = true;');
-    expect(lessonPlayerSrc).toContain('audioHintPlayedRef.current = true;');
+    expect(lessonPlayerSrc).not.toContain('playFeedbackThenWord');
+
+    // Stage 3 reading-aloud scaffolding timer must never auto-speak the target word
+    const scaffoldingMatch = lessonPlayerSrc.match(
+      /const intervalId = window\.setInterval\(\(\) => \{[\s\S]*?\}, 150\);/,
+    );
+    expect(scaffoldingMatch?.[0]).toBeTruthy();
+    expect(scaffoldingMatch?.[0]).not.toContain('playWordItemAudio');
   });
 });
