@@ -394,12 +394,12 @@
   "instr_alpha_listen.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Quloq sol! Qaysi harf aytildi? To‘g‘ri harf ustiga bos!"
+    "text": "Quloq sol! Eshitilgan harfni top!"
   },
   "instr_alpha_picture.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Bu harfga mos rasmni top va ustiga bos!"
+    "text": "Bu harfga mos rasmni top!"
   },
   "instr_alpha_say.mp3": {
     "provider": "voicelab",
@@ -424,7 +424,7 @@
   "instr_stage1_constructor.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Rasmga qara! So‘zda yetishmayotgan bo‘g‘inni tanla va «Tekshirish» tugmasini bos!"
+    "text": "Rasmga qara va yetishmayotgan bo‘g‘inni tanla!"
   },
   "instr_stage1_bubbles.mp3": {
     "provider": "voicelab",
@@ -449,22 +449,22 @@
   "instr_stage1_sentence.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Rasmga qara! So‘zlarni ketma-ket bosib, to‘g‘ri gap tuz!"
+    "text": "Rasmga qara va so‘zlardan to‘g‘ri gap tuz!"
   },
   "instr_stage2_spotlight_word.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "«Keyingi bo‘g‘in» tugmasini bosib, bo‘g‘inlarni ketma-ket o‘qi va mos rasmni tanla!"
+    "text": "Bo‘g‘inlarni ketma-ket o‘qi va mos rasmni tanla!"
   },
   "instr_stage2_spotlight_sentence.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "«Keyingi so‘z» tugmasini bosib, gapni so‘zma-so‘z o‘qi va ma’nosiga mos rasmni tanla!"
+    "text": "Gapni o‘qi va mos rasmni tanla!"
   },
   "instr_stage3_exam_voice_word.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Sirli rasmni ochish uchun mikrofonni bos va so‘zni mustaqil o‘qib ber!"
+    "text": "Endi bu so‘zni o‘zing mustaqil o‘qib, mikrofonga ayt!"
   },
   "instr_stage3_exam_offline_word.mp3": {
     "provider": "voicelab",
@@ -474,7 +474,7 @@
   "instr_stage3_exam_voice_sentence.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Sirli rasmni ochish uchun mikrofonni bos va gapni mustaqil o‘qib ber!"
+    "text": "Endi bu gapni o‘zing mustaqil o‘qib, mikrofonga ayt!"
   },
   "instr_stage3_exam_offline_sentence.mp3": {
     "provider": "voicelab",
@@ -1694,7 +1694,7 @@
   "instr_stage1_word_hunter.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Rasmga qara! Unga mos to‘g‘ri so‘zni tanla va «Tekshirish» tugmasini bos!"
+    "text": "Rasmga qara va unga mos so‘zni tanla!"
   },
   "instr_bismillah_speak.mp3": {
     "provider": "voicelab",

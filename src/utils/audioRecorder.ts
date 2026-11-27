@@ -15,7 +15,7 @@ import {
 import { playSfx, type SfxKind } from './soundEffects';
 
 const TARGET_SAMPLE_RATE = 16_000;
-export const STATIC_AUDIO_VERSION = '233';
+export const STATIC_AUDIO_VERSION = '234';
 
 let activeAudio: HTMLAudioElement | null = null;
 let activeAbortController: AbortController | null = null;
@@ -741,34 +741,28 @@ export const INSTRUCTION_FALLBACK_TEXT: Record<InstructionAudioKey, string> = {
   instr_home_welcome: 'Salom, bolajon! Bugun yangi so‘zlarni birga o‘qiymiz! Qani boshladik!',
   instr_home_sleep:
     'Barakalla! Bugungi mashqni a’lo bajarding! Endi ko‘zlarimiz dam olsin, ertaga yana o‘ynaymiz!',
-  instr_alpha_listen: 'Quloq sol! Qaysi harf aytildi? To‘g‘ri harf ustiga bos!',
-  instr_alpha_picture: 'Bu harfga mos rasmni top va ustiga bos!',
+  instr_alpha_listen: 'Quloq sol! Eshitilgan harfni top!',
+  instr_alpha_picture: 'Bu harfga mos rasmni top!',
   instr_alpha_say: 'Endi bu harf va so‘zni ovoz chiqarib ayt!',
   instr_alpha_chart: 'Istalgan harf ustiga bos — tovushini va so‘zini aytib beraman!',
   instr_letter_help_tip: 'Harfni unutdingmi? Istalgan harf ustiga bos!',
-  instr_stage1_word_hunter:
-    'Rasmga qara! Unga mos to‘g‘ri so‘zni tanla va «Tekshirish» tugmasini bos!',
+  instr_stage1_word_hunter: 'Rasmga qara va unga mos so‘zni tanla!',
   instr_stage1_word_hunter_speak:
     'Barakalla! Endi topgan so‘zingni mikrofonga ovoz chiqarib o‘qib ber!',
   instr_bismillah_speak: 'Darsni boshlash uchun mikrofon tugmasini bosib, «Bismillah» deb ayt!',
   instr_alhamdulillah_speak:
     'Barakalla, mashqlarni zo‘r bajarding! Endi Allohga hamd aytib, «Alhamdulillah» deb ayt!',
-  instr_stage1_constructor:
-    'Rasmga qara! So‘zda yetishmayotgan bo‘g‘inni tanla va «Tekshirish» tugmasini bos!',
+  instr_stage1_constructor: 'Rasmga qara va yetishmayotgan bo‘g‘inni tanla!',
   instr_stage1_bubbles: 'Rasmga qara! Uning nomidagi bo‘g‘inlarni ketma-ket yor!',
   instr_stage1_bubble_speak: 'Ajoyib! Endi ochilgan bo‘g‘inni mikrofonga ovoz chiqarib ayt!',
   instr_stage1_bubble_read_word:
     'Zo‘r! Endi yig‘ilgan butun so‘zni mikrofonga ovoz chiqarib o‘qi!',
   instr_stage1_bubble_confirm_word: 'Zo‘r! Endi yig‘ilgan so‘zni o‘qib, unga mos rasmni tanla!',
-  instr_stage1_sentence: 'Rasmga qara! So‘zlarni ketma-ket bosib, to‘g‘ri gap tuz!',
-  instr_stage2_spotlight_word:
-    '«Keyingi bo‘g‘in» tugmasini bosib, bo‘g‘inlarni ketma-ket o‘qi va mos rasmni tanla!',
-  instr_stage2_spotlight_sentence:
-    '«Keyingi so‘z» tugmasini bosib, gapni so‘zma-so‘z o‘qi va ma’nosiga mos rasmni tanla!',
-  instr_stage3_exam_voice_word:
-    'Sirli rasmni ochish uchun mikrofonni bos va so‘zni mustaqil o‘qib ber!',
-  instr_stage3_exam_voice_sentence:
-    'Sirli rasmni ochish uchun mikrofonni bos va gapni mustaqil o‘qib ber!',
+  instr_stage1_sentence: 'Rasmga qara va so‘zlardan to‘g‘ri gap tuz!',
+  instr_stage2_spotlight_word: 'Bo‘g‘inlarni ketma-ket o‘qi va mos rasmni tanla!',
+  instr_stage2_spotlight_sentence: 'Gapni o‘qi va mos rasmni tanla!',
+  instr_stage3_exam_voice_word: 'Endi bu so‘zni o‘zing mustaqil o‘qib, mikrofonga ayt!',
+  instr_stage3_exam_voice_sentence: 'Endi bu gapni o‘zing mustaqil o‘qib, mikrofonga ayt!',
   instr_stage3_exam_offline_word: 'Endi bu so‘zni o‘zing o‘qi va unga mos rasmni tanla!',
   instr_stage3_exam_offline_sentence: 'Endi bu gapni o‘zing o‘qi va unga mos rasmni tanla!',
   instr_comprehension_action: 'Gapda nima haqida aytilgan? Ma’nosiga mos rasmni tanla!',
