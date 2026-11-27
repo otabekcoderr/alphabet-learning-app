@@ -866,7 +866,10 @@ export function App() {
           onFirstSessionFeedbackPrompted={() =>
             setState((prev) => ({ ...prev, firstSessionFeedbackPrompted: true }))
           }
-          onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
+          onOpenGuestUpgrade={() => {
+            setTab('home');
+            setUpgradeAuthOpen(true);
+          }}
           onPlayAnotherRound={() =>
             startWorldRound(
               roundWorldId,
@@ -1012,7 +1015,10 @@ export function App() {
           avatarId={state.profile.avatarId}
           publicId={displayPublicId}
           isGuest={isGuest}
-          onOpenGuestUpgrade={() => setUpgradeAuthOpen(true)}
+          onOpenGuestUpgrade={() => {
+            setTab('home');
+            setUpgradeAuthOpen(true);
+          }}
           onUpdateChildProfile={(patch) =>
             setState((prev) => ({
               ...prev,

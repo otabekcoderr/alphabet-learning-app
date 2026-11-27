@@ -184,7 +184,7 @@ export function confirmOfflineBubblePicture(
 }
 
 const BUBBLE_CHUNK_PHONETIC_ALIASES: Record<string, readonly string[]> = {
-  k: ['ka', 'ke', 'ki', 'ik', 'ak'],
+  k: ['ka', 'ke', 'ki', 'ku', 'ko', 'ik', 'ak'],
   s: ['es', 'sa', 'se', 'ss'],
   r: ['er', 'ra', 'rr', 'ar'],
   n: ['en', 'na', 'nn'],
@@ -194,7 +194,7 @@ const BUBBLE_CHUNK_PHONETIC_ALIASES: Record<string, readonly string[]> = {
   d: ['de', 'da'],
   b: ['be', 'ba'],
   v: ['ve', 'va', 'vi'],
-  ran: ['ron', 'ram', 'iran', 'eran', 'karan', 'kiran'],
+  ran: ['ron', 'ram', 'ren', 'lan', 'iran', 'eran', 'aran', 'uran', 'karan', 'kiran'],
   tul: ['tol', 'til', 'stul'],
 };
 

@@ -1154,7 +1154,7 @@ export const DYNAMIC_WORD_POOL: WordPoolItem[] = [
     '🏗️',
     ['🍎', '🦋'],
     ['MON', 'TAR'],
-    ['kiran', 'keran', 'qran', 'gran', 'kron', 'kram', 'kan', 'karan', 'ka ran'],
+    ['kiran', 'keran', 'karan', 'kuran', 'qran', 'gran', 'kron', 'kren', 'klan', 'kan', 'ka ran'],
     'word',
     ['KRAN'],
   ),

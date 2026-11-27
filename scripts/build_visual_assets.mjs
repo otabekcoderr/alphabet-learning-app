@@ -254,14 +254,31 @@ const CUSTOM_SVGS = {
   <circle cx="64" cy="31" r="5" fill="#FACC15" stroke="#CA8A04" stroke-width="2"/>
   <circle cx="64" cy="68" r="10" fill="#FFFFFF" opacity="0.85"/>`,
   ),
-  tola: svgWrap(
-    '#FFF1F2',
-    `  <rect x="34" y="24" width="60" height="12" rx="4" fill="#D97706" stroke="#92400E" stroke-width="2.5"/>
-  <rect x="34" y="92" width="60" height="12" rx="4" fill="#D97706" stroke="#92400E" stroke-width="2.5"/>
-  <rect x="40" y="36" width="48" height="56" fill="#EF4444" stroke="#B91C1C" stroke-width="2.5"/>
-  <line x1="40" y1="48" x2="88" y2="54" stroke="#FCA5A5" stroke-width="3"/>
-  <line x1="40" y1="62" x2="88" y2="68" stroke="#FCA5A5" stroke-width="3"/>
-  <line x1="40" y1="76" x2="88" y2="82" stroke="#FCA5A5" stroke-width="3"/>`,
+  dada: svgWrap(
+    '#EFF6FF',
+    `  <path d="M88 22 C88 18 93 16 96 19 C99 16 104 18 104 22 C104 27 96 32 96 32 C96 32 88 27 88 22 Z" fill="#FB7185" stroke="#E11D48" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M22 114 C22 92 34 82 50 82 C66 82 78 92 78 114 Z" fill="#1D4ED8" stroke="#1E3A8A" stroke-width="2.5" stroke-linejoin="round"/>
+  <path d="M42 82 L50 96 L58 82 Z" fill="#FFFFFF"/>
+  <path d="M47 88 L53 88 L52 106 L50 110 L48 106 Z" fill="#F59E0B" stroke="#B45309" stroke-width="1.4" stroke-linejoin="round"/>
+  <rect x="44" y="72" width="12" height="12" rx="4" fill="#FDBA74"/>
+  <circle cx="30" cy="54" r="5" fill="#FDBA74" stroke="#C2410C" stroke-width="1.8"/>
+  <circle cx="70" cy="54" r="5" fill="#FDBA74" stroke="#C2410C" stroke-width="1.8"/>
+  <circle cx="50" cy="52" r="21" fill="#FED7AA" stroke="#C2410C" stroke-width="2.5"/>
+  <path d="M29 48 C29 33 39 26 50 26 C61 26 71 33 71 48 C66 40 58 37 50 37 C42 37 34 40 29 48 Z" fill="#1E293B"/>
+  <path d="M34 32 C37 22 43 18 50 18 C57 18 63 22 66 32 Z" fill="#0F172A" stroke="#1E293B" stroke-width="2"/>
+  <path d="M40 26 Q45 22 50 26 Q55 22 60 26" stroke="#F8FAFC" stroke-width="2" stroke-linecap="round"/>
+  <path d="M39 47 Q43 44 46 47" stroke="#1E293B" stroke-width="2" stroke-linecap="round"/>
+  <path d="M54 47 Q57 44 61 47" stroke="#1E293B" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="43" cy="51" r="2.6" fill="#0F172A"/><circle cx="57" cy="51" r="2.6" fill="#0F172A"/>
+  <path d="M40 60 Q45 56 50 59 Q55 56 60 60" stroke="#1E293B" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M44 65 Q50 69 56 65" stroke="#9A3412" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M74 114 C74 99 83 92 94 92 C105 92 114 99 114 114 Z" fill="#10B981" stroke="#047857" stroke-width="2.5" stroke-linejoin="round"/>
+  <circle cx="94" cy="74" r="14" fill="#FED7AA" stroke="#C2410C" stroke-width="2.3"/>
+  <path d="M80 71 C81 60 88 57 95 57 C102 57 108 62 108 71 C103 66 96 64 89 65 C85 66 82 68 80 71 Z" fill="#475569"/>
+  <circle cx="89" cy="74" r="2" fill="#0F172A"/><circle cx="99" cy="74" r="2" fill="#0F172A"/>
+  <path d="M89 80 Q94 84 99 80" stroke="#9A3412" stroke-width="2" stroke-linecap="round"/>
+  <path d="M68 95 L79 99" stroke="#1D4ED8" stroke-width="6" stroke-linecap="round"/>
+  <circle cx="77" cy="99" r="4.5" fill="#FED7AA" stroke="#C2410C" stroke-width="1.8"/>`,
   ),
   nina: svgWrap(
     '#F0F9FF',
@@ -327,7 +344,7 @@ const CUSTOM_WORD_VISUAL_BY_ID = {
   maral: '/images/words/maral.svg',
   choynak: '/images/words/choynak.svg',
   gap_bobo_choy: '/images/words/choynak.svg',
-  tola: '/images/words/tola.svg',
+  dada: '/images/words/dada.svg',
   nina: '/images/words/nina.svg',
   arra: '/images/words/arra.svg',
   oltin: '/images/words/oltin.svg',
@@ -359,7 +376,7 @@ const CUSTOM_VISUAL_BY_EMOJI = {
   '🛞': '/images/words/gildirak.svg',
   '🦌': '/images/words/maral.svg',
   '🫖': '/images/words/choynak.svg',
-  '🧵': '/images/words/tola.svg',
+  '👨‍👦': '/images/words/dada.svg',
   '🪡': '/images/words/nina.svg',
   '🪚': '/images/words/arra.svg',
   '🪙': '/images/words/oltin.svg',

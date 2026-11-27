@@ -12,7 +12,11 @@ import {
   type ParentAccountSession,
 } from '../logic/auth';
 import { playFeedbackChime } from '../utils/audioRecorder';
-import { getTelegramWebAppInitData, isTelegramWebAppContext } from '../utils/telegramWebApp';
+import {
+  getTelegramWebAppInitData,
+  isTelegramWebAppContext,
+  openTelegramDeepLink,
+} from '../utils/telegramWebApp';
 import { ArrowLeft } from './Icons';
 import { StorybookBackdrop } from './StorybookBackdrop';
 
@@ -239,6 +243,7 @@ export function AuthScreen({
 
     // Zero-click WebApp auth when running inside Telegram Mini App
     const webAppInitData = isTelegramWebAppContext() ? getTelegramWebAppInitData() : '';
+    let webAppErrUz: string | null = null;
     if (webAppInitData) {
       playFeedbackChime('pop');
       setTgStarting(true);
@@ -260,12 +265,15 @@ export function AuthScreen({
         });
         return;
       }
-      playFeedbackChime('soft-bonk');
-      setError(res.errorUz);
-      return;
+      // Fall through to @alifbo_uz_robot deep-link flow if initData is stale/invalid
+      webAppErrUz = res.errorUz;
     }
 
     if (providers === null) {
+      if (webAppErrUz) {
+        playFeedbackChime('soft-bonk');
+        setError(webAppErrUz);
+      }
       return;
     }
 
@@ -273,7 +281,8 @@ export function AuthScreen({
     if (!canUseStore) {
       playFeedbackChime('soft-bonk');
       setError(
-        "Telegram orqali kirish uchun avval Vercel loyihasiga Neon ma'lumotlar bazasi yoki KV xotira ulanishi kerak.",
+        webAppErrUz ||
+          "Telegram orqali kirish uchun avval Vercel loyihasiga Neon ma'lumotlar bazasi yoki KV xotira ulanishi kerak.",
       );
       return;
     }
@@ -281,12 +290,15 @@ export function AuthScreen({
     if (!providers.telegram) {
       playFeedbackChime('soft-bonk');
       setError(
-        'Telegram orqali kirish hali yoqilmagan: Vercel sozlamalariga TELEGRAM_BOT_TOKEN qo‘shilishi kerak.',
+        webAppErrUz ||
+          'Telegram orqali kirish hali yoqilmagan: Vercel sozlamalariga TELEGRAM_BOT_TOKEN qo‘shilishi kerak.',
       );
       return;
     }
 
-    playFeedbackChime('pop');
+    if (!webAppInitData) {
+      playFeedbackChime('pop');
+    }
     setTgStarting(true);
     setTgBotOpen(true);
     setTgStatus('idle');
@@ -310,7 +322,7 @@ export function AuthScreen({
     setTgDeepLink(res.deepLink);
     setTgStatus('waiting');
 
-    window.open(res.deepLink, '_blank', 'noopener,noreferrer');
+    openTelegramDeepLink(res.deepLink);
   };
 
   return (

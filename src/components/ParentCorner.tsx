@@ -1205,7 +1205,7 @@ export function ParentCorner({
                   </label>
                   <p className="muted-text">
                     Bola telefonga bog‘lanib qolmasligi uchun vaqt tugaganda qahramon uyquga ketadi.
-                    ({activeAvatar.mascotName}: {state.profile.name})
+                    (Zukko Tulki · {state.profile.name || 'Bolajon'})
                   </p>
                 </div>
                 <select

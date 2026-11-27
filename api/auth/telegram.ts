@@ -307,8 +307,9 @@ async function handleTelegramStatus(request: Request): Promise<Response> {
     if (!isDbConfigured()) {
       const identity = deriveStatelessTelegramIdentity(data.telegramId, botToken);
       const nowIso = new Date().toISOString();
-      const childName = requestedChildName || firstName.slice(0, 20) || 'Bolajon';
-      const avatarId = requestedAvatarId || 'fox';
+      const randomDefaults = pickRandomChildProfileDefaults();
+      const childName = requestedChildName || randomDefaults.childName;
+      const avatarId = requestedAvatarId || randomDefaults.avatarId;
 
       return jsonResponse(
         {

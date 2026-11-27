@@ -6764,6 +6764,8 @@ h4,
 
 .island-node-coming-soon {
   position: relative;
+  flex: 0 1 260px;
+  max-width: 260px;
   border-radius: 20px;
   padding: 8px 16px;
   background: rgba(236, 253, 245, 0.85);

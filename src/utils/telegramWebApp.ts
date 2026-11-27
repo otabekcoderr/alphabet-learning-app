@@ -4,6 +4,7 @@ export interface TelegramWebAppInstance {
   ready?: () => void;
   expand?: () => void;
   openLink?: (url: string, options?: { try_instant_view?: boolean }) => void;
+  openTelegramLink?: (url: string) => void;
 }
 
 declare global {
@@ -106,4 +107,22 @@ export function openExternalPwaBridge(targetOrigin?: string): void {
     }
   }
   window.open(cleanUrl, '_blank', 'noopener,noreferrer');
+}
+
+/**
+ * Open a `https://t.me/...` deep link using `Telegram.WebApp.openTelegramLink` when
+ * inside Telegram WebView so the bot chat opens natively without leaving an empty tab.
+ */
+export function openTelegramDeepLink(deepLink: string): void {
+  if (typeof window === 'undefined' || !deepLink) return;
+  const tgOpenTelegramLink = window.Telegram?.WebApp?.openTelegramLink;
+  if (typeof tgOpenTelegramLink === 'function' && /^https:\/\/t\.me\//i.test(deepLink)) {
+    try {
+      tgOpenTelegramLink(deepLink);
+      return;
+    } catch {
+      // Fall back to standard browser open
+    }
+  }
+  window.open(deepLink, '_blank', 'noopener,noreferrer');
 }

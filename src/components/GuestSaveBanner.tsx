@@ -19,11 +19,16 @@ export function GuestSaveBanner({
   onSaveAccount,
 }: GuestSaveBannerProps) {
   if (variant === 'compact') {
+    const hasRoundSummary = practicedCount > 0 || totalStars > 0;
     return (
       <div className="guest-save-banner guest-save-banner-compact" role="status">
         <div className="guest-save-compact-head">
           <AlertTriangle size={16} aria-hidden="true" />
-          <span>Natijalar faqat shu qurilmada saqlanadi</span>
+          <span>
+            {hasRoundSummary
+              ? `Natijalar faqat shu qurilmada saqlanadi · Bu raund: ${practicedCount} so‘z, +${totalStars} ⭐`
+              : 'Natijalar faqat shu qurilmada saqlanadi'}
+          </span>
         </div>
         <button
           type="button"

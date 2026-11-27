@@ -2,12 +2,16 @@ import { createHmac } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { POST as telegramAuthPost } from '../../../api/auth/telegram';
+import { GET as telegramAuthGet, POST as telegramAuthPost } from '../../../api/auth/telegram';
 import {
   buildDailyReminderKeyboard,
   buildDailyReminderMessageText,
 } from '../../../api/notifications';
-import { verifyTelegramWebAppInitData } from '../../../api/_lib/telegramBot';
+import {
+  createTelegramLoginToken,
+  hashTelegramLoginToken,
+  verifyTelegramWebAppInitData,
+} from '../../../api/_lib/telegramBot';
 import { resetMemoryRateLimits } from '../../../api/_lib/rateLimit';
 import {
   COMING_SOON_SYLLABLE_FOREST,
@@ -19,6 +23,7 @@ import {
   getTelegramWebAppInitData,
   isTelegramWebAppContext,
   openExternalPwaBridge,
+  openTelegramDeepLink,
 } from '../../utils/telegramWebApp';
 import { registerGuestAppVisit } from '../auth';
 import { buildSyllableAcceptAliases } from '../bubbleGate';
@@ -71,6 +76,8 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
     TELEGRAM_BOT_TOKEN: process.env.TELEGRAM_BOT_TOKEN,
     DATABASE_URL: process.env.DATABASE_URL,
     SESSION_SECRET: process.env.SESSION_SECRET,
+    KV_REST_API_URL: process.env.KV_REST_API_URL,
+    KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN,
   };
 
   afterEach(() => {
@@ -95,8 +102,22 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
     expect(kran?.syllables).toEqual(['KRAN']);
     expect(kran?.parts).toEqual(['K', 'RAN']);
 
-    // Soft-R variants and spaced "ka ran" pass without forcing a hard rolled "r"
-    for (const spoken of ['kran', 'kiran', 'keran', 'qran', 'gran', 'kron', 'kan', 'ka ran']) {
+    // Soft-R variants and spaced "ka ran" pass without forcing a hard rolled "r" (<= 12 aliases for /api/stt)
+    expect(kran?.accept.length).toBeLessThanOrEqual(12);
+    for (const spoken of [
+      'kran',
+      'kiran',
+      'keran',
+      'karan',
+      'kuran',
+      'qran',
+      'gran',
+      'kron',
+      'kren',
+      'klan',
+      'kan',
+      'ka ran',
+    ]) {
       const res = validateSttReading({
         targetWord: kran!.text,
         parts: kran!.parts,
@@ -108,10 +129,11 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
       expect(res.decision, `Expected "${spoken}" to pass for KRAN`).toBe('accepted');
     }
 
-    // Bubble mode chunks for KRAN: 'K' -> 'ka'/'ke'/'k', 'RAN' -> 'ran'/'ron'/'iran'
+    // Bubble mode chunks for KRAN: 'K' -> 'ka'/'ke'/'ku'/'k', 'RAN' -> 'ran'/'ron'/'ren'/'lan'/'iran'
     const kAliases = buildSyllableAcceptAliases('K');
     expect(kAliases).toContain('ka');
     expect(kAliases).toContain('ke');
+    expect(kAliases).toContain('ku');
     expect(
       validateSttReading({
         targetWord: 'K',
@@ -125,17 +147,22 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
 
     const ranAliases = buildSyllableAcceptAliases('RAN');
     expect(ranAliases).toContain('ron');
+    expect(ranAliases).toContain('ren');
+    expect(ranAliases).toContain('lan');
     expect(ranAliases).toContain('iran');
-    expect(
-      validateSttReading({
-        targetWord: 'RAN',
-        parts: ['RAN'],
-        syllableCount: 1,
-        acceptAliases: ranAliases,
-        transcript: 'ron',
-        isSilence: false,
-      }).decision,
-    ).toBe('accepted');
+    for (const softRan of ['ron', 'ren', 'lan', 'aran']) {
+      expect(
+        validateSttReading({
+          targetWord: 'RAN',
+          parts: ['RAN'],
+          syllableCount: 1,
+          acceptAliases: ranAliases,
+          transcript: softRan,
+          isSilence: false,
+        }).decision,
+        `Expected "${softRan}" to pass for RAN bubble`,
+      ).toBe('accepted');
+    }
   });
 
   it('provides a dedicated recognizable SVG for dada and keeps 1-olam title while adding Bo‘g‘inlashni o‘rgatish forest', () => {
@@ -241,6 +268,10 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
     const lessonPlayerSrc = fs.readFileSync(path.join(ROOT, 'src/components/LessonPlayer.tsx'), 'utf8');
     expect(lessonPlayerSrc).toContain('victory-guest-reminder');
     expect(lessonPlayerSrc).toContain('isGuest && onOpenGuestUpgrade');
+
+    const bannerSrc = fs.readFileSync(path.join(ROOT, 'src/components/GuestSaveBanner.tsx'), 'utf8');
+    expect(bannerSrc).toContain('Bu raund:');
+    expect(bannerSrc).toContain('hasRoundSummary');
   });
 
   it('formats daily Telegram reminder with exact Uzbek copy and web_app CTA (without rem_off button)', () => {
@@ -384,11 +415,54 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
     expect(json.session.publicId).toMatch(/^[1-9]\d{7}$/);
     expect(json.childName.length).toBeGreaterThan(0);
     expect(json.avatarId.length).toBeGreaterThan(0);
+
+    // Stateless deep-link polling status also assigns valid random child profile defaults
+    process.env.KV_REST_API_URL = 'https://kv.example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'kv-secret';
+    const loginToken = createTelegramLoginToken(botToken);
+    const tokenHash = hashTelegramLoginToken(loginToken, botToken);
+    const approvedSessionJson = JSON.stringify({
+      status: 'approved',
+      childName: null,
+      avatarId: null,
+      telegramId: '987654321',
+      telegramUsername: 'parent_test',
+      firstName: 'Aziz',
+      lastName: '',
+      expiresAtMs: Date.now() + 60_000,
+      consumedAtMs: null,
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const cmd = JSON.parse(String(init?.body ?? '[]')) as string[];
+        if (cmd[0] === 'GET' && cmd[1] === `tg_login:${tokenHash}`) {
+          return new Response(JSON.stringify({ result: approvedSessionJson }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ result: 'OK' }), { status: 200 });
+      }),
+    );
+
+    const statusRes = await telegramAuthGet(
+      new Request(`https://alifbo-eight.vercel.app/api/auth/telegram?action=status&token=${loginToken}`),
+    );
+    expect(statusRes.status).toBe(200);
+    const statusJson = (await statusRes.json()) as {
+      ok: boolean;
+      status: string;
+      childName: string;
+      avatarId: string;
+    };
+    expect(statusJson.ok).toBe(true);
+    expect(statusJson.status).toBe('approved');
+    expect(AVATAR_OPTIONS.some((a) => a.id === statusJson.avatarId)).toBe(true);
+    expect(statusJson.childName.length).toBeGreaterThan(0);
   });
 
   it('detects Telegram WebApp context safely and bridges to external PWA/browser via Telegram.WebApp.openLink', () => {
     const ss = createMockStorage();
     const openLinkSpy = vi.fn();
+    const openTelegramLinkSpy = vi.fn();
     vi.stubGlobal('window', {
       location: {
         origin: 'https://alifbo-eight.vercel.app',
@@ -400,6 +474,7 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
           initData: '',
           platform: 'android',
           openLink: openLinkSpy,
+          openTelegramLink: openTelegramLinkSpy,
         },
       },
       open: vi.fn(),
@@ -410,6 +485,15 @@ describe('Alifbo 2.3.2 — Curriculum, Visuals, Auth Simplification, Guest Remin
 
     openExternalPwaBridge();
     expect(openLinkSpy).toHaveBeenCalledWith('https://alifbo-eight.vercel.app');
+
+    openTelegramDeepLink('https://t.me/alifbo_uz_robot?start=auth_test123');
+    expect(openTelegramLinkSpy).toHaveBeenCalledWith(
+      'https://t.me/alifbo_uz_robot?start=auth_test123',
+    );
+
+    const authSrc = fs.readFileSync(path.join(ROOT, 'src/components/AuthScreen.tsx'), 'utf8');
+    expect(authSrc).toContain('openTelegramDeepLink(res.deepLink)');
+    expect(authSrc).toContain('webAppErrUz = res.errorUz');
 
     // Regular browser (empty initData, unknown platform, empty sessionStorage) -> false
     const cleanSs = createMockStorage();
