@@ -394,12 +394,12 @@
   "instr_alpha_listen.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Quloq sol! Qaysi harfning tovushi eshitildi?"
+    "text": "Quloq sol! Qaysi harf aytildi? To‘g‘ri harf ustiga bos!"
   },
   "instr_alpha_picture.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Harfga mos rasmni top!"
+    "text": "Bu harfga mos rasmni top va ustiga bos!"
   },
   "instr_alpha_say.mp3": {
     "provider": "voicelab",
@@ -424,62 +424,62 @@
   "instr_stage1_constructor.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Bo‘g‘inlarni qo‘shib so‘z yasa! Rasmga qarab yetishmayotgan bo‘g‘inni tanla!"
+    "text": "Rasmga qara! So‘zda yetishmayotgan bo‘g‘inni tanla va «Tekshirish» tugmasini bos!"
   },
   "instr_stage1_bubbles.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Bo‘g‘in pufakchalarini tartib bilan yorib, har birini ovoz chiqarib o‘qi!"
+    "text": "Rasmga qara! Uning nomidagi bo‘g‘inlarni ketma-ket yor!"
   },
   "instr_stage1_bubble_speak.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Ajoyib! Endi bu bo‘g‘inni ovoz chiqarib ayt!"
+    "text": "Ajoyib! Endi ochilgan bo‘g‘inni mikrofonga ovoz chiqarib ayt!"
   },
   "instr_stage1_bubble_read_word.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Zo‘r! Endi yig‘ilgan butun so‘zni ovoz chiqarib o‘qi!"
+    "text": "Zo‘r! Endi yig‘ilgan butun so‘zni mikrofonga ovoz chiqarib o‘qi!"
   },
   "instr_stage1_bubble_confirm_word.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Zo‘r! Endi yig‘ilgan so‘zni o‘qib, mos rasmni tanla!"
+    "text": "Zo‘r! Endi yig‘ilgan so‘zni o‘qib, unga mos rasmni tanla!"
   },
   "instr_stage1_sentence.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Rasmga qarab so‘zlarni to‘g‘ri tartibda terib gap tuz!"
+    "text": "Rasmga qara! So‘zlarni ketma-ket bosib, to‘g‘ri gap tuz!"
   },
   "instr_stage2_spotlight_word.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Bo‘g‘inlarni yoritib o‘qi va mos rasmni top!"
+    "text": "«Keyingi bo‘g‘in» tugmasini bosib, bo‘g‘inlarni ketma-ket o‘qi va mos rasmni tanla!"
   },
   "instr_stage2_spotlight_sentence.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "So‘zlarni yoritib gapni o‘qi va ma’nosiga mos rasmni top!"
+    "text": "«Keyingi so‘z» tugmasini bosib, gapni so‘zma-so‘z o‘qi va ma’nosiga mos rasmni tanla!"
   },
   "instr_stage3_exam_voice_word.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Endi bu so‘zni o‘zing mustaqil o‘qib, mikrofonga ayt!"
+    "text": "Sirli rasmni ochish uchun mikrofonni bos va so‘zni mustaqil o‘qib ber!"
   },
   "instr_stage3_exam_offline_word.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Endi bu so‘zni o‘zing o‘qib ko‘r va mos rasmni tanla!"
+    "text": "Endi bu so‘zni o‘zing o‘qi va unga mos rasmni tanla!"
   },
   "instr_stage3_exam_voice_sentence.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Endi bu gapni o‘zing mustaqil o‘qib, mikrofonga ayt!"
+    "text": "Sirli rasmni ochish uchun mikrofonni bos va gapni mustaqil o‘qib ber!"
   },
   "instr_stage3_exam_offline_sentence.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Endi bu gapni o‘zing o‘qib ko‘r va mos rasmni tanla!"
+    "text": "Endi bu gapni o‘zing o‘qi va unga mos rasmni tanla!"
   },
   "instr_comprehension_action.mp3": {
     "provider": "voicelab",
@@ -1689,12 +1689,12 @@
   "instr_stage1_word_hunter_speak.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Endi topgan so‘zingni mikrofonga ovoz chiqarib o‘qib ber!"
+    "text": "Barakalla! Endi topgan so‘zingni mikrofonga ovoz chiqarib o‘qib ber!"
   },
   "instr_stage1_word_hunter.mp3": {
     "provider": "voicelab",
     "voice": "lison-v2:malika",
-    "text": "Rasmga qarab to‘g‘ri so‘zni top va o‘qib ber!"
+    "text": "Rasmga qara! Unga mos to‘g‘ri so‘zni tanla va «Tekshirish» tugmasini bos!"
   },
   "instr_bismillah_speak.mp3": {
     "provider": "voicelab",

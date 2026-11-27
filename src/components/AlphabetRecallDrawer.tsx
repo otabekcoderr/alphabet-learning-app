@@ -826,7 +826,7 @@ export function AlphabetRecallDrawer({
                   avatarId={avatar.id}
                   layout="stacked"
                   bubblePosition="top"
-                  speechText="Quloq sol! Qaysi harfning tovushi eshitildi?"
+                  speechText="Quloq sol! Qaysi harf aytildi? To‘g‘ri harf ustiga bos!"
                   onReplaySpeech={() => void playInstructionAudio('instr_alpha_listen')}
                 />
 
@@ -874,7 +874,7 @@ export function AlphabetRecallDrawer({
                   avatarId={avatar.id}
                   layout="stacked"
                   bubblePosition="top"
-                  speechText="Harfga mos rasmni top!"
+                  speechText="Bu harfga mos rasmni top va ustiga bos!"
                   onReplaySpeech={() => void playInstructionAudio('instr_alpha_picture')}
                 />
 

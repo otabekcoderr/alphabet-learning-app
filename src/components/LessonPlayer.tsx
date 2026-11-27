@@ -54,6 +54,7 @@ import {
   type Stage1GameMode,
 } from '../logic/wordPoolEngine';
 import {
+  INSTRUCTION_FALLBACK_TEXT,
   playFeedbackAudio,
   playFeedbackChime,
   playFeedbackThenWord,
@@ -150,6 +151,20 @@ export function getLessonInstructionKey(params: {
 
 export const BUBBLES_INSTRUCTION_TEXT_UZ =
   'Rasmga qara! Uning nomidagi bo‘g‘inlarni ketma-ket yor!';
+
+export function shouldRunExamScaffoldingTimer(params: {
+  roundFinished: boolean;
+  wordPhase: WordPhase;
+  hasCurrentItem: boolean;
+  isOfflineFallbackActive: boolean;
+}): boolean {
+  return (
+    !params.roundFinished &&
+    params.wordPhase === 'exam' &&
+    params.hasCurrentItem &&
+    !params.isOfflineFallbackActive
+  );
+}
 
 export function computeSessionProgress(params: {
   stepIdx: number;
@@ -506,7 +521,7 @@ export function LessonPlayer({
 
   // Reset per-step UI state when moving across exercise steps/items (never call setWordPhase here)
   useEffect(() => {
-    if (wordPhase === 'word_done') return;
+    if (roundFinished || wordPhase === 'word_done') return;
     bubbleGenRef.current += 1;
     if (stage1TimerRef.current !== null) {
       window.clearTimeout(stage1TimerRef.current);
@@ -576,7 +591,7 @@ export function LessonPlayer({
       hunterMicRef.current.cancel();
       hunterMicRef.current = null;
     }
-  }, [wordPhase, stepIdx, currentItem, retryIndex]);
+  }, [roundFinished, wordPhase, stepIdx, currentItem, retryIndex]);
 
   // Preload all lesson audio clips into in-memory blob cache on session start
   useEffect(() => {
@@ -678,7 +693,17 @@ export function LessonPlayer({
 
   // Stage 3 Exam: Progressive Scaffolding Timer (4.5s split, 8.0s audio hint)
   useEffect(() => {
-    if (wordPhase !== 'exam' || !currentItem) return;
+    if (
+      !shouldRunExamScaffoldingTimer({
+        roundFinished,
+        wordPhase,
+        hasCurrentItem: Boolean(currentItem),
+        isOfflineFallbackActive,
+      }) ||
+      !currentItem
+    ) {
+      return;
+    }
     const now = performance.now();
     examRenderStartRef.current = now;
     scaffoldingRef.current = createScaffoldingState(now);
@@ -686,12 +711,8 @@ export function LessonPlayer({
     setShowVisualSplit(false);
     setShowAudioHint(false);
 
-    if (isOfflineFallbackActive) {
-      return;
-    }
-
     const intervalId = window.setInterval(() => {
-      if (isCheckingRef.current || examRevealedRef.current) return;
+      if (!isMountedRef.current || isCheckingRef.current || examRevealedRef.current) return;
       const next = tickScaffolding(scaffoldingRef.current, performance.now(), READING_THRESHOLDS);
       scaffoldingRef.current = next;
       if (next.usedVisualSplit) {
@@ -707,7 +728,7 @@ export function LessonPlayer({
     }, 150);
 
     return () => window.clearInterval(intervalId);
-  }, [wordPhase, stepIdx, currentItem, isOfflineFallbackActive]);
+  }, [roundFinished, wordPhase, stepIdx, currentItem, isOfflineFallbackActive]);
 
   const handleTapLetterRecall = (letter: string) => {
     onLetterHintTap(letter);
@@ -722,6 +743,37 @@ export function LessonPlayer({
   };
 
   const completeSessionRound = () => {
+    bubbleGenRef.current += 1;
+    if (stage1TimerRef.current !== null) {
+      window.clearTimeout(stage1TimerRef.current);
+      stage1TimerRef.current = null;
+    }
+    if (bubblePauseTimerRef.current !== null) {
+      window.clearTimeout(bubblePauseTimerRef.current);
+      bubblePauseTimerRef.current = null;
+    }
+    if (examRevealTimerRef.current !== null) {
+      window.clearTimeout(examRevealTimerRef.current);
+      examRevealTimerRef.current = null;
+    }
+    if (wrongBubbleTimerRef.current !== null) {
+      window.clearTimeout(wrongBubbleTimerRef.current);
+      wrongBubbleTimerRef.current = null;
+    }
+    if (micRef.current) {
+      micRef.current.cancel();
+      micRef.current = null;
+    }
+    if (bubbleMicRef.current) {
+      bubbleMicRef.current.cancel();
+      bubbleMicRef.current = null;
+    }
+    if (hunterMicRef.current) {
+      hunterMicRef.current.cancel();
+      hunterMicRef.current = null;
+    }
+    examRevealedRef.current = true;
+    audioHintPlayedRef.current = true;
     stopActiveAudio();
     setShowingWordDone(false);
     setRoundPraiseDone(bismillahAlhamdulillahEnabled);
@@ -1890,29 +1942,43 @@ export function LessonPlayer({
     if (wordPhase === 'stage1_build') {
       if (buildGameMode === 'word_hunter') {
         return hunterMatched
-          ? 'Endi topgan so‘zingni ovoz chiqarib o‘qib ber!'
-          : 'Rasmga qarab to‘g‘ri so‘zni top va o‘qib ber!';
+          ? INSTRUCTION_FALLBACK_TEXT.instr_stage1_word_hunter_speak
+          : INSTRUCTION_FALLBACK_TEXT.instr_stage1_word_hunter;
       }
-      if (buildGameMode === 'sentence_builder') return 'So‘zlarni to‘g‘ri tartibda ter!';
-      return buildGameMode === 'constructor'
-        ? 'Qaysi bo‘g‘in mos?'
-        : BUBBLES_INSTRUCTION_TEXT_UZ;
+      if (buildGameMode === 'sentence_builder') {
+        return INSTRUCTION_FALLBACK_TEXT.instr_stage1_sentence;
+      }
+      if (buildGameMode === 'constructor') {
+        return INSTRUCTION_FALLBACK_TEXT.instr_stage1_constructor;
+      }
+      if (bubbleGate.phase === 'awaiting_syllable_speech') {
+        return INSTRUCTION_FALLBACK_TEXT.instr_stage1_bubble_speak;
+      }
+      if (bubbleGate.phase === 'awaiting_word_speech') {
+        return INSTRUCTION_FALLBACK_TEXT.instr_stage1_bubble_read_word;
+      }
+      if (bubbleGate.phase === 'offline_word_confirm') {
+        return INSTRUCTION_FALLBACK_TEXT.instr_stage1_bubble_confirm_word;
+      }
+      return BUBBLES_INSTRUCTION_TEXT_UZ;
     }
     if (wordPhase === 'stage2_spotlight') {
       return currentItem.kind === 'sentence'
-        ? 'Gapni o‘qib mos rasmni top!'
-        : 'Bo‘g‘inlarni o‘qib mos rasmni top!';
+        ? INSTRUCTION_FALLBACK_TEXT.instr_stage2_spotlight_sentence
+        : INSTRUCTION_FALLBACK_TEXT.instr_stage2_spotlight_word;
     }
     if (wordPhase === 'exam') {
       if (isOfflineFallbackActive) {
         return currentItem.kind === 'sentence'
-          ? 'Gapni o‘qi va mos rasmni tanla!'
-          : 'So‘zni o‘qi va mos rasmni tanla!';
+          ? INSTRUCTION_FALLBACK_TEXT.instr_stage3_exam_offline_sentence
+          : INSTRUCTION_FALLBACK_TEXT.instr_stage3_exam_offline_word;
       }
       if (examRevealed) return `Barakalla! «${currentItem.text}» rasmi ochildi!`;
       if (isRecording) return 'Tinglayapman... bemalol o‘qi!';
       if (examFeedback?.kind === 'gentle') return 'Yana bir bor urinib ko‘r!';
-      return 'Barakalla! Endi o‘zing o‘qi!';
+      return currentItem.kind === 'sentence'
+        ? INSTRUCTION_FALLBACK_TEXT.instr_stage3_exam_voice_sentence
+        : INSTRUCTION_FALLBACK_TEXT.instr_stage3_exam_voice_word;
     }
     return lastEval?.status === 'mastered'
       ? `Barakalla! «${currentItem.text}» ni ravon o‘qiding!`
@@ -1946,6 +2012,22 @@ export function LessonPlayer({
   });
 
   const replayActiveInstruction = () => {
+    if (wordPhase === 'stage1_build' && buildGameMode === 'word_hunter' && hunterMatched) {
+      void playInstructionAudio('instr_stage1_word_hunter_speak');
+      return;
+    }
+    if (wordPhase === 'stage1_build' && buildGameMode === 'bubbles') {
+      if (bubbleGate.phase === 'awaiting_syllable_speech') {
+        void playInstructionAudio('instr_stage1_bubble_speak');
+      } else if (bubbleGate.phase === 'awaiting_word_speech') {
+        void playInstructionAudio('instr_stage1_bubble_read_word');
+      } else if (bubbleGate.phase === 'offline_word_confirm') {
+        void playInstructionAudio('instr_stage1_bubble_confirm_word');
+      } else {
+        void playInstructionAudio('instr_stage1_bubbles');
+      }
+      return;
+    }
     if (currentInstructionKey) {
       void playInstructionAudio(currentInstructionKey);
     } else {
@@ -2743,7 +2825,11 @@ export function LessonPlayer({
           {/* STAGE 2: SPOTLIGHT */}
           {wordPhase === 'stage2_spotlight' && (
             <div className="lesson-card-white lesson-centered-card">
-              <span className="step-pill-tag">2-bosqich · Mustahkamlash (Fonarcha)</span>
+              <span className="step-pill-tag">
+                {currentItem.kind === 'sentence'
+                  ? '2-bosqich · So‘zma-so‘z o‘qish'
+                  : '2-bosqich · Bo‘g‘inlab o‘qish'}
+              </span>
 
               <AnimatedCharacter
                 mood={charMoodForScreen}
@@ -2889,8 +2975,8 @@ export function LessonPlayer({
 
                     <p className="offline-exam-prompt">
                       {currentItem.kind === 'sentence'
-                        ? 'Gapni o‘qi va mos rasmni tanla!'
-                        : 'So‘zni o‘qi va mos rasmni tanla!'}
+                        ? INSTRUCTION_FALLBACK_TEXT.instr_stage3_exam_offline_sentence
+                        : INSTRUCTION_FALLBACK_TEXT.instr_stage3_exam_offline_word}
                     </p>
                   </div>
 

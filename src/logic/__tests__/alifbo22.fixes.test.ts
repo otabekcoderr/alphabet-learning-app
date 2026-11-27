@@ -14,6 +14,7 @@ import {
   playInstructionAutoOnEntry,
   resetSessionEntryAudioState,
   speakUzbekText,
+  STATIC_AUDIO_VERSION,
   stopActiveAudio,
 } from '../../utils/audioRecorder';
 import { playSfx } from '../../utils/soundEffects';
@@ -448,7 +449,7 @@ describe('Alifbo 2.2 Live Test Fixes: Mascot, Visuals, Audio, Bubble Gate & Secu
 
     const played = await playInstructionAudio('instr_home_welcome');
     expect(played).toBe(false);
-    expect(blockedUrls).toEqual(['/audio/instr_home_welcome.mp3?v=231']);
+    expect(blockedUrls).toEqual([`/audio/instr_home_welcome.mp3?v=${STATIC_AUDIO_VERSION}`]);
     expect(fetchSpy).not.toHaveBeenCalled();
 
     // 2. Allowed autoplay: plays once on entry, skips subsequent calls in the same session
@@ -478,7 +479,7 @@ describe('Alifbo 2.2 Live Test Fixes: Mascot, Visuals, Audio, Bubble Gate & Secu
     await flushMicrotasks();
     const cleanup2 = playInstructionAutoOnEntry('instr_home_welcome');
     await flushMicrotasks();
-    expect(playedUrls).toEqual(['/audio/instr_home_welcome.mp3?v=231']);
+    expect(playedUrls).toEqual([`/audio/instr_home_welcome.mp3?v=${STATIC_AUDIO_VERSION}`]);
     cleanup1();
     cleanup2();
 
@@ -530,13 +531,13 @@ describe('Alifbo 2.2 Live Test Fixes: Mascot, Visuals, Audio, Bubble Gate & Secu
     // 3a. Clicking .world-card on first interaction must skip playing entry greeting
     const cleanupCard = playInstructionAutoOnEntry('instr_home_welcome');
     await flushMicrotasks();
-    expect(gestureUrls).toEqual(['/audio/instr_home_welcome.mp3?v=231']);
+    expect(gestureUrls).toEqual([`/audio/instr_home_welcome.mp3?v=${STATIC_AUDIO_VERSION}`]);
     expect(listeners.get('pointerdown')?.length).toBe(1);
     listeners.get('pointerdown')?.[0]?.({
       target: { closest: (sel: string) => (sel === '.world-card' ? {} : null) },
     } as unknown as Event);
     await flushMicrotasks();
-    expect(gestureUrls).toEqual(['/audio/instr_home_welcome.mp3?v=231']);
+    expect(gestureUrls).toEqual([`/audio/instr_home_welcome.mp3?v=${STATIC_AUDIO_VERSION}`]);
     expect(listeners.get('pointerdown')?.length).toBe(0);
     cleanupCard();
 
@@ -551,7 +552,10 @@ describe('Alifbo 2.2 Live Test Fixes: Mascot, Visuals, Audio, Bubble Gate & Secu
       target: { closest: () => null },
     } as unknown as Event);
     await flushMicrotasks();
-    expect(gestureUrls).toEqual(['/audio/instr_home_welcome.mp3?v=231', '/audio/instr_home_welcome.mp3?v=231']);
+    expect(gestureUrls).toEqual([
+      `/audio/instr_home_welcome.mp3?v=${STATIC_AUDIO_VERSION}`,
+      `/audio/instr_home_welcome.mp3?v=${STATIC_AUDIO_VERSION}`,
+    ]);
     expect(listeners.get('pointerdown')?.length).toBe(0);
     expect(listeners.get('touchstart')?.length).toBe(0);
     expect(listeners.get('keydown')?.length).toBe(0);
@@ -594,7 +598,7 @@ describe('Alifbo 2.2 Live Test Fixes: Mascot, Visuals, Audio, Bubble Gate & Secu
     vi.stubGlobal('Audio', StaticAudioMock);
 
     await expect(speakUzbekText('ONA')).resolves.toBeUndefined();
-    expect(playedUrls).toEqual(['/audio/sound_ona.mp3?v=231']);
+    expect(playedUrls).toEqual([`/audio/sound_ona.mp3?v=${STATIC_AUDIO_VERSION}`]);
 
     // When no static MP3 exists and /api/tts returns 503, strictly keeps Malika-only (no SpeechSynthesis fallback)
     const fetch503 = vi.fn(async () => ({

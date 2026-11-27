@@ -13,6 +13,7 @@ import {
   playAudioClipWithStatus,
   sanitizeSpeechTextForTts,
   startGestureAudioClip,
+  STATIC_AUDIO_VERSION,
   stopActiveAudio,
 } from '../../utils/audioRecorder';
 import {
@@ -497,7 +498,7 @@ describe('Vazifa 2 — Telegram Service, Strategic Onboarding, Feedback & Bismil
       { adoptGestureClip: true },
     );
     expect(adoptedStatus).toBe('played');
-    expect(createdUrls).toEqual([`${BISMILLAH_AUDIO_PATH}?v=231`]);
+    expect(createdUrls).toEqual([`${BISMILLAH_AUDIO_PATH}?v=${STATIC_AUDIO_VERSION}`]);
 
     // 3. NotAllowedError resolves 'autoplay_blocked' cleanly without calling /api/tts fetch
     const fetchSpy = vi.fn();

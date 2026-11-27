@@ -1,8 +1,11 @@
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
   BUBBLES_INSTRUCTION_TEXT_UZ,
   computeSessionProgress,
   getLessonInstructionKey,
+  shouldRunExamScaffoldingTimer,
 } from '../../components/LessonPlayer';
 import { tokenizeUzbekLettersOrdered } from '../../components/LetterBlock';
 import { DYNAMIC_WORD_POOL, type WordPoolItem } from '../../data/curriculum';
@@ -405,5 +408,74 @@ describe('Vazifa 1.1 — Zinapoya (Interleaved) Queue & Bubbles Instruction', ()
         isOfflineFallbackActive: false,
       }),
     ).toBe('instr_stage1_bubbles');
+  });
+
+  it('guards instruction text/audio parity with VoiceLab lison-v2 Malika and prevents round-end scaffolding leak', () => {
+    const rootDir = path.resolve(__dirname, '..', '..', '..');
+    const cachePath = path.join(rootDir, 'public', 'audio', '.offline_tts_cache.json');
+    const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8')) as Record<
+      string,
+      { provider?: string; voice?: string; text?: string }
+    >;
+    const csvText = fs.readFileSync(path.join(rootDir, 'audio_review.csv'), 'utf8');
+
+    const phoneticCyrillicOverrides = new Set([
+      'instr_bismillah_speak',
+      'instr_alhamdulillah_speak',
+    ]);
+
+    for (const [key, fallbackText] of Object.entries(INSTRUCTION_FALLBACK_TEXT)) {
+      const mp3Name = `${key}.mp3`;
+      const mp3Path = path.join(rootDir, 'public', 'audio', mp3Name);
+      expect(fs.existsSync(mp3Path), `Missing MP3 for ${key}`).toBe(true);
+      expect(fs.statSync(mp3Path).size, `Empty MP3 for ${key}`).toBeGreaterThan(1000);
+      expect(fallbackText.toLowerCase(), `Unexpected "yoritib" in ${key}`).not.toContain('yoritib');
+
+      const cached = cache[mp3Name];
+      expect(cached, `Missing cache entry for ${mp3Name}`).toBeDefined();
+      expect(cached?.provider).toBe('voicelab');
+      expect(cached?.voice).toContain('malika');
+      if (!phoneticCyrillicOverrides.has(key)) {
+        expect(cached?.text, `Text mismatch between UI fallback and TTS cache for ${mp3Name}`).toBe(
+          fallbackText,
+        );
+      }
+      expect(csvText, `Missing ${mp3Name} in audio_review.csv`).toContain(`public/audio/${mp3Name}`);
+    }
+
+    // Bug #4 regression: Stage 3 scaffolding timer must NOT run once roundFinished is true
+    expect(
+      shouldRunExamScaffoldingTimer({
+        roundFinished: true,
+        wordPhase: 'exam',
+        hasCurrentItem: true,
+        isOfflineFallbackActive: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldRunExamScaffoldingTimer({
+        roundFinished: false,
+        wordPhase: 'exam',
+        hasCurrentItem: true,
+        isOfflineFallbackActive: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldRunExamScaffoldingTimer({
+        roundFinished: false,
+        wordPhase: 'exam',
+        hasCurrentItem: true,
+        isOfflineFallbackActive: true,
+      }),
+    ).toBe(false);
+
+    const lessonPlayerSrc = fs.readFileSync(
+      path.join(rootDir, 'src', 'components', 'LessonPlayer.tsx'),
+      'utf8',
+    );
+    expect(lessonPlayerSrc).toContain('if (roundFinished || wordPhase === \'word_done\') return;');
+    expect(lessonPlayerSrc).toContain('shouldRunExamScaffoldingTimer({');
+    expect(lessonPlayerSrc).toContain('examRevealedRef.current = true;');
+    expect(lessonPlayerSrc).toContain('audioHintPlayedRef.current = true;');
   });
 });

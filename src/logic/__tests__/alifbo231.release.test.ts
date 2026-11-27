@@ -7,6 +7,7 @@ import { validateHabitUtterance } from '../sttValidator';
 import { buildWordHunterChoices, getStage1GameMode } from '../wordPoolEngine';
 import {
   playAudioClipWithStatus,
+  STATIC_AUDIO_VERSION,
   stopActiveAudio,
   withStaticAudioVersion,
 } from '../../utils/audioRecorder';
@@ -44,7 +45,9 @@ describe('Alifbo 2.3.1 release acceptance checks', () => {
 
     const entryF = ALIFBE_LETTERS_29.find((l) => l.letter === 'F');
     expect(entryF?.phoneticTtsPrompt).toBe('Fff. Fil.');
-    expect(withStaticAudioVersion('/audio/sound_f.mp3')).toBe('/audio/sound_f.mp3?v=231');
+    expect(withStaticAudioVersion('/audio/sound_f.mp3')).toBe(
+      `/audio/sound_f.mp3?v=${STATIC_AUDIO_VERSION}`,
+    );
 
     class HangingAudioMock {
       src: string;
